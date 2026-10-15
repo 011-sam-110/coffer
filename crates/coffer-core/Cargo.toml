@@ -1,0 +1,9 @@
+[package]
+name = "coffer-core"
+description = "Coffer vault core: crypto, vault file, items, generator, TOTP, health, import and export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
