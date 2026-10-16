@@ -381,7 +381,7 @@ impl Vault {
     /// `WeakPassword`; `Io`.
     pub fn export(&self, kind: ExportKind, export_password: Option<&str>) -> Result<Zeroizing<Vec<u8>>> {
         let mut items: Vec<&StoredItem> = self.stored_items().filter(|i| i.state != ItemState::Trashed).collect();
-        items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        items.sort_by_key(|a| a.title.to_lowercase());
         let now = crate::time_util::now_string();
         match kind {
             ExportKind::CofferJson => Ok(coffer_json(&items, &now)),

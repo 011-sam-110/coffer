@@ -117,11 +117,11 @@ pub fn analyze(
     for item in &with_pw {
         let id = item.id.to_string();
         let digest = password_sha256(item.password());
-        if let Some(e) = breach_cache.iter().find(|e| e.item_id == id && e.password_sha256 == digest) {
-            if e.count > 0 {
-                breached.insert(item.id, e.count);
-                found.push((item.id, HealthCheck::Breached, format!("Found {} times in breaches", group_thousands(e.count)), None));
-            }
+        if let Some(e) = breach_cache.iter().find(|e| e.item_id == id && e.password_sha256 == digest)
+            && e.count > 0
+        {
+            breached.insert(item.id, e.count);
+            found.push((item.id, HealthCheck::Breached, format!("Found {} times in breaches", group_thousands(e.count)), None));
         }
     }
 
@@ -176,17 +176,17 @@ pub fn analyze(
         if item.urls.iter().any(|u| is_unsecured_url(&u.url)) {
             found.push((item.id, HealthCheck::Unsecured, "Uses an http:// address".into(), None));
         }
-        if counted_type(item.item_type) && !item.password().is_empty() {
-            if let Some(changed) = item.password_changed_at.as_deref().and_then(time_util::parse) {
-                if now - changed >= Duration::days(365) {
-                    found.push((
-                        item.id,
-                        HealthCheck::Old,
-                        format!("Unchanged since {}", time_util::fmt_date(changed.date())),
-                        None,
-                    ));
-                }
-            }
+        if counted_type(item.item_type)
+            && !item.password().is_empty()
+            && let Some(changed) = item.password_changed_at.as_deref().and_then(time_util::parse)
+            && now - changed >= Duration::days(365)
+        {
+            found.push((
+                item.id,
+                HealthCheck::Old,
+                format!("Unchanged since {}", time_util::fmt_date(changed.date())),
+                None,
+            ));
         }
         if let Some(detail) = expiring(item, now) {
             found.push((item.id, HealthCheck::Expiring, detail, None));
@@ -200,7 +200,7 @@ pub fn analyze(
         .filter(|i| !breached.contains_key(&i.id) && !reused.contains_key(&i.id) && !weak.contains_key(&i.id))
         .count();
 
-    found.sort_by(|x, y| (x.1, x.0).cmp(&(y.1, y.0)));
+    found.sort_by_key(|x| (x.1, x.0));
     for (id, check, detail, group) in found {
         let f = a.flags.entry(id).or_default();
         match check {
@@ -240,7 +240,7 @@ fn group_thousands(n: u64) -> String {
     let s = n.to_string();
     let mut out = String::new();
     for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i) % 3 == 0 {
+        if i > 0 && (s.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);

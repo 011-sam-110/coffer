@@ -715,13 +715,13 @@ fn bulk_tags_and_patch() {
     let k = sk();
     let mut v = new_vault(&k);
     let a = v.item_save(&login("A", "u", "p"), None).unwrap();
-    assert_eq!(v.items_bulk(&[a.id.clone()], BulkAction::AddTag, Some("Work/Clients")).unwrap(), 1);
-    assert_eq!(v.items_bulk(&[a.id.clone()], BulkAction::AddTag, Some("Work/Clients")).unwrap(), 0);
+    assert_eq!(v.items_bulk(std::slice::from_ref(&a.id), BulkAction::AddTag, Some("Work/Clients")).unwrap(), 1);
+    assert_eq!(v.items_bulk(std::slice::from_ref(&a.id), BulkAction::AddTag, Some("Work/Clients")).unwrap(), 0);
     let s = v.item_patch(&a.id, Some(true), Some(&[" x ".into(), "x".into(), "".into()]), Some(true)).unwrap();
     assert!(s.favorite);
     assert_eq!(s.tags, vec!["x".to_owned()]);
     assert!(v.item_get(&a.id).unwrap().health_excluded);
-    assert!(v.items_bulk(&[a.id.clone()], BulkAction::AddTag, None).is_err());
+    assert!(v.items_bulk(std::slice::from_ref(&a.id), BulkAction::AddTag, None).is_err());
 }
 
 #[test]
@@ -757,8 +757,7 @@ fn generator_history_only_on_copy_or_save() {
     let h = v.generator_history();
     assert_eq!(h.len(), 2);
     assert_eq!(&*v.generator_history_value(&h[0].id).unwrap(), g2.value.as_str());
-    let mut opts = GeneratorOptions::default();
-    opts.length = 33;
+    let opts = GeneratorOptions { length: 33, ..Default::default() };
     v.generate(&opts).unwrap();
     // Last options survive a save and unlock.
     let b = saved(&mut v);

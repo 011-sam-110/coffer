@@ -101,14 +101,13 @@ fn percent_decode(s: &str) -> Zeroizing<String> {
     let mut out = Zeroizing::new(Vec::with_capacity(bytes.len()));
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' {
-            if let Some(&[h, l]) = bytes.get(i + 1..i + 3) {
-                if let (Some(h), Some(l)) = (hex_val(h), hex_val(l)) {
-                    out.push((h << 4) | l);
-                    i += 3;
-                    continue;
-                }
-            }
+        if bytes[i] == b'%'
+            && let Some(&[h, l]) = bytes.get(i + 1..i + 3)
+            && let (Some(h), Some(l)) = (hex_val(h), hex_val(l))
+        {
+            out.push((h << 4) | l);
+            i += 3;
+            continue;
         }
         out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
         i += 1;

@@ -1263,10 +1263,10 @@ impl Vault {
         };
         if let Some(uid) = existing_id {
             let slot = self.items.get(&uid).ok_or(CoreError::NotFound)?;
-            if let Some(base) = input.base_rev {
-                if base != slot.rev {
-                    return Err(CoreError::Conflict("This item changed on disk.".into()));
-                }
+            if let Some(base) = input.base_rev
+                && base != slot.rev
+            {
+                return Err(CoreError::Conflict("This item changed on disk.".into()));
             }
             if self.save_needs_password(input)? {
                 self.require_password_or_grant(&uid, password)?;
@@ -1427,7 +1427,7 @@ impl Vault {
                 BulkAction::AddTag | BulkAction::RemoveTag => {
                     let t = tag.expect("checked").to_owned();
                     let item = &mut self.items.get_mut(&uid).expect("checked").item;
-                    let had = item.tags.iter().any(|x| *x == t);
+                    let had = item.tags.contains(&t);
                     let change = if action == BulkAction::AddTag {
                         if !had {
                             item.tags.push(t);
@@ -1648,10 +1648,10 @@ impl Vault {
                 h.update(i.as_bytes());
             }
             let key: [u8; 32] = h.finalize().into();
-            if let Some((k, s)) = cache.get(&item.id) {
-                if *k == key {
-                    return *s;
-                }
+            if let Some((k, s)) = cache.get(&item.id)
+                && *k == key
+            {
+                return *s;
             }
             let refs: Vec<&str> = inputs.iter().map(String::as_str).collect();
             let s = crate::strength::score(item.password(), &refs);
