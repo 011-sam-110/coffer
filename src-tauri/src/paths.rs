@@ -21,7 +21,11 @@ pub fn home_dir() -> PathBuf {
 }
 
 /// The default vault folder, `%USERPROFILE%\Coffer` (SPEC 3.5).
+/// `COFFER_VAULT_DIR` overrides it (tests and dev runs, as `COFFER_DATA_DIR`).
 pub fn default_vault_folder() -> PathBuf {
+    if let Some(dir) = std::env::var_os("COFFER_VAULT_DIR").filter(|v| !v.is_empty()) {
+        return PathBuf::from(dir);
+    }
     home_dir().join("Coffer")
 }
 
