@@ -747,6 +747,16 @@ describe("tier 2: auto-type", () => {
     expect(await err(mk({ autotype: "admin" }), "autotype", { id, password: null })).toEqual({ code: "invalid", message: "Coffer cannot type into an app running as administrator." });
     expect((await err(mk({ autotype: "gone" }), "autotype", { id, password: null })).message).toMatch(/gone/);
   });
+  it("asks for the master password on a re-prompt item and types its own sequence", async () => {
+    const b = mk();
+    const v = await call<ItemView>(b, "item_get", { id: (await ids(b))("GitHub") });
+    await call(b, "item_save", { item: { ...toInput(v), reprompt: true, autotypeSequence: "{PASSWORD}{ENTER}" }, password: null });
+    expect((await err(b, "autotype", { id: v.id, password: null })).code).toBe("repromptRequired");
+    expect((await err(b, "autotype", { id: v.id, password: "nope" })).code).toBe("badCredentials");
+    await expect(call(b, "autotype", { id: v.id, password: "demo" })).resolves.toBeUndefined();
+    await call(b, "item_save", { item: { ...toInput(await call<ItemView>(b, "item_get", { id: v.id })), autotypeSequence: "{USER}" }, password: "demo" });
+    expect(await err(b, "autotype", { id: v.id, password: "demo" })).toEqual({ code: "invalid", message: "Coffer does not know the auto-type token {USER}." });
+  });
   it("refuses an item without the value", async () => {
     const b = mk();
     const note = (await call<ItemSummary[]>(b, "items_list")).find((i) => i.type === "note")!.id;
