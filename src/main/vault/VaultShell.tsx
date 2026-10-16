@@ -1,6 +1,6 @@
 // The three-pane vault: sidebar, list, detail (or a full view such as Health).
 // Owns the main-window keyboard map (SPEC 9) and the vault-level banners.
-import { CloudAlert, FileWarning, History, Keyboard, SearchX } from "lucide-react";
+import { CloudAlert, Download, FileWarning, History, Keyboard, Plus, SearchX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useToast } from "../../components/overlays";
 import { PathText } from "../../components/bits";
@@ -171,18 +171,21 @@ function EmptyDetail({ go }: { go: (p: Partial<Nav>) => void }) {
   if (!itemsLoaded) return null;
   if (items.length === 0)
     return (
-      <div className="flex h-full flex-col items-start justify-center gap-2 px-12">
-        <h2 className="text-md font-semibold">Start with what you use every day</h2>
-        <p className="max-w-[52ch] text-sm text-muted-foreground">
-          Add your email, bank and work logins first. Moving from another password manager? Import keeps a tag on everything it adds, so one click undoes it.
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => go({ editing: "new", newType: "login", newTitle: "", itemId: null })}>
-            New login
-          </Button>
-          <Button size="sm" onClick={() => go({ view: "import" })}>
-            Import from 1Password, Bitwarden, Dashlane or a browser
-          </Button>
+      <div className="flex h-full items-center justify-center px-8 pb-[8vh]">
+        <div className="flex max-w-[440px] flex-col items-center text-center">
+          <h1 className="text-lg font-semibold">Your vault is empty</h1>
+          <p className="mt-2 text-base text-muted-foreground">
+            Start with what you use every day: email, bank and work. Moving from another password manager? Import tags everything it adds, so one click undoes it.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-2">
+            <Button variant="primary" className="h-9" icon={<Download className="size-4" />} onClick={() => go({ view: "import" })}>
+              Import from another app
+            </Button>
+            <Button className="h-9" icon={<Plus className="size-4" />} onClick={() => go({ editing: "new", newType: "login", newTitle: "", itemId: null })}>
+              New login
+            </Button>
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">From 1Password, Bitwarden, Dashlane, Chrome, Edge, Brave or Firefox.</p>
         </div>
       </div>
     );
@@ -280,7 +283,9 @@ export function VaultShell({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [go, lock, onShowShortcuts]);
 
-  const showList = nav.view === "items";
+  // An empty vault shows one centred start block instead of an empty list and an empty detail.
+  const vaultEmpty = itemsLoaded && items.length === 0;
+  const showList = nav.view === "items" && !(vaultEmpty && !nav.editing);
   return (
     <KeysContext.Provider value={{ register }}>
       <div className="flex h-full">
@@ -308,7 +313,7 @@ export function VaultShell({
                   <EmptyDetail go={go} />
                 ))}
               {nav.view === "generator" && <GeneratorView />}
-              {nav.view === "health" && <HealthView go={go} />}
+              {nav.view === "health" && <HealthView go={go} initialTab={nav.healthTab} />}
               {nav.view === "settings" && <SettingsView tab={nav.settingsTab} onTab={(t) => go({ settingsTab: t })} go={go} />}
               {nav.view === "import" && <ImportWizard source="pick" onClose={() => go({ view: "items" })} />}
             </main>

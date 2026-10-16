@@ -8,6 +8,7 @@ import type { ImportPreview, ImportResult, ItemType } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
 import { ITEM_TYPES } from "../../lib/itemTypes";
 import { secretKeyCharMessage } from "../../lib/secretKey";
+import { PageShell } from "./PageShell";
 
 const SOURCES = [
   "1Password: .1pux or CSV",
@@ -74,12 +75,9 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
     embedded ? (
       <div className="flex flex-col gap-5">{children}</div>
     ) : (
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto flex max-w-[640px] flex-col gap-5 px-8 pt-6 pb-16">
-          <h1 className="text-lg font-semibold">Import</h1>
-          {children}
-        </div>
-      </div>
+      <PageShell title="Import">
+        <div className="-mt-1 flex flex-col gap-5">{children}</div>
+      </PageShell>
     );
 
   if (stage === "intro")

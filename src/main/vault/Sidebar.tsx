@@ -103,7 +103,7 @@ export function Sidebar({
 
   const isFilter = (f: Filter) => nav.view === "items" && filterKey(nav.filter) === filterKey(f);
   const pick = (f: Filter) => go({ view: "items", filter: f, itemId: null, editing: null });
-  const view = (v: View) => go({ view: v, editing: null });
+  const view = (v: View) => go({ view: v, editing: null, healthTab: undefined });
   // A type filter that is on keeps the group open, so the selected row stays in view.
   const showTypes = typesOpen || (nav.view === "items" && nav.filter.kind === "type");
   const toggleTypes = () => {

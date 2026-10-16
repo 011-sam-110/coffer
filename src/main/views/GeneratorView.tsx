@@ -9,6 +9,7 @@ import { Button, IconButton, Spinner } from "../../components/ui";
 import type { GeneratedHistoryEntry } from "../../lib/contract";
 import { formatDateTime, relativeTime } from "../../lib/format";
 import { call, on } from "../../lib/ipc";
+import { PageShell } from "./PageShell";
 
 const MODE_WORD = { random: "Random", passphrase: "Passphrase", pin: "PIN" } as const;
 
@@ -31,12 +32,8 @@ export function GeneratorView() {
   useEffect(() => on("clipboard://copied", () => window.setTimeout(load, 50)), [load]);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex max-w-[720px] flex-col gap-8 px-8 pt-6 pb-16">
-        <header>
-          <h1 className="text-lg font-semibold">Generator</h1>
-          <p className="text-sm text-muted-foreground">Coffer picks each character with the system's random source. The bits count comes from the settings below.</p>
-        </header>
+    <PageShell title="Generator" description="Coffer picks each character with the system's random source. The bits count comes from the settings below.">
+      <div className="flex flex-col gap-8">
         <Generator />
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -121,6 +118,6 @@ export function GeneratorView() {
           }
         }}
       />
-    </div>
+    </PageShell>
   );
 }
