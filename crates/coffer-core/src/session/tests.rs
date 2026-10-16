@@ -956,3 +956,78 @@ fn inputs_and_breach_cache_debug_print_no_secret() {
     let e = BreachCacheEntry { item_id: "i".into(), password_sha256: "abcdef0123456789".into(), count: 3 };
     assert!(!format!("{e:?}").contains("abcdef0123456789"));
 }
+
+// ---------------------------------------------------------------- shell APIs: Hello, created_at, counts
+
+fn ready(o: Result<UnlockOutcome>) -> Vault {
+    match o.unwrap() {
+        UnlockOutcome::Ready(v) => v,
+        UnlockOutcome::Older(_) => panic!("older"),
+    }
+}
+
+#[test]
+fn hello_key_unlocks_until_a_rekey() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let a = v.item_save(&login("A", "u", "pw-a"), None).unwrap();
+    let file = saved(&mut v);
+    let vk = v.hello_key();
+    assert_eq!(*vk, v.keys.vk.0);
+    // An untouched file opens with the held VK, no password.
+    let mut back = ready(Vault::unlock_with_vault_key(&file, &vk, &k, 1));
+    assert_eq!(&*back.item_reveal(&a.id, "password", None).unwrap(), "pw-a");
+    assert!(back.verify_password(PW).is_ok());
+    // Same generation rule as unlock.
+    assert!(matches!(Vault::unlock_with_vault_key(&file, &vk, &k, 5).unwrap(), UnlockOutcome::Older(_)));
+    // The Secret Key of another vault.
+    assert_eq!(Vault::unlock_with_vault_key(&file, &vk, &sk(), 0).unwrap_err().code(), "badSecretKey");
+    // A wrong VK is badCredentials.
+    assert_eq!(Vault::unlock_with_vault_key(&file, &[7u8; 32], &k, 0).unwrap_err(), CoreError::BadCredentials);
+    // A password change without rekey keeps VK: Hello still opens it.
+    let p2 = "second correct horse battery staple";
+    v.change_password(PW, p2, false, "Personal").unwrap();
+    let file2 = saved(&mut v);
+    let mut back2 = ready(Vault::unlock_with_vault_key(&file2, &vk, &k, 2));
+    assert!(back2.verify_password(p2).is_ok());
+    assert_eq!(&*back2.item_reveal(&a.id, "password", None).unwrap(), "pw-a");
+    // A rekey: the old VK gives badCredentials (not tampered).
+    v.change_password(p2, "third correct horse battery staple", true, "Personal").unwrap();
+    let file3 = saved(&mut v);
+    assert_eq!(Vault::unlock_with_vault_key(&file3, &vk, &k, 3).unwrap_err(), CoreError::BadCredentials);
+    assert!(ready(Vault::unlock_with_vault_key(&file3, &v.hello_key(), &k, 3)).item_count() == 1);
+    // A key rotation too.
+    let vk3 = v.hello_key();
+    let k2 = v.rotate_secret_key("third correct horse battery staple").unwrap();
+    let file4 = saved(&mut v);
+    assert_eq!(Vault::unlock_with_vault_key(&file4, &vk3, &k2, 4).unwrap_err(), CoreError::BadCredentials);
+    // KDF outside the limits is refused before anything else runs.
+    let mut j = json(&file);
+    j["kdf"]["m_kib"] = 1.into();
+    assert_eq!(Vault::unlock_with_vault_key(&bytes_of(&j), &vk, &k, 0).unwrap_err().code(), "kdfTooWeak");
+}
+
+#[test]
+fn created_at_is_kept_and_none_for_old_files() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let c = v.created_at().expect("a new vault has its creation time");
+    assert!(crate::time_util::parse(&c).is_some() && c.ends_with('Z'));
+    let file = saved(&mut v);
+    assert_eq!(open(&file, PW, &k).unwrap().created_at(), Some(c));
+    v.meta.created_at = String::new(); // a file that does not hold it
+    assert_eq!(v.created_at(), None);
+}
+
+#[test]
+fn active_item_count_leaves_out_archived_and_trashed() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let a = v.item_save(&login("A", "u", "p"), None).unwrap();
+    let b = v.item_save(&login("B", "u", "p"), None).unwrap();
+    v.item_save(&login("C", "u", "p"), None).unwrap();
+    v.item_set_state(&a.id, ItemState::Archived).unwrap();
+    v.item_set_state(&b.id, ItemState::Trashed).unwrap();
+    assert_eq!(v.item_count(), 3);
+    assert_eq!(v.active_item_count(), 1);
+}
