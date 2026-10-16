@@ -16,13 +16,9 @@ mod commands;
 mod contract;
 #[cfg(test)]
 mod contract_tests;
-// Phase B API (Secret Key storage, generation): no caller yet.
-#[allow(dead_code)]
 mod device;
 mod error;
 mod folders;
-// Phase B API (breach check): no caller yet.
-#[allow(dead_code)]
 mod hibp;
 mod hotkeys;
 mod lock;
@@ -35,6 +31,7 @@ mod shell;
 mod state;
 mod tray;
 mod usage;
+mod vault;
 mod win;
 
 use std::sync::atomic::Ordering;
@@ -102,6 +99,7 @@ pub fn run() {
             let handle = app.handle().clone();
             win::set_app(&handle);
             win::signals::start();
+            vault::start_watcher(&handle);
             shell::create_windows(&handle)?;
             tray::create(&handle)?;
             log!("tray ready");

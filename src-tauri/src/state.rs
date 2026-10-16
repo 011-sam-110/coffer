@@ -1,7 +1,7 @@
 //! The one `AppState`, managed by Tauri.
 
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 
@@ -11,13 +11,7 @@ use crate::device::DeviceStore;
 use crate::settings::SettingsFile;
 use crate::tray::TrayHandles;
 use crate::usage::UsageStore;
-
-/// Phase A placeholder for the unlocked vault. Phase B puts the core's
-/// unlocked vault (keys and items, zeroized on drop) here; `lock` drops it.
-#[allow(dead_code)]
-pub struct UnlockedVault {
-    _private: (),
-}
+use crate::vault::{OlderHold, Session, WatchState};
 
 /// The main window's open edit, reported with `edit_state` (SPEC 9).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +44,19 @@ pub struct AppState {
     /// `true` when there was no settings.json at start.
     #[allow(dead_code)]
     pub first_run: bool,
-    pub session: Mutex<Option<UnlockedVault>>,
+    /// The unlocked vault; `lock` drops it (and with it every key).
+    pub session: Mutex<Option<Session>>,
+    /// Mirrors `session.is_some()` for readers that must not wait on a save
+    /// or a KDF run (tray, idle check).
+    pub unlocked: AtomicBool,
+    /// A verified older file waiting for `vault_open_older` (60 s).
+    pub older: Mutex<Option<OlderHold>>,
+    /// The vault file watcher's state.
+    pub watch: Mutex<WatchState>,
+    /// The backup files of the last `backups_list`, by index.
+    pub backups_listed: Mutex<Vec<PathBuf>>,
+    /// The last conflict copy Rust wrote (`import_preview` source "conflict").
+    pub last_conflict: Mutex<Option<PathBuf>>,
     pub clipboard: Mutex<ClipState>,
     pub foreground: Mutex<Option<ForegroundInfo>>,
     pub quick: Mutex<QuickState>,
@@ -62,7 +68,6 @@ pub struct AppState {
     /// `usePickedFolder` uses it (the UI never sends a path).
     pub picked_folder: Mutex<Option<PathBuf>>,
     pub usage: Mutex<UsageStore>,
-    #[allow(dead_code)]
     pub device: Mutex<DeviceStore>,
     pub quitting: AtomicBool,
 }
@@ -76,6 +81,11 @@ impl AppState {
             settings: RwLock::new(settings),
             first_run,
             session: Mutex::new(None),
+            unlocked: AtomicBool::new(false),
+            older: Mutex::new(None),
+            watch: Mutex::new(WatchState::default()),
+            backups_listed: Mutex::new(Vec::new()),
+            last_conflict: Mutex::new(None),
             clipboard: Mutex::new(ClipState::default()),
             foreground: Mutex::new(None),
             quick: Mutex::new(QuickState::default()),
@@ -92,7 +102,7 @@ impl AppState {
     }
 
     pub fn is_unlocked(&self) -> bool {
-        self.session.lck().is_some()
+        self.unlocked.load(Ordering::SeqCst)
     }
 
     /// Whether the main window has unsaved changes.

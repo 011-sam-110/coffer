@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CofferError, CofferResult};
 
 const ENTROPY: &[u8] = b"coffer/v1/usage";
+/// Learned app-to-item links kept per app (SPEC 9).
+pub const LINKS_PER_APP: usize = 10;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,8 +39,6 @@ pub struct UsageStore {
     data: UsageFile,
 }
 
-// `get`, `items_for_app` and `forget` are phase B API (suggestions, lastUsedAt).
-#[allow(dead_code)]
 impl UsageStore {
     /// Load and open usage.json; a missing or unreadable file starts empty.
     pub fn load(dir: &Path) -> Self {
@@ -75,11 +75,35 @@ impl UsageStore {
         entry.last_used_at = now.to_string();
         entry.use_count = entry.use_count.saturating_add(1);
         if let Some(app) = app.map(|a| a.trim().to_lowercase()).filter(|a| !a.is_empty()) {
-            *entry.apps.entry(app).or_default() += 1;
+            *entry.apps.entry(app.clone()).or_default() += 1;
+            self.cap_links(&app, item_id);
         }
         self.save()
     }
 
+    /// Keep at most `LINKS_PER_APP` items linked to `app`: drop the link with
+    /// the fewest uses (then the oldest), never the one just used.
+    fn cap_links(&mut self, app: &str, keep: &str) {
+        loop {
+            let linked: Vec<(String, u32, String)> =
+                self.data.items.iter().filter_map(|(id, e)| e.apps.get(app).map(|n| (id.clone(), *n, e.last_used_at.clone()))).collect();
+            if linked.len() <= LINKS_PER_APP {
+                return;
+            }
+            let victim = linked.iter().filter(|(id, _, _)| id != keep).min_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(&b.2))).map(|(id, _, _)| id.clone());
+            let Some(victim) = victim else { return };
+            if let Some(e) = self.data.items.get_mut(&victim) {
+                e.apps.remove(app);
+            }
+        }
+    }
+
+    /// item id -> last use time, for `lastUsedAt` and suggestion ties.
+    pub fn last_used_map(&self) -> std::collections::HashMap<String, String> {
+        self.data.items.iter().filter(|(_, e)| !e.last_used_at.is_empty()).map(|(id, e)| (id.clone(), e.last_used_at.clone())).collect()
+    }
+
+    #[cfg(test)]
     pub fn get(&self, item_id: &str) -> Option<&UsageEntry> {
         self.data.items.get(item_id)
     }
@@ -102,8 +126,7 @@ impl UsageStore {
     }
 }
 
-/// Record a use through the app state (phase B calls this after a copy).
-#[allow(dead_code)]
+/// Record a use through the app state.
 pub fn usage_record(app: &tauri::AppHandle, item_id: &str, exe: Option<&str>) -> CofferResult<()> {
     use crate::state::{AppState, LockExt};
     use tauri::Manager;
@@ -131,6 +154,19 @@ mod tests {
         assert!(u.get("e").unwrap().apps.is_empty());
         u.forget(&["b".to_string()]).unwrap();
         assert_eq!(u.items_for_app("chrome.exe"), vec!["d", "a"]);
+    }
+
+    #[test]
+    fn at_most_ten_items_per_app() {
+        let mut u = UsageStore::in_memory();
+        for i in 0..12 {
+            u.record(&format!("item-{i:02}"), Some("slack.exe"), &format!("2026-10-16T01:00:{i:02}Z")).unwrap();
+        }
+        let linked = u.items_for_app("slack.exe");
+        assert_eq!(linked.len(), LINKS_PER_APP);
+        assert!(linked.contains(&"item-11".to_string()), "the newest stays");
+        assert!(!linked.contains(&"item-00".to_string()) && !linked.contains(&"item-01".to_string()), "the oldest single uses go");
+        assert_eq!(u.get("item-00").unwrap().use_count, 1, "the use itself is kept");
     }
 
     #[test]

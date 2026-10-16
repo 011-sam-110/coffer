@@ -5,6 +5,7 @@ pub mod capture;
 pub mod clipboard;
 pub mod dpapi;
 pub mod foreground;
+pub mod fs;
 pub mod monitor;
 pub mod open;
 pub mod signals;

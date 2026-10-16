@@ -117,13 +117,36 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             shell::show_quick(app, shell::QuickOrigin::Tray(anchor));
         }
         "copy_new" => {
-            // Phase B: generate with the default options (not kept in history
-            // while locked, SPEC 5) and copy through clipboard::copy.
-            crate::log!("tray: copy a new password needs the generator (phase B)");
+            // The last generator options of the vault; the value goes into
+            // generator history and to the clipboard (SPEC 5, 3.9).
+            let app = app.clone();
+            let _ = std::thread::Builder::new().name("coffer-tray-copy".into()).spawn(move || {
+                let generated = crate::vault::with_vault(&app, |v| {
+                    let options = v.generator_options();
+                    v.generate(&options)
+                });
+                match generated {
+                    Ok(g) => {
+                        let value = zeroize::Zeroizing::new(g.value.clone());
+                        if let Err(e) = crate::vault::mutate(&app, |v| {
+                            v.generator_copied(&value);
+                            Ok(())
+                        }) {
+                            crate::log!("tray: generator history: {e}");
+                        }
+                        if let Err(e) = crate::clipboard::copy(&app, value, "New password") {
+                            crate::log!("tray: copy failed: {e}");
+                        }
+                    }
+                    Err(e) => crate::log!("tray: generate failed: {e}"),
+                }
+            });
         }
         "lock" => {
             if app.state::<AppState>().is_unlocked() {
-                crate::lock::lock(app, LockReason::Manual);
+                // Off the main thread: the lock waits for a save in progress.
+                let app = app.clone();
+                let _ = std::thread::Builder::new().name("coffer-tray-lock".into()).spawn(move || crate::lock::lock(&app, LockReason::Manual));
             } else {
                 shell::show_main(app, None);
             }

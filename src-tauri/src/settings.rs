@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::contract::BreachCheck;
+use crate::contract::BreachMode;
 use crate::error::{CofferError, CofferResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ pub struct Settings {
     pub tray_click: TrayClick,
     pub hotkey_quick: String,
     pub hotkey_lock: Option<String>,
-    pub breach_check: BreachCheck,
+    pub breach_check: BreachMode,
     pub close_notice_shown: bool,
     pub close_behavior: CloseBehavior,
     pub quick_hints_shown: u32,
@@ -63,7 +63,7 @@ impl Default for Settings {
             tray_click: TrayClick::Quick,
             hotkey_quick: "Ctrl+Shift+Space".to_string(),
             hotkey_lock: None,
-            breach_check: BreachCheck::Off,
+            breach_check: BreachMode::Off,
             close_notice_shown: false,
             close_behavior: CloseBehavior::Hide,
             quick_hints_shown: 0,

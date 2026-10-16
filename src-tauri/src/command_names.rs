@@ -68,12 +68,11 @@ pub const COMMAND_NAMES: &[&str] = &[
     "main_show",
     "autotype",
     "app_quit",
-    // Shell addition, proposed for the contract (see SHELL_ADDED_COMMANDS).
     "main_hide",
 ];
 
-/// Commands the shell needs that are not (yet) in the contract.
-pub const SHELL_ADDED_COMMANDS: &[&str] = &["main_hide"];
+/// Commands the shell needs that are not (yet) in the contract (none now).
+pub const SHELL_ADDED_COMMANDS: &[&str] = &[];
 
 /// The commands the Quick Access window may call (SPEC 3.7). Every other
 /// command is for the main window only, except `QUICK_ONLY_COMMANDS`.

@@ -140,7 +140,23 @@ fn enums_match() {
     .map(ser)
     .collect();
     assert_eq!(kinds, literals(block("export type FieldKind =", "\n\n")));
-    let secret: BTreeSet<String> = SECRET_KINDS.iter().map(|k| ser(*k)).collect();
+    let all_kinds = [
+        FieldKind::Text,
+        FieldKind::Concealed,
+        FieldKind::Multiline,
+        FieldKind::Email,
+        FieldKind::Url,
+        FieldKind::Phone,
+        FieldKind::Date,
+        FieldKind::MonthYear,
+        FieldKind::Totp,
+        FieldKind::Boolean,
+        FieldKind::CardNumber,
+        FieldKind::Pin,
+        FieldKind::Menu,
+        FieldKind::ConcealedMultiline,
+    ];
+    let secret: BTreeSet<String> = all_kinds.iter().filter(|k| k.is_secret()).map(|k| ser(*k)).collect();
     assert_eq!(secret, literals(block("export const SECRET_KINDS: FieldKind[] =", "\n")));
 
     let types: BTreeSet<String> = [
@@ -169,10 +185,38 @@ fn enums_match() {
 
     assert_eq!(ser(SyncProvider::GoogleDrive), "Google Drive");
     assert_eq!(ser(ExportKind::CofferEncrypted), "cofferEncrypted");
-    assert_eq!(ser(BulkAction::RemoveTag), "removeTag");
+    assert_eq!(serde_json::from_str::<BulkAction>("\"removeTag\"").unwrap(), BulkAction::RemoveTag);
     assert_eq!(ser(ImportSource::Conflict), "conflict");
     assert_eq!(ser(TotpSource::Screen), "screen");
     assert_eq!(ser(HotkeyState::InUse), "inUse");
+}
+
+#[test]
+fn core_errors_keep_their_codes() {
+    use coffer_core::CoreError;
+    let cases = [
+        (CoreError::BadCredentials, ErrorCode::BadCredentials),
+        (CoreError::Tampered, ErrorCode::Tampered),
+        (CoreError::KdfTooWeak, ErrorCode::KdfTooWeak),
+        (CoreError::KdfTooStrong, ErrorCode::KdfTooStrong),
+        (CoreError::OlderFile { seen: 9, file: 3 }, ErrorCode::OlderFile),
+        (CoreError::Exists, ErrorCode::Exists),
+        (CoreError::NotFound, ErrorCode::NotFound),
+        (CoreError::RepromptRequired, ErrorCode::RepromptRequired),
+        (CoreError::Conflict("x".into()), ErrorCode::Conflict),
+        (CoreError::WeakPassword("x".into()), ErrorCode::WeakPassword),
+        (CoreError::UnsupportedFormat("x".into()), ErrorCode::UnsupportedFormat),
+        (CoreError::Invalid("x".into()), ErrorCode::Invalid),
+        (CoreError::Io("x".into()), ErrorCode::Io),
+        (CoreError::Corrupt("x".into()), ErrorCode::Corrupt),
+        (CoreError::BadSecretKey("x".into()), ErrorCode::BadSecretKey),
+    ];
+    for (core, code) in cases {
+        let message = core.to_string();
+        let ours: crate::error::CofferError = core.into();
+        assert_eq!(ours.code, code);
+        assert_eq!(ours.message, message);
+    }
 }
 
 #[test]
@@ -194,6 +238,7 @@ fn events_match() {
         events::MAIN_NAVIGATE,
         events::EDIT_DISCARDED,
         events::APP_QUIT_REQUESTED,
+        events::MAIN_CLOSE_NOTICE,
     ]
     .into_iter()
     .map(str::to_string)

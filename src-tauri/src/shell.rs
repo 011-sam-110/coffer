@@ -106,8 +106,10 @@ pub fn apply_capture_protection(app: &AppHandle) {
 pub fn quick_context(app: &AppHandle) -> QuickContext {
     let state = app.state::<AppState>();
     let fg = state.foreground.lck().clone();
-    // Phase B: suggestions from the core (item apps + learned usage for fg.process).
-    QuickContext { title: fg.as_ref().map(|f| f.title.clone()), process: fg.and_then(|f| f.process), suggestions: Vec::new() }
+    let title = fg.as_ref().map(|f| f.title.clone());
+    let process = fg.and_then(|f| f.process);
+    let suggestions = crate::commands::suggestions(app, title.as_deref(), process.as_deref());
+    QuickContext { title, process, suggestions }
 }
 
 /// Place Quick Access; returns where its client area should be.

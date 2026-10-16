@@ -1,35 +1,78 @@
 //! The IPC commands of `src/lib/contract.ts`.
 //!
-//! Every command is `async`, so it runs on Tauri's worker pool and never on
-//! the main thread (which runs the tray and the windows). Blocking work (a
-//! dialog, Argon2, vault file I/O) goes into `spawn_blocking` (SPEC 9,
-//! "Threads").
-//!
-//! Phase A implements the commands that need no vault. The vault commands are
-//! registered with their final signatures and fail with `locked` until phase B
-//! wires them to coffer-core. Secret arguments are `Zeroizing<String>`.
-#![allow(unused_variables)]
+//! Every command is `async`, so it never runs on the main thread (which runs
+//! the tray and the windows). Work that can block (Argon2, vault file I/O, a
+//! dialog, the session lock while a save runs) goes into `spawn_blocking`
+//! (SPEC 9, "Threads"). Secret arguments are `Zeroizing<String>`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 use zeroize::Zeroizing;
 
 use crate::contract::*;
-use crate::error::{CofferError, CofferResult};
+use crate::error::{CofferError, CofferResult, ErrorCode};
 use crate::settings::Settings;
 use crate::shell;
 use crate::state::{AppState, EditState, LockExt, RwExt};
+use crate::vault;
 
 type Secret = Zeroizing<String>;
-
-fn not_yet<T>() -> CofferResult<T> {
-    Err(CofferError::locked())
-}
 
 /// Run blocking work off the async pool.
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CofferResult<T> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CofferError::io(format!("Coffer could not finish that: {e}")))
+}
+
+/// Tier 2 features that are not in this version.
+fn later<T>() -> CofferResult<T> {
+    Err(CofferError::invalid("This is not in this version of Coffer yet."))
+}
+
+/// Import and export arrive with coffer-core step 2.
+fn import_later<T>() -> CofferResult<T> {
+    Err(CofferError::new(ErrorCode::UnsupportedFormat, "Import and export are not in this build yet."))
+}
+
+fn pw(p: &Option<Secret>) -> Option<&str> {
+    p.as_deref().map(String::as_str)
+}
+
+fn changed(app: &AppHandle, ids: Vec<String>) {
+    let _ = app.emit(events::VAULT_CHANGED, VaultChangedEvent { ids });
+}
+
+/// The app a use from Quick Access links to (SPEC 9): the window that was in
+/// front, never a browser. Uses from the main window link to nothing.
+fn link_app(app: &AppHandle, window: &Window) -> Option<String> {
+    if window.label() != shell::QUICK {
+        return None;
+    }
+    let process = app.state::<AppState>().foreground.lck().as_ref()?.process.clone()?;
+    (!coffer_core::suggest::is_browser(&process)).then_some(process)
+}
+
+/// A use (copy, reveal, auto-type, open site) for lastUsedAt and suggestions.
+fn record_use(app: &AppHandle, item_id: &str, link: Option<String>) {
+    if let Err(e) = crate::usage::usage_record(app, item_id, link.as_deref()) {
+        crate::log!("usage: {e}");
+    }
+}
+
+/// The label `clipboard://copied` shows for a field ref.
+fn copy_label(app: &AppHandle, item_id: &str, field: &str) -> String {
+    if field.starts_with("history:") {
+        return "Previous password".to_string();
+    }
+    vault::with_vault(app, |v| v.item_get(item_id))
+        .ok()
+        .and_then(|view| view.fields.into_iter().find(|f| f.id == field || f.builtin.as_deref() == Some(field)).map(|f| f.label))
+        .unwrap_or_else(|| "Value".to_string())
+}
+
+fn main_window(app: &AppHandle) -> Option<tauri::WebviewWindow> {
+    app.get_webview_window(shell::MAIN)
 }
 
 // ---------- app ----------
@@ -55,7 +98,7 @@ pub async fn folder_info() -> CofferResult<FolderInfo> {
 /// Rust opens the folder dialog and keeps the pick for `vault_create`.
 #[tauri::command]
 pub async fn folder_pick(app: AppHandle) -> CofferResult<Option<FolderInfo>> {
-    let parent = app.get_webview_window(shell::MAIN);
+    let parent = main_window(&app);
     let picked: Option<PathBuf> = blocking(move || {
         let mut dialog = rfd::FileDialog::new().set_title("Choose a folder for your vault").set_directory(crate::paths::home_dir());
         if let Some(window) = parent.as_ref() {
@@ -72,290 +115,417 @@ pub async fn folder_pick(app: AppHandle) -> CofferResult<Option<FolderInfo>> {
 
 // ---------- vault ----------
 
-/// Phase A: from settings.json only (no vault core yet). `vaultName` while
-/// locked is the file stem (SPEC 3.5).
 #[tauri::command]
-pub async fn vault_status(state: State<'_, AppState>) -> CofferResult<VaultStatus> {
-    let (path, hello_enabled) = {
-        let s = state.settings.rd();
-        (s.vault_path.clone(), s.settings.hello_enabled)
-    };
-    let unlocked = state.is_unlocked();
-    let (vault_state, name) = match &path {
-        None => (VaultState::NoVault, None),
-        Some(p) => {
-            let stem = std::path::Path::new(p).file_stem().map(|s| s.to_string_lossy().into_owned());
-            let exists = std::path::Path::new(p).is_file();
-            (if unlocked { VaultState::Unlocked } else if exists { VaultState::Locked } else { VaultState::Missing }, stem)
+pub async fn vault_status(app: AppHandle) -> CofferResult<VaultStatus> {
+    blocking(move || vault::status(&app)).await?
+}
+
+#[tauri::command]
+pub async fn vault_create(app: AppHandle, name: String, password: Secret, use_picked_folder: bool) -> CofferResult<EmergencyKit> {
+    blocking(move || vault::create(&app, &name, &password, use_picked_folder)).await?
+}
+
+#[tauri::command]
+pub async fn secret_key_rotate(app: AppHandle, password: Secret) -> CofferResult<EmergencyKit> {
+    blocking(move || vault::rotate_secret_key(&app, &password)).await?
+}
+
+/// Rust opens the file dialog; `null` when cancelled.
+#[tauri::command]
+pub async fn vault_open(app: AppHandle) -> CofferResult<Option<VaultStatus>> {
+    let parent = main_window(&app);
+    blocking(move || {
+        let mut dialog = rfd::FileDialog::new().set_title("Open a Coffer vault").add_filter("Coffer vault", &["coffer"]).set_directory(crate::paths::default_vault_folder());
+        if let Some(window) = parent.as_ref() {
+            dialog = dialog.set_parent(window);
         }
-    };
-    Ok(VaultStatus {
-        state: vault_state,
-        vault_path: path,
-        vault_name: name,
-        key_id: None,
-        needs_secret_key: false,
-        hello_available: false,
-        hello_enabled,
-        hello_ready: false,
-        item_count: None,
+        match dialog.pick_file() {
+            Some(path) => vault::open_file(&app, path).map(Some),
+            None => Ok(None),
+        }
     })
+    .await?
 }
 
 #[tauri::command]
-pub async fn vault_create(name: String, password: Secret, use_picked_folder: bool) -> CofferResult<EmergencyKit> {
-    not_yet()
-}
-
-#[tauri::command]
-pub async fn secret_key_rotate(password: Secret) -> CofferResult<EmergencyKit> {
-    not_yet()
-}
-
-#[tauri::command]
-pub async fn vault_open() -> CofferResult<Option<VaultStatus>> {
-    not_yet()
-}
-
-#[tauri::command]
-pub async fn vault_unlock(password: Secret, secret_key: Option<Secret>) -> CofferResult<VaultStatus> {
-    not_yet()
+pub async fn vault_unlock(app: AppHandle, password: Secret, secret_key: Option<Secret>) -> CofferResult<VaultStatus> {
+    blocking(move || vault::unlock(&app, &password, pw(&secret_key))).await?
 }
 
 #[tauri::command]
 pub async fn vault_unlock_hello() -> CofferResult<VaultStatus> {
-    Err(CofferError::new(crate::error::ErrorCode::HelloUnavailable, "Windows Hello unlock is not in this version yet."))
+    Err(CofferError::new(ErrorCode::HelloUnavailable, "Windows Hello unlock is not in this version yet."))
 }
 
-/// Works in phase A: lock needs no vault core.
 #[tauri::command]
 pub async fn vault_lock(app: AppHandle) -> CofferResult<()> {
-    crate::lock::lock(&app, LockReason::Manual);
-    Ok(())
+    blocking(move || crate::lock::lock(&app, LockReason::Manual)).await
 }
 
 #[tauri::command]
-pub async fn vault_change_password(current: Secret, next: Secret, rekey: bool) -> CofferResult<()> {
-    not_yet()
+pub async fn vault_change_password(app: AppHandle, current: Secret, next: Secret, rekey: bool) -> CofferResult<()> {
+    blocking(move || vault::change_password(&app, &current, &next, rekey)).await?
+}
+
+/// Rust opens the folder dialog; `null` when cancelled.
+#[tauri::command]
+pub async fn vault_move(app: AppHandle) -> CofferResult<Option<VaultStatus>> {
+    let parent = main_window(&app);
+    blocking(move || {
+        let mut dialog = rfd::FileDialog::new().set_title("Move your vault to");
+        if let Some(window) = parent.as_ref() {
+            dialog = dialog.set_parent(window);
+        }
+        match dialog.pick_folder() {
+            Some(folder) => vault::move_to(&app, folder).map(Some),
+            None => Ok(None),
+        }
+    })
+    .await?
+}
+
+/// After the file vanished, or after diskDamaged / olderOnDisk.
+#[tauri::command]
+pub async fn vault_save_again(app: AppHandle, save_as: bool) -> CofferResult<Option<VaultStatus>> {
+    let parent = main_window(&app);
+    blocking(move || {
+        if !save_as {
+            return vault::save_again(&app, None).map(Some);
+        }
+        let name = app.state::<AppState>().session.lck().as_ref().and_then(|s| s.path.file_name().map(|n| n.to_string_lossy().into_owned())).unwrap_or_else(|| "Vault.coffer".into());
+        let mut dialog = rfd::FileDialog::new().set_title("Save your vault as").add_filter("Coffer vault", &["coffer"]).set_file_name(name);
+        if let Some(window) = parent.as_ref() {
+            dialog = dialog.set_parent(window);
+        }
+        match dialog.save_file() {
+            Some(path) => vault::save_again(&app, Some(path)).map(Some),
+            None => Ok(None),
+        }
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn vault_move() -> CofferResult<Option<VaultStatus>> {
-    not_yet()
-}
-
-#[tauri::command]
-pub async fn vault_save_again(save_as: bool) -> CofferResult<Option<VaultStatus>> {
-    not_yet()
-}
-
-#[tauri::command]
-pub async fn vault_open_older() -> CofferResult<VaultStatus> {
-    not_yet()
+pub async fn vault_open_older(app: AppHandle) -> CofferResult<VaultStatus> {
+    blocking(move || vault::open_older(&app)).await?
 }
 
 #[tauri::command]
 pub async fn hello_set(enabled: bool, password: Option<Secret>) -> CofferResult<VaultStatus> {
-    Err(CofferError::new(crate::error::ErrorCode::HelloUnavailable, "Windows Hello unlock is not in this version yet."))
+    let _ = (enabled, password);
+    Err(CofferError::new(ErrorCode::HelloUnavailable, "Windows Hello unlock is not in this version yet."))
 }
 
 #[tauri::command]
 pub async fn secret_key_validate(secret_key: Secret) -> CofferResult<SecretKeyCheck> {
-    not_yet()
+    Ok(match coffer_core::SecretKey::parse(&secret_key) {
+        Ok(key) => SecretKeyCheck { valid: true, key_id: Some(key.key_id().to_string()) },
+        Err(_) => SecretKeyCheck { valid: false, key_id: None },
+    })
 }
 
 #[tauri::command]
-pub async fn emergency_kit(password: Secret) -> CofferResult<EmergencyKit> {
-    not_yet()
+pub async fn emergency_kit(app: AppHandle, password: Secret) -> CofferResult<EmergencyKit> {
+    blocking(move || vault::emergency_kit(&app, &password)).await?
 }
 
 #[tauri::command]
 pub async fn kdf_benchmark() -> CofferResult<KdfBenchmark> {
-    not_yet()
+    blocking(vault::kdf_benchmark).await?
 }
 
 // ---------- items ----------
 
 #[tauri::command]
-pub async fn items_list() -> CofferResult<Vec<ItemSummary>> {
-    not_yet()
+pub async fn items_list(app: AppHandle) -> CofferResult<Vec<ItemSummary>> {
+    blocking(move || {
+        let mut items = vault::with_vault(&app, |v| Ok(v.items_list()))?;
+        let usage = app.state::<AppState>().usage.lck().last_used_map();
+        for item in &mut items {
+            item.last_used_at = usage.get(&item.id).cloned();
+        }
+        Ok(items)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_get(id: String) -> CofferResult<ItemView> {
-    not_yet()
+pub async fn item_get(app: AppHandle, id: String) -> CofferResult<ItemView> {
+    blocking(move || vault::with_vault(&app, |v| v.item_get(&id))).await?
 }
 
 #[tauri::command]
-pub async fn item_reveal(id: String, field: String, password: Option<Secret>) -> CofferResult<Secret> {
-    not_yet()
+pub async fn item_reveal(app: AppHandle, id: String, field: String, password: Option<Secret>) -> CofferResult<Secret> {
+    blocking(move || {
+        let value = vault::with_vault(&app, |v| v.item_reveal(&id, &field, pw(&password)))?;
+        record_use(&app, &id, None);
+        Ok(value)
+    })
+    .await?
+}
+
+/// The value goes from Rust to the clipboard; the UI never sees it.
+#[tauri::command]
+pub async fn item_copy(app: AppHandle, window: Window, id: String, field: String, password: Option<Secret>) -> CofferResult<CopyResult> {
+    let link = link_app(&app, &window);
+    blocking(move || {
+        let value = vault::with_vault(&app, |v| v.item_copy_value(&id, &field, pw(&password)))?;
+        let label = copy_label(&app, &id, &field);
+        let result = crate::clipboard::copy(&app, value, &label)?;
+        record_use(&app, &id, link);
+        Ok(result)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_copy(id: String, field: String, password: Option<Secret>) -> CofferResult<CopyResult> {
-    not_yet()
+pub async fn item_save(app: AppHandle, item: ItemInput, password: Option<Secret>) -> CofferResult<ItemView> {
+    blocking(move || {
+        let view = vault::mutate(&app, |v| v.item_save(&item, pw(&password)))?;
+        changed(&app, vec![view.id.clone()]);
+        Ok(view)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_save(item: ItemInput, password: Option<Secret>) -> CofferResult<ItemView> {
-    not_yet()
+pub async fn item_patch(app: AppHandle, id: String, favorite: Option<bool>, tags: Option<Vec<String>>, health_excluded: Option<bool>) -> CofferResult<ItemSummary> {
+    blocking(move || {
+        let summary = vault::mutate(&app, |v| v.item_patch(&id, favorite, tags.as_deref(), health_excluded))?;
+        changed(&app, vec![id]);
+        Ok(summary)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_patch(id: String, favorite: Option<bool>, tags: Option<Vec<String>>, health_excluded: Option<bool>) -> CofferResult<ItemSummary> {
-    not_yet()
+pub async fn item_set_state(app: AppHandle, id: String, state: ItemState) -> CofferResult<()> {
+    blocking(move || {
+        vault::mutate(&app, |v| v.item_set_state(&id, state))?;
+        changed(&app, vec![id]);
+        Ok(())
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_set_state(id: String, state: ItemState) -> CofferResult<()> {
-    not_yet()
+pub async fn items_bulk(app: AppHandle, ids: Vec<String>, action: BulkAction, tag: Option<String>) -> CofferResult<u32> {
+    blocking(move || {
+        let n = vault::mutate(&app, |v| v.items_bulk(&ids, action, tag.as_deref()))?;
+        changed(&app, ids);
+        Ok(n as u32)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn items_bulk(ids: Vec<String>, action: BulkAction, tag: Option<String>) -> CofferResult<u32> {
-    not_yet()
+pub async fn item_delete_forever(app: AppHandle, id: String) -> CofferResult<()> {
+    blocking(move || {
+        vault::mutate(&app, |v| v.item_delete_forever(&id))?;
+        let _ = app.state::<AppState>().usage.lck().forget(std::slice::from_ref(&id));
+        changed(&app, vec![id]);
+        Ok(())
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_delete_forever(id: String) -> CofferResult<()> {
-    not_yet()
+pub async fn trash_empty(app: AppHandle) -> CofferResult<u32> {
+    blocking(move || {
+        let n = vault::mutate(&app, |v| Ok(v.trash_empty()))?;
+        changed(&app, Vec::new());
+        Ok(n as u32)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn trash_empty() -> CofferResult<u32> {
-    not_yet()
+pub async fn item_revisions(app: AppHandle, id: String, password: Option<Secret>) -> CofferResult<Vec<Revision>> {
+    blocking(move || vault::with_vault(&app, |v| v.item_revisions(&id, pw(&password)))).await?
 }
 
 #[tauri::command]
-pub async fn item_revisions(id: String, password: Option<Secret>) -> CofferResult<Vec<Revision>> {
-    not_yet()
+pub async fn item_restore_revision(app: AppHandle, id: String, rev: u64, password: Option<Secret>) -> CofferResult<ItemView> {
+    blocking(move || {
+        let view = vault::mutate(&app, |v| v.item_restore_revision(&id, rev, pw(&password)))?;
+        changed(&app, vec![id]);
+        Ok(view)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_restore_revision(id: String, rev: u64, password: Option<Secret>) -> CofferResult<ItemView> {
-    not_yet()
+pub async fn item_password_history(app: AppHandle, id: String, password: Option<Secret>) -> CofferResult<Vec<PasswordHistoryEntry>> {
+    blocking(move || vault::with_vault(&app, |v| v.item_password_history(&id, pw(&password)))).await?
+}
+
+/// Rust opens only an http(s) URL stored in the item (SPEC 3.7).
+#[tauri::command]
+pub async fn item_open_url(app: AppHandle, id: String, url_index: u32) -> CofferResult<()> {
+    blocking(move || {
+        let url = vault::with_vault(&app, |v| v.item_url_for_open(&id, url_index as usize))?;
+        crate::win::open::open_url(&url).map_err(CofferError::invalid)?;
+        record_use(&app, &id, None);
+        Ok(())
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn item_password_history(id: String, password: Option<Secret>) -> CofferResult<Vec<PasswordHistoryEntry>> {
-    not_yet()
-}
-
-/// Phase B: look up `urls[url_index]` of the item, then `win::open::open_url`.
-#[tauri::command]
-pub async fn item_open_url(id: String, url_index: u32) -> CofferResult<()> {
-    not_yet()
-}
-
-#[tauri::command]
-pub async fn totp_code(id: String, field: Option<String>, password: Option<Secret>) -> CofferResult<TotpCode> {
-    not_yet()
+pub async fn totp_code(app: AppHandle, id: String, field: Option<String>, password: Option<Secret>) -> CofferResult<TotpCode> {
+    blocking(move || vault::with_vault(&app, |v| v.totp_code(&id, field.as_deref(), pw(&password)))).await?
 }
 
 #[tauri::command]
 pub async fn totp_parse(input: Secret) -> CofferResult<TotpParse> {
-    not_yet()
+    Ok(coffer_core::totp::totp_parse(&input))
 }
 
 #[tauri::command]
 pub async fn totp_from_image(source: TotpSource) -> CofferResult<Option<TotpImage>> {
-    not_yet()
+    let _ = source;
+    later()
 }
 
 #[tauri::command]
 pub async fn ssh_generate() -> CofferResult<SshKeyPair> {
-    not_yet()
+    later()
 }
 
 // ---------- generator ----------
 
+/// Unlocked: the vault's generator (it keeps the last options). Locked: the
+/// plain generator (nothing is kept).
 #[tauri::command]
-pub async fn generate(options: GeneratorOptions) -> CofferResult<Generated> {
-    not_yet()
+pub async fn generate(app: AppHandle, options: GeneratorOptions) -> CofferResult<Generated> {
+    blocking(move || {
+        if app.state::<AppState>().is_unlocked() {
+            vault::with_vault(&app, |v| v.generate(&options))
+        } else {
+            coffer_core::generator::generate(&options).map_err(CofferError::from)
+        }
+    })
+    .await?
 }
 
-/// Works in phase A: the clipboard path needs no vault. Phase B also adds the
-/// value to generator history when the vault is unlocked (SPEC 5).
+/// Copy a generated value; unlocked, it also goes into generator history.
 #[tauri::command]
 pub async fn generator_copy(app: AppHandle, value: Secret) -> CofferResult<CopyResult> {
     if value.is_empty() {
         return Err(CofferError::invalid("There is nothing to copy."));
     }
-    crate::clipboard::copy(&app, value, "Password")
+    blocking(move || {
+        if app.state::<AppState>().is_unlocked() {
+            if let Err(e) = vault::mutate(&app, |v| {
+                v.generator_copied(&value);
+                Ok(())
+            }) {
+                crate::log!("generator history: {e}");
+            }
+        }
+        crate::clipboard::copy(&app, value, "Password")
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn generator_history() -> CofferResult<Vec<GeneratedHistoryEntry>> {
-    not_yet()
+pub async fn generator_history(app: AppHandle) -> CofferResult<Vec<GeneratedHistoryEntry>> {
+    blocking(move || vault::with_vault(&app, |v| Ok(v.generator_history()))).await?
 }
 
 #[tauri::command]
-pub async fn generator_history_reveal(id: String) -> CofferResult<Secret> {
-    not_yet()
+pub async fn generator_history_reveal(app: AppHandle, id: String) -> CofferResult<Secret> {
+    blocking(move || vault::with_vault(&app, |v| v.generator_history_value(&id))).await?
 }
 
 #[tauri::command]
-pub async fn generator_history_copy(id: String) -> CofferResult<CopyResult> {
-    not_yet()
+pub async fn generator_history_copy(app: AppHandle, id: String) -> CofferResult<CopyResult> {
+    blocking(move || {
+        let value = vault::with_vault(&app, |v| v.generator_history_value(&id))?;
+        crate::clipboard::copy(&app, value, "Password")
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn generator_history_clear() -> CofferResult<()> {
-    not_yet()
+pub async fn generator_history_clear(app: AppHandle) -> CofferResult<()> {
+    blocking(move || {
+        vault::mutate(&app, |v| {
+            v.generator_history_clear();
+            Ok(())
+        })
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn password_strength(password: Secret, user_inputs: Vec<String>) -> CofferResult<PasswordStrength> {
-    not_yet()
+pub async fn password_strength(password: Secret, user_inputs: Vec<String>) -> CofferResult<Strength> {
+    blocking(move || {
+        let inputs: Vec<&str> = user_inputs.iter().map(String::as_str).collect();
+        coffer_core::strength::password_strength(&password, &inputs)
+    })
+    .await
 }
 
 // ---------- health ----------
 
 #[tauri::command]
-pub async fn health_report() -> CofferResult<HealthReport> {
-    not_yet()
+pub async fn health_report(app: AppHandle) -> CofferResult<HealthReport> {
+    blocking(move || {
+        let mode = app.state::<AppState>().settings.rd().settings.breach_check;
+        vault::with_vault(&app, |v| Ok(v.health_report(mode)))
+    })
+    .await?
 }
 
+/// "Check now": the k-anonymity range calls (SPEC 3.10).
 #[tauri::command]
-pub async fn health_check_breaches() -> CofferResult<HealthReport> {
-    not_yet()
+pub async fn health_check_breaches(app: AppHandle) -> CofferResult<HealthReport> {
+    blocking(move || vault::breach_check(&app)).await?
 }
 
-// ---------- import / export ----------
+// ---------- import / export (coffer-core step 2) ----------
 
 #[tauri::command]
 pub async fn import_preview(source: ImportSource, password: Option<Secret>, secret_key: Option<Secret>) -> CofferResult<Option<ImportPreview>> {
-    not_yet()
+    let _ = (source, password, secret_key);
+    import_later()
 }
 
 #[tauri::command]
 pub async fn import_commit(preview_id: String) -> CofferResult<ImportResult> {
-    not_yet()
+    let _ = preview_id;
+    import_later()
 }
 
 #[tauri::command]
 pub async fn import_undo(batch_id: String) -> CofferResult<u32> {
-    not_yet()
+    let _ = batch_id;
+    import_later()
 }
 
 #[tauri::command]
 pub async fn import_delete_source(preview_id: String) -> CofferResult<()> {
-    not_yet()
+    let _ = preview_id;
+    import_later()
 }
 
 #[tauri::command]
 pub async fn export_vault(kind: ExportKind, master_password: Secret, export_password: Option<Secret>) -> CofferResult<Option<ExportResult>> {
-    not_yet()
+    let _ = (kind, master_password, export_password);
+    import_later()
+}
+
+// ---------- backups ----------
+
+#[tauri::command]
+pub async fn backups_list(app: AppHandle) -> CofferResult<Vec<BackupEntry>> {
+    blocking(move || vault::backups_list(&app)).await?
 }
 
 #[tauri::command]
-pub async fn backups_list() -> CofferResult<Vec<BackupEntry>> {
-    not_yet()
-}
-
-#[tauri::command]
-pub async fn backup_restore(index: u32) -> CofferResult<VaultStatus> {
-    not_yet()
+pub async fn backup_restore(app: AppHandle, index: u32) -> CofferResult<VaultStatus> {
+    blocking(move || vault::backup_restore(&app, index)).await?
 }
 
 // ---------- settings ----------
@@ -405,8 +575,7 @@ pub async fn quick_hint_seen(state: State<'_, AppState>) -> CofferResult<()> {
     crate::settings::save(&state.settings_path(), &file)
 }
 
-/// The main window reports its open edit (title, unsaved or not); `title:
-/// null` means no edit is open.
+/// The main window reports its open edit; `title: null` means none.
 #[tauri::command]
 pub async fn edit_state(state: State<'_, AppState>, title: Option<String>, dirty: bool) -> CofferResult<()> {
     *state.edit.lck() = title.map(|title| EditState { title, dirty });
@@ -417,7 +586,7 @@ pub async fn edit_state(state: State<'_, AppState>, title: Option<String>, dirty
 
 #[tauri::command]
 pub async fn quick_context(app: AppHandle) -> CofferResult<QuickContext> {
-    Ok(shell::quick_context(&app))
+    blocking(move || shell::quick_context(&app)).await
 }
 
 #[tauri::command]
@@ -439,7 +608,7 @@ pub async fn main_show(app: AppHandle, item_id: Option<String>, view: Option<Mai
     Ok(())
 }
 
-/// Shell addition: the main window hides itself after the first-close notice.
+/// The main window hides itself after the first-close notice.
 #[tauri::command]
 pub async fn main_hide(app: AppHandle) -> CofferResult<()> {
     shell::hide_main(&app);
@@ -448,13 +617,27 @@ pub async fn main_hide(app: AppHandle) -> CofferResult<()> {
 
 #[tauri::command]
 pub async fn autotype(id: String, password: Option<Secret>) -> CofferResult<()> {
-    not_yet()
+    let _ = (id, password);
+    later()
 }
 
 /// Lock (drops keys, clears Coffer's clipboard copy) and exit. The UI asks
 /// about an unsaved edit before it calls this.
 #[tauri::command]
 pub async fn app_quit(app: AppHandle) -> CofferResult<()> {
-    shell::quit(&app);
-    Ok(())
+    blocking(move || shell::quit(&app)).await
+}
+
+/// Suggestions for Quick Access (SPEC 9), without waiting: when a save or a
+/// KDF run holds the vault, there are none this time.
+pub fn suggestions(app: &AppHandle, title: Option<&str>, process: Option<&str>) -> Vec<String> {
+    let state = app.state::<AppState>();
+    let (learned, last_used): (Vec<String>, HashMap<String, String>) = {
+        let usage = state.usage.lck();
+        (process.map(|p| usage.items_for_app(p).into_iter().take(crate::usage::LINKS_PER_APP).collect()).unwrap_or_default(), usage.last_used_map())
+    };
+    match state.session.try_lock() {
+        Ok(guard) => guard.as_ref().map(|s| s.vault.suggestions(title, process, &learned, &last_used)).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
 }

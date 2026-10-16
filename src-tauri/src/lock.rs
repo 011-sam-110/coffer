@@ -65,7 +65,13 @@ pub fn check_idle(app: &AppHandle, idle_millis: u64) {
 /// so the UI always ends on its locked screen.
 pub fn lock(app: &AppHandle, reason: LockReason) {
     let state = app.state::<AppState>();
-    let was_unlocked = state.session.lck().take().is_some();
+    // Taking the session waits for a save in progress; dropping it drops the
+    // vault key, the derived keys, the plaintext and the re-prompt grants.
+    let session = state.session.lck().take();
+    state.unlocked.store(false, std::sync::atomic::Ordering::SeqCst);
+    let was_unlocked = session.is_some();
+    drop(session);
+    drop(state.older.lck().take());
     crate::clipboard::clear_if_ours(app);
     let discarded = state.edit.lck().take();
     if let Some(edit) = discarded.filter(|e| e.dirty) {
