@@ -26,6 +26,7 @@
     "allow-quick-set-modal",
     "allow-main-show",
     "allow-generate",
+    "allow-generator-options",
     "allow-generator-copy"
   ]
 }

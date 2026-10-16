@@ -432,6 +432,12 @@ pub async fn generate(app: AppHandle, options: GeneratorOptions) -> CofferResult
     .await?
 }
 
+/// The vault's last generator options (defaults when none); unlocked only.
+#[tauri::command]
+pub async fn generator_options(app: AppHandle) -> CofferResult<GeneratorOptions> {
+    blocking(move || vault::with_vault(&app, |v| Ok(v.generator_options()))).await?
+}
+
 /// Copy a generated value; unlocked, it also goes into generator history.
 #[tauri::command]
 pub async fn generator_copy(app: AppHandle, value: Secret) -> CofferResult<CopyResult> {

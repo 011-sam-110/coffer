@@ -45,6 +45,7 @@
     "allow-totp-from-image",
     "allow-ssh-generate",
     "allow-generate",
+    "allow-generator-options",
     "allow-generator-copy",
     "allow-generator-history",
     "allow-generator-history-reveal",

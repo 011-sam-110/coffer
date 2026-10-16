@@ -67,10 +67,11 @@ fn allow(cmds: &[&str]) -> BTreeSet<String> {
 fn capabilities_are_per_window_and_minimal() {
     let (windows, quick) = permissions(QUICK_CAP);
     assert_eq!(windows, vec!["quick"]);
-    // SPEC 3.7, verbatim.
+    // SPEC 3.7, plus generator_options (contract c5f1f96: the Quick Access
+    // generator reads the last options too).
     let spec_quick = [
         "app_info", "settings_get", "quick_hint_seen", "vault_status", "vault_unlock", "vault_unlock_hello", "vault_lock", "items_list", "item_get", "item_copy", "item_open_url",
-        "totp_code", "autotype", "quick_context", "quick_hide", "quick_set_modal", "main_show", "generate", "generator_copy",
+        "totp_code", "autotype", "quick_context", "quick_hide", "quick_set_modal", "main_show", "generate", "generator_options", "generator_copy",
     ];
     assert_eq!(quick.iter().cloned().collect::<BTreeSet<_>>(), allow(&spec_quick));
     assert_eq!(allow(QUICK_COMMANDS), allow(&spec_quick));
