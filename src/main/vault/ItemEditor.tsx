@@ -344,9 +344,12 @@ export function ItemEditor({
       .catch(error);
   }, [mode, itemId, withGenerator, error]);
 
+  // A new item puts the cursor in its name once, on open. Each key changes
+  // `form`, so an effect on `form` threw the cursor back here after every key.
+  const hasForm = !!form;
   useEffect(() => {
-    if (form && mode === "new") titleRef.current?.focus();
-  }, [form, mode]);
+    if (hasForm && mode === "new") titleRef.current?.focus();
+  }, [hasForm, mode]);
 
   const dirty = useMemo(() => !!form && !!base && !formsEqual(form, base), [form, base]);
 
