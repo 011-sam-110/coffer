@@ -47,7 +47,7 @@ function Banners() {
         icon={<SearchX />}
         actions={
           <>
-            <Button size="sm" variant="primary" onClick={() => saveAgain(false)}>
+            <Button size="sm" variant="strong" onClick={() => saveAgain(false)}>
               Save it here again
             </Button>
             <Button size="sm" onClick={() => saveAgain(true)}>
@@ -67,7 +67,7 @@ function Banners() {
         icon={<FileWarning />}
         actions={
           <>
-            <Button size="sm" variant="primary" onClick={() => saveAgain(true)}>
+            <Button size="sm" variant="strong" onClick={() => saveAgain(true)}>
               Save my open vault as...
             </Button>
             <Button size="sm" onClick={() => setRestore(true)}>

@@ -8,7 +8,7 @@ import { QrScanButtons } from "../../components/QrScanButtons";
 import { SshGenerateButton } from "../../components/SshGenerateButton";
 import { Monogram } from "../../components/bits";
 import { ConfirmDialog, Menu, useReprompt, useToast } from "../../components/overlays";
-import { Button, Checkbox, cx, IconButton, Input, KeyBadge, Notice, Select, Spinner, Textarea } from "../../components/ui";
+import { Button, Checkbox, cx, ErrorText, IconButton, Input, KeyBadge, Notice, Select, Spinner, Textarea } from "../../components/ui";
 import type { FieldKind, ItemType, ItemView } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
 import {
@@ -491,9 +491,7 @@ export function ItemEditor({
               gen={canGenerate(f) ? { open: genFor === f.key, toggle: () => setGenFor((g) => (g === f.key ? null : f.key)) } : undefined}
             />
             {(err || labelErr) && (
-              <p role="alert" className="text-xs text-danger-text">
-                {err || labelErr}
-              </p>
+              <ErrorText>{err || labelErr}</ErrorText>
             )}
             {isCustom && <p className="text-2xs text-muted-foreground">{FIELD_KIND_LABELS[f.kind]}</p>}
           </div>
@@ -542,9 +540,7 @@ export function ItemEditor({
             )}
           />
           {errors.title ? (
-            <p role="alert" className="text-xs text-danger-text">
-              {errors.title}
-            </p>
+            <ErrorText>{errors.title}</ErrorText>
           ) : (
             <p className="text-xs text-muted-foreground">{mode === "new" ? `New ${def.label.toLowerCase()}` : `Editing ${def.label.toLowerCase()}`}</p>
           )}
@@ -624,7 +620,7 @@ export function ItemEditor({
                           <X />
                         </IconButton>
                       </div>
-                      {errors[`url:${i}`] && <p className="text-xs text-danger-text">{errors[`url:${i}`]}</p>}
+                      {errors[`url:${i}`] && <ErrorText>{errors[`url:${i}`]}</ErrorText>}
                     </div>
                   </div>
                 </div>

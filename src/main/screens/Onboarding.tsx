@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
 import { useToast } from "../../components/overlays";
-import { Button, cx, FormRow, Input, Keys, Notice, PasswordInput, Switch } from "../../components/ui";
+import { Button, cx, ErrorText, FormRow, Input, Keys, Notice, PasswordInput, Switch } from "../../components/ui";
 import type { EmergencyKit, FolderInfo } from "../../lib/contract";
 import { formatDate, vaultStem } from "../../lib/format";
 import { lastSecretKeyGroup, SECRET_KEY_GROUPS } from "../../lib/secretKey";
@@ -164,7 +164,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
           <PasswordInput id={ids.pw} value={pw} onChange={(e) => setPw(e.target.value)} autoFocus revealLabel="master password" />
           <div className="mt-1">
             <StrengthMeter score={strength?.score ?? null} crackTime={strength?.crackTime} warning={strength?.warning} busy={checking} />
-            {strength && !strongEnough && <p className="mt-1 text-xs text-danger-text">Choose a stronger master password. It needs at least "Good".</p>}
+            {strength && !strongEnough && <ErrorText alert={false} className="mt-1">Choose a stronger master password. It needs at least "Good".</ErrorText>}
           </div>
         </FormRow>
         <FormRow label="Type it again" htmlFor={ids.confirm} error={mismatch}>
@@ -187,7 +187,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
               This folder syncs to the cloud{folder.provider ? ` (${folder.provider})` : ""}. The file is encrypted and useless without your Secret Key, but every copy that sync keeps can be attacked offline with it.
             </Notice>
           )}
-          {folder && !folder.writable && <p className="text-xs text-danger-text">Coffer cannot write to this folder. Choose another.</p>}
+          {folder && !folder.writable && <ErrorText alert={false}>Coffer cannot write to this folder. Choose another.</ErrorText>}
         </FormRow>
         <p className="text-xs text-muted-foreground">
           {kdf
@@ -195,9 +195,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
             : "Measuring how long unlocking takes on this PC..."}
         </p>
         {error && (
-          <p role="alert" className="text-sm text-danger-text">
-            {error}
-          </p>
+          <ErrorText className="text-sm">{error}</ErrorText>
         )}
         <div className="flex items-center gap-2">
           <Button type="submit" variant="primary" loading={busy} disabled={!canCreate} aria-describedby={blocker ? `${ids.name}-why` : undefined}>

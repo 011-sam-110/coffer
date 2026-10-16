@@ -602,7 +602,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
               <span>
                 <span className="flex items-center gap-2 text-sm">
                   {x.label}
-                  {x.plain && <span className="text-2xs font-semibold text-danger-text">Plain text</span>}
+                  {x.plain && <span className="rounded-sm border border-gold/40 px-1.5 text-2xs leading-4 font-semibold text-gold">Plain text</span>}
                 </span>
                 <span className="block text-xs text-muted-foreground">{x.detail}</span>
               </span>
