@@ -186,7 +186,7 @@ function Shell() {
         open={closeNotice}
         onClose={closeToTray}
         title="Coffer is still running"
-        description="Coffer is still running in the tray. Drag its icon from ^ to the taskbar to keep it in view."
+        description="To keep its icon in view, open Show hidden icons (the ^ arrow next to the clock) and drag the Coffer icon onto the taskbar."
         width={400}
         footer={
           <Button

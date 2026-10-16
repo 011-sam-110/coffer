@@ -185,7 +185,7 @@ function ItemRow({
           </span>
         )}
         {selected && (
-          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <span role="img" aria-label={`Enter copies the ${enterLabel.toLowerCase()}`} className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             <CornerDownLeft aria-hidden className="size-3" />
             {enterLabel}
           </span>
@@ -685,7 +685,7 @@ function Quick() {
 
         {hint && mode.kind === "list" && (
           <p className="shrink-0 border-t border-border px-4 py-1.5 text-xs text-muted-foreground" role="note">
-            Enter copies · Ctrl+U username · → more actions
+            Enter: copy · Ctrl+U: username · Right arrow: more actions
           </p>
         )}
       </>
