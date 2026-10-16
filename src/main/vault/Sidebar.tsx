@@ -1,7 +1,7 @@
 // Sidebar: All items, Favourites, Health, Archive, Trash; Tags (nested, expanded);
 // Types (collapsed by default, empty types hidden); footer: Generator, Import,
 // Settings, Shortcuts, Lock (SPEC 11 item 7).
-import { Archive, ChevronDown, ChevronRight, Download, Gauge, Keyboard, Layers, Lock, Settings, Star, Tag, Trash2, WandSparkles } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, CloudAlert, Download, Gauge, Keyboard, Layers, Lock, Settings, Star, Tag, Trash2, WandSparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DemoBadge, TYPE_ICONS } from "../../components/bits";
 import { cx, IconButton } from "../../components/ui";
@@ -93,7 +93,7 @@ export function Sidebar({
   onLock: () => void;
   onShowShortcuts: () => void;
 }) {
-  const { items, status, info } = useStore();
+  const { items, status, info, banner, pendingConflict, setConflictDialog } = useStore();
   // Tags start expanded; a click collapses a branch.
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   // Types start collapsed (search and the type filters cover them); the choice is remembered.
@@ -159,6 +159,18 @@ export function Sidebar({
         </div>
         {info?.demo && <DemoBadge />}
       </div>
+      {/* Changes from another computer wait in a conflict file until imported (the banner's "Later"). */}
+      {pendingConflict && banner?.kind !== "conflict" && (
+        <button
+          type="button"
+          onClick={() => setConflictDialog(true)}
+          title={pendingConflict.path}
+          className="mx-2 mb-2 flex shrink-0 cursor-pointer items-center gap-2 rounded-sm border border-gold/40 px-2.5 py-1.5 text-left text-xs hover:bg-muted"
+        >
+          <CloudAlert aria-hidden className="size-3.5 shrink-0 text-gold" />
+          <span className="min-w-0 flex-1">Changes to import from another computer</span>
+        </button>
+      )}
       <div className="relative min-h-0 flex-1">
         <div ref={scrollRef} onScroll={measure} className="h-full overflow-y-auto px-2 pb-3 [scrollbar-color:var(--muted-foreground)_transparent] [scrollbar-width:thin]">
           <ul>

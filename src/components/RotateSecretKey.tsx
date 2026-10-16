@@ -89,11 +89,11 @@ export function RotateSecretKey() {
         // The new kit fills the window, like the kit at setup. It has no skip: the old kit no longer works.
         <div className="fixed inset-0 z-40" role="region" aria-label="New Emergency Kit">
           {step === "kit" ? (
-            <KitStep kit={kit} step="New Secret Key, step 1 of 2" title="Save your new Emergency Kit" onNext={() => setStep("confirm")} />
+            <KitStep kit={kit} step="Step 1 of 2 · New Secret Key" title="Save your new Emergency Kit" onNext={() => setStep("confirm")} />
           ) : (
             <ConfirmKit
               kit={kit}
-              step="New Secret Key, step 2 of 2"
+              step="Step 2 of 2 · New Secret Key"
               onBack={() => setStep("kit")}
               onNext={() => {
                 setKit(null);

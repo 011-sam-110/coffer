@@ -146,7 +146,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
   };
 
   return (
-    <ScreenFrame onBack={onCancel} width={460}>
+    <ScreenFrame steps onBack={onCancel}>
       <StepTitle step={stepLabel("details")} title="Create your vault">
         Coffer cannot reset a master password. Pick one you will remember; a few unrelated words work well.
       </StepTitle>
@@ -197,7 +197,8 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
         {error && (
           <ErrorText className="text-sm">{error}</ErrorText>
         )}
-        <div className="flex items-center gap-2">
+        {/* Pinned, so Create vault stays in view at 720 px (as on the kit step). */}
+        <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-background py-4">
           <Button type="submit" variant="primary" loading={busy} disabled={!canCreate} aria-describedby={blocker ? `${ids.name}-why` : undefined}>
             {busy ? "Creating..." : "Create vault"}
           </Button>
@@ -268,12 +269,14 @@ export function KitStep({ kit, onNext, step = stepLabel("kit"), title = "Save yo
     setPrinted(true);
   };
   return (
-    <ScreenFrame width={660}>
+    <ScreenFrame steps>
       <div className="no-print">
         <StepTitle step={step} title={title}>
           Your vault opens with your master password plus this Secret Key. If you lose this kit and this computer, nobody can open this vault, not even Coffer.
         </StepTitle>
       </div>
+      {/* The kit alone is 640 px wide, from the column's left edge. */}
+      <div className="w-[min(640px,calc(100vw-3rem))]">
       <KitSheet kit={kit} lossLineOnScreen={false} />
       <div className="no-print">
         <Notice tone="warning" icon={<CloudAlert />} className="mt-4">
@@ -301,6 +304,7 @@ export function KitStep({ kit, onNext, step = stepLabel("kit"), title = "Save yo
           </Button>
         </div>
       </div>
+      </div>
     </ScreenFrame>
   );
 }
@@ -316,7 +320,7 @@ export function ConfirmKit({ kit, onBack, onNext, step = stepLabel("confirm") }:
     else setErr("That does not match. Look at the end of the Secret Key on your kit.");
   };
   return (
-    <ScreenFrame center onBack={onBack} backLabel="Back to the kit">
+    <ScreenFrame steps onBack={onBack} backLabel="Back to the kit">
       <StepTitle step={step} title="Check your kit">
         Type the last group of your Secret Key ({need} letters and digits), from the saved kit.
       </StepTitle>
@@ -359,7 +363,7 @@ function Prefs({ onNext }: { onNext: () => void }) {
   const [hotkey, setHotkey] = useState(settings?.hotkeyQuick ?? "Ctrl+Shift+Space");
   const [busy, setBusy] = useState(false);
   return (
-    <ScreenFrame center>
+    <ScreenFrame steps>
       <StepTitle step={stepLabel("prefs")} title="Start-up and shortcut">
         You can change both later in Settings.
       </StepTitle>
@@ -424,7 +428,7 @@ function TryHotkey({ onDone }: { onDone: () => void }) {
     if (seen) doneRef.current?.focus();
   }, [seen]);
   return (
-    <ScreenFrame center>
+    <ScreenFrame steps>
       <StepTitle step={stepLabel("hotkey")} title={seen ? "It works" : "Try it now"} />
       {seen ? (
         <div className="flex flex-col gap-5">
