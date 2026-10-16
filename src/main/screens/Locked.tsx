@@ -7,7 +7,7 @@ import { Button, FormRow, Input, Notice, PasswordInput, Spinner } from "../../co
 import type { BackupEntry, VaultStatus } from "../../lib/contract";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { call, isCofferError } from "../../lib/ipc";
-import { secretKeyCharMessage } from "../../lib/secretKey";
+import { normalizeSecretKey, SECRET_KEY_INPUT_HINT, secretKeyCharMessage } from "../../lib/secretKey";
 import { useStore } from "../store";
 import { ScreenFrame, StepTitle } from "./Frame";
 
@@ -40,7 +40,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
     setBusy(true);
     setError(null);
     try {
-      const s = await call("vault_unlock", { password: pw, secretKey: needsKey ? sk : null });
+      const s = await call("vault_unlock", { password: pw, secretKey: needsKey ? normalizeSecretKey(sk) : null });
       setStatus(s);
     } catch (e) {
       if (!isCofferError(e)) {
@@ -121,7 +121,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
             label="Secret Key"
             htmlFor={ids.sk}
             error={skChar}
-            hint="No kit? On a computer where this vault opens: Settings > Security > Show Secret Key."
+            hint={`${SECRET_KEY_INPUT_HINT} No kit? On a computer where this vault opens: Settings > Security > Show Secret Key.`}
           >
             <Input
               id={ids.sk}
