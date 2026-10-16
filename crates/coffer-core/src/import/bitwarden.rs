@@ -136,7 +136,7 @@ pub(crate) fn parse_json(doc: &Value) -> Result<ParsedImport> {
         for h in it.get("passwordHistory").and_then(Value::as_array).into_iter().flatten() {
             let pw = s(h, "password");
             if !pw.is_empty() {
-                let when = crate::time_util::parse(s(h, "lastUsedDate")).map(crate::time_util::fmt).unwrap_or_default();
+                let when = crate::time_util::parse(s(h, "lastUsedDate")).and_then(crate::time_util::fmt).unwrap_or_default();
                 item.password_history.push(HistoryValue { id: uuid::Uuid::new_v4().to_string(), value: pw.to_owned(), changed_at: when });
             }
         }

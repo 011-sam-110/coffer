@@ -83,22 +83,37 @@ pub fn base32_decode(input: &str) -> Option<Zeroizing<Vec<u8>>> {
     if !any { None } else { Some(out) }
 }
 
-fn percent_decode(s: &str) -> String {
+/// The value of one hex digit.
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Decodes `%XX` and `+` on bytes (never slices the text, so a `%`
+/// before a multi-byte character cannot panic). Zeroed on drop: the
+/// query can hold the secret.
+fn percent_decode(s: &str) -> Zeroizing<String> {
     let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
+    let mut out = Zeroizing::new(Vec::with_capacity(bytes.len()));
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() + 0 && i + 2 <= bytes.len() - 1 {
-            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                out.push(v);
-                i += 3;
-                continue;
+        if bytes[i] == b'%' {
+            if let Some(&[h, l]) = bytes.get(i + 1..i + 3) {
+                if let (Some(h), Some(l)) = (hex_val(h), hex_val(l)) {
+                    out.push((h << 4) | l);
+                    i += 3;
+                    continue;
+                }
             }
         }
         out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
         i += 1;
     }
-    String::from_utf8_lossy(&out).into_owned()
+    Zeroizing::new(String::from_utf8_lossy(&out).into_owned())
 }
 
 impl Totp {
@@ -154,7 +169,7 @@ impl Totp {
             let v = percent_decode(v);
             match k.to_ascii_lowercase().as_str() {
                 "secret" => secret = Some(base32_decode(&v).ok_or_else(|| invalid("The secret in this link is not base32."))?),
-                "issuer" if !v.is_empty() => issuer = Some(v),
+                "issuer" if !v.is_empty() => issuer = Some(v.to_string()),
                 "algorithm" => {
                     algorithm = match v.to_ascii_uppercase().as_str() {
                         "SHA1" => TotpAlgorithm::Sha1,
@@ -279,6 +294,22 @@ mod tests {
             assert_eq!(s256.code_at(t).code, b, "SHA256 at {t}");
             assert_eq!(s512.code_at(t).code, c, "SHA512 at {t}");
         }
+    }
+
+    /// Review item 3a: `%` before a multi-byte character used to slice the
+    /// text inside that character and panic (release aborts).
+    #[test]
+    fn percent_before_multibyte_char_does_not_panic() {
+        let p = totp_parse("otpauth://totp/%1\u{e9}?secret=JBSWY3DPEHPK3PXP");
+        assert!(p.valid);
+        assert_eq!(p.account.as_deref(), Some("%1\u{e9}"));
+        let t = Totp::parse("otpauth://totp/x?issuer=%1\u{e9}&secret=JBSWY3DPEHPK3PXP").unwrap();
+        assert_eq!(t.issuer.as_deref(), Some("%1\u{e9}"));
+        assert_eq!(t.code_at(59).code.len(), 6);
+        // A `%` at the very end, and one before a 2-byte character.
+        assert!(totp_parse("otpauth://totp/a%?secret=JBSWY3DPEHPK3PXP").valid);
+        assert!(totp_parse("otpauth://totp/a%\u{e9}?secret=JBSWY3DPEHPK3PXP").valid);
+        assert_eq!(&*percent_decode("a%20b+c%41%zz%"), "a b cA%zz%");
     }
 
     #[test]

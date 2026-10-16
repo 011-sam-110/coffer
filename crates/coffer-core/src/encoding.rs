@@ -130,6 +130,72 @@ pub fn pad_256(buf: &mut Vec<u8>) {
     }
 }
 
+/// The length after [`pad_256`].
+pub(crate) fn padded_256_len(len: usize) -> usize {
+    if len == 0 { 256 } else { len.div_ceil(256) * 256 }
+}
+
+/// A plaintext byte buffer that never frees an unwiped copy: it grows by
+/// copying into a new, larger buffer and zeroing the old one (a plain
+/// `Vec` reallocates and frees the old block as it is). Zeroed on drop.
+pub(crate) struct SecretBuf(zeroize::Zeroizing<Vec<u8>>);
+
+impl SecretBuf {
+    /// An empty buffer with room for `cap` bytes.
+    pub(crate) fn with_capacity(cap: usize) -> Self {
+        SecretBuf(zeroize::Zeroizing::new(Vec::with_capacity(cap)))
+    }
+
+    fn reserve_wiped(&mut self, extra: usize) {
+        let need = self.0.len() + extra;
+        if need <= self.0.capacity() {
+            return;
+        }
+        let mut next = zeroize::Zeroizing::new(Vec::with_capacity(need.max(self.0.capacity() * 2).max(256)));
+        next.extend_from_slice(&self.0);
+        self.0 = next; // the old buffer is zeroed as it drops
+    }
+
+    /// Pads with spaces to a multiple of 256 (as [`pad_256`]), growing
+    /// through the wiping path.
+    pub(crate) fn pad_256(&mut self) {
+        let len = self.0.len();
+        let add = padded_256_len(len) - len;
+        self.reserve_wiped(add);
+        self.0.resize(len + add, b' ');
+    }
+
+    /// The bytes.
+    pub(crate) fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// The buffer.
+    pub(crate) fn into_inner(self) -> zeroize::Zeroizing<Vec<u8>> {
+        self.0
+    }
+}
+
+impl std::io::Write for SecretBuf {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.reserve_wiped(buf.len());
+        self.0.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// JSON of a value written into a [`SecretBuf`].
+pub(crate) fn json_secret<T: serde::Serialize + ?Sized>(value: &T, pretty: bool) -> SecretBuf {
+    let mut buf = SecretBuf::with_capacity(4096);
+    let r = if pretty { serde_json::to_writer_pretty(&mut buf, value) } else { serde_json::to_writer(&mut buf, value) };
+    r.expect("JSON serialisation into memory cannot fail");
+    buf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,5 +255,36 @@ mod tests {
         pad_256(&mut d);
         assert_eq!(d.len(), 512);
         assert!(d[257..].iter().all(|&x| x == b' '));
+    }
+    /// Review item 7: plaintext buffers grow and pad without freeing an
+    /// unwiped copy; the bytes equal what `pad_256` makes.
+    #[test]
+    fn secret_buf_grows_and_pads_like_pad_256() {
+        use std::io::Write;
+        let data: Vec<u8> = (0..1000u32).map(|i| (i % 251) as u8).collect();
+        let mut b = SecretBuf::with_capacity(1);
+        for c in data.chunks(7) {
+            b.write_all(c).unwrap();
+        }
+        assert_eq!(b.as_slice(), &data[..]);
+        b.pad_256();
+        let mut v = data.clone();
+        pad_256(&mut v);
+        assert_eq!(b.as_slice(), &v[..]);
+        // With the final length reserved first, padding does not reallocate.
+        let mut r = SecretBuf::with_capacity(padded_256_len(300));
+        r.write_all(&[1u8; 300]).unwrap();
+        let ptr = r.as_slice().as_ptr();
+        r.pad_256();
+        assert_eq!(r.as_slice().as_ptr(), ptr);
+        assert_eq!(r.as_slice().len(), 512);
+        for (n, want) in [(0, 256), (1, 256), (256, 256), (257, 512)] {
+            assert_eq!(padded_256_len(n), want);
+            let mut e = SecretBuf::with_capacity(0);
+            e.write_all(&vec![0u8; n]).unwrap();
+            e.pad_256();
+            assert_eq!(e.as_slice().len(), want);
+        }
+        assert_eq!(&*json_secret(&serde_json::json!({"a": 1}), false).into_inner(), br#"{"a":1}"#);
     }
 }
