@@ -254,6 +254,10 @@
   textarea {
     caret-color: var(--primary-text);
   }
+  /* Date and month fields: our calendar button opens the picker (showPicker); the browser's icon is hidden. */
+  .date-input::-webkit-calendar-picker-indicator {
+    display: none;
+  }
   /* WebView2 (Edge) adds its own eye and clear button to password and text fields; ours are the only ones. */
   input::-ms-reveal,
   input::-ms-clear {
