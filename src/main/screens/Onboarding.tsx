@@ -7,7 +7,8 @@ import { StrengthMeter } from "../../components/bits";
 import { useToast } from "../../components/overlays";
 import { Button, cx, FormRow, Input, Keys, Notice, PasswordInput, Switch } from "../../components/ui";
 import type { EmergencyKit, FolderInfo } from "../../lib/contract";
-import { formatDate, secretKeyGroups, vaultStem } from "../../lib/format";
+import { formatDate, vaultStem } from "../../lib/format";
+import { lastSecretKeyGroup, SECRET_KEY_GROUPS } from "../../lib/secretKey";
 import { call, isCofferError, on } from "../../lib/ipc";
 import { useStore } from "../store";
 import { ScreenFrame, StepTitle } from "./Frame";
@@ -218,13 +219,12 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
 
 /** The printable Emergency Kit. Print styles turn it black on white. */
 export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; /** False when the screen already says it above the sheet. */ lossLineOnScreen?: boolean }) {
-  const groups = secretKeyGroups(kit.secretKey);
   const rows: Array<[string, string]> = [
     ["Vault name", kit.vaultName],
     ["Created", formatDate(kit.createdAt)],
     ["Computer", kit.computerName],
     ["File", kit.vaultPath],
-    ["Key ID", kit.keyId],
+    ["Key ID (not secret)", kit.keyId],
   ];
   return (
     <article className="kit-sheet rounded-sm border border-border bg-card p-6" aria-label="Emergency Kit">
@@ -232,7 +232,7 @@ export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; 
         <h2 className="text-lg font-semibold">Coffer Emergency Kit</h2>
         <span className="text-xs text-muted-foreground">Keep it on paper, somewhere safe</span>
       </header>
-      <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-2 text-sm">
+      <dl className="grid grid-cols-[148px_1fr] gap-x-4 gap-y-2 text-sm">
         {rows.map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-muted-foreground">{k}</dt>
@@ -244,12 +244,9 @@ export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; 
       </dl>
       <div className="mt-6">
         <p className="mb-2 text-xs font-medium text-muted-foreground">Secret Key</p>
-        <p className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-lg font-medium tracking-[0.04em]" data-selectable aria-label={`Secret Key ${kit.secretKey}`}>
-          {groups.map((g, i) => (
-            <span key={i} className={i === 0 ? "text-muted-foreground" : undefined}>
-              {g}
-            </span>
-          ))}
+        {/* One form everywhere: "C1" and the groups in one colour and weight, hyphens between them. */}
+        <p className="font-mono text-lg font-medium tracking-[0.04em] break-all" data-selectable>
+          {kit.secretKey}
         </p>
       </div>
       <div className="mt-6">
@@ -313,15 +310,16 @@ function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => 
   const [v, setV] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const id = useId();
-  const last4 = kit.secretKey.replace(/[-\s]/g, "").slice(-4).toUpperCase();
+  const lastGroup = lastSecretKeyGroup(kit.secretKey);
+  const need = SECRET_KEY_GROUPS[SECRET_KEY_GROUPS.length - 1];
   const check = () => {
-    if (v.trim().toUpperCase() === last4) onNext();
+    if (v.trim().toUpperCase() === lastGroup) onNext();
     else setErr("That does not match. Look at the end of the Secret Key on your kit.");
   };
   return (
     <ScreenFrame center onBack={onBack} backLabel="Back to the kit">
       <StepTitle step={stepLabel("confirm")} title="Check your kit">
-        Type the last 4 symbols of the Secret Key, from the saved kit.
+        Type the last group of your Secret Key ({need} letters and digits), from the saved kit.
       </StepTitle>
       <form
         className="flex flex-col gap-5"
@@ -330,26 +328,26 @@ function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => 
           check();
         }}
       >
-        <FormRow label="Last 4 symbols" htmlFor={id} error={err}>
+        <FormRow label="Last group" htmlFor={id} error={err}>
           <Input
             id={id}
             mono
             autoFocus
-            maxLength={4}
+            maxLength={need}
             value={v}
             invalid={!!err}
             onChange={(e) => {
               setV(e.target.value.toUpperCase());
               setErr(null);
             }}
-            className="w-32 text-lg tracking-[0.2em] uppercase"
+            className="w-[9ch] text-lg tracking-[0.2em] uppercase"
           />
         </FormRow>
         <div className="flex items-center gap-3">
-          <Button type="submit" variant="primary" disabled={v.trim().length !== 4}>
+          <Button type="submit" variant="primary" disabled={v.trim().length !== need}>
             Confirm
           </Button>
-          {v.trim().length !== 4 && <p className="text-xs text-muted-foreground">Type all 4 symbols.</p>}
+          {v.trim().length !== need && <p className="text-xs text-muted-foreground">Type all {need}.</p>}
         </div>
       </form>
     </ScreenFrame>
