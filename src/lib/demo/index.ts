@@ -23,6 +23,11 @@
 //   ?missingOpen=1       vault://missing { path } the same way (file gone while unlocked)
 //   ?dialogs=cancel      every Rust-side file or folder dialog is "cancelled" (returns null)
 //   ?latency=<ms>        fixed latency for every call (0 = none)
+//   ?hello=none|off|on|ready  Windows Hello: not set up / set up, unlock off (default) / on, but no
+//                        key held yet (after a restart) / on and ready to unlock
+//   ?helloResult=cancel|failed|unavailable|keyChanged  how the next Hello prompt ends (default: verified)
+//   ?autotype=gone|admin|front|modifiers|changed|keys  why auto-type refuses (default: it types)
+//   ?qr=none|google|other|noSecret|notImage|screenFail  what totp_from_image finds (default: a QR code)
 //
 // Demo-only extra commands (not in the contract; the UI must not call them):
 //   invoke("demo_clipboard")  what the simulated clipboard holds (tests only)
@@ -66,6 +71,8 @@ import { DEMO_KEY_ID, DEMO_SECRET_KEY, generateSecretKey, parseSecretKey } from 
 import { DEMO_MASTER_PASSWORD, DEMO_VAULT_PATH, GITHUB_ID, seedItems } from "./seed";
 import { strength } from "./strength";
 import { parseTotp, totpAt } from "./totp";
+import { DEFAULT_AUTOTYPE, parseAutotype, type AutotypeToken } from "../autotype";
+import { DEMO_QR_URI, demoSshKey } from "./tier2";
 
 export { DEMO_SECRET_KEY } from "./secretKey";
 export { DEMO_MASTER_PASSWORD } from "./seed";
@@ -85,6 +92,10 @@ export interface DemoExtras {
   conflict?: boolean;
   missingOpen?: boolean;
   cancelDialogs?: boolean;
+  hello?: "none" | "off" | "on" | "ready";
+  helloResult?: "ok" | "cancel" | "failed" | "unavailable" | "keyChanged";
+  autotype?: "ok" | "gone" | "admin" | "front" | "modifiers" | "changed" | "keys";
+  qr?: "ok" | "none" | "google" | "other" | "noSecret" | "notImage" | "screenFail";
   /** Use this instead of location.search for the flags above (tests). */
   search?: string;
 }
@@ -112,6 +123,7 @@ const WRITE_COMMANDS = new Set([
   "import_undo",
   "vault_change_password",
   "health_check_breaches",
+  "secret_key_rotate",
 ]);
 
 const DEFAULT_SETTINGS: Settings = {
@@ -207,6 +219,10 @@ export function vaultStem(name: string): string | null {
   return s.replace(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?=\.|$)/i, "$1_");
 }
 
+function pick<T extends string>(v: string | null, allowed: readonly T[], fallback: T): T {
+  return v !== null && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+}
+
 function readFlags(opts: DemoBackendOptions) {
   let search = opts.search;
   if (search === undefined) {
@@ -232,6 +248,10 @@ function readFlags(opts: DemoBackendOptions) {
     conflict: opts.conflict ?? on("conflict"),
     missingOpen: opts.missingOpen ?? on("missingOpen"),
     cancelDialogs: opts.cancelDialogs ?? q.get("dialogs") === "cancel",
+    hello: opts.hello ?? pick(q.get("hello"), ["none", "off", "on", "ready"] as const, "off"),
+    helloResult: opts.helloResult ?? pick(q.get("helloResult"), ["ok", "cancel", "failed", "unavailable", "keyChanged"] as const, "ok"),
+    autotype: opts.autotype ?? pick(q.get("autotype"), ["ok", "gone", "admin", "front", "modifiers", "changed", "keys"] as const, "ok"),
+    qr: opts.qr ?? pick(q.get("qr"), ["ok", "none", "google", "other", "noSecret", "notImage", "screenFail"] as const, "ok"),
     latencyMs: opts.latencyMs ?? (latencyParam !== null && Number.isFinite(Number(latencyParam)) ? Number(latencyParam) : undefined),
   };
 }
@@ -268,6 +288,11 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   let lastImportFile: { source: ImportSource; locked: boolean; needsKey: boolean } | null = null;
   const batches = new Map<string, string[]>();
   let quickShownSent = false;
+  /** Windows Hello (SPEC 3.8): set up on this "PC"; a vault key is held after a master-password unlock. */
+  const helloAvailable = flags.hello !== "none";
+  if (flags.hello === "on" || flags.hello === "ready") settings.helloEnabled = true;
+  let helloHeld = flags.hello === "ready";
+  let helloResult = flags.helloResult;
 
   // ---------- helpers ----------
   const now = (): number => Date.now();
@@ -359,9 +384,9 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       vaultName: vault.name,
       keyId: vault.keyId,
       needsSecretKey: state === "locked" && needsSecretKey,
-      helloAvailable: false,
+      helloAvailable,
       helloEnabled: settings.helloEnabled,
-      helloReady: false,
+      helloReady: helloAvailable && settings.helloEnabled && helloHeld,
       itemCount: unlocked ? [...vault.items.values()].filter((i) => i.state === "active").length : null,
     };
   }
@@ -475,6 +500,8 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     // SPEC 9: lock discards an unsaved edit.
     if (editState?.dirty) emit("edit://discarded", { title: editState.title ?? "an item" });
     editState = null;
+    // SPEC 3.8: a keyChanged lock drops the key that Hello holds.
+    if (reason === "keyChanged") helloHeld = false;
     emit("vault://locked", { reason });
   }
 
@@ -523,8 +550,10 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     for (const [id, i] of v.items) if (i.state === "trashed" && i.trashedAt && Date.parse(i.trashedAt) < cutoff) v.items.delete(id);
   }
 
-  function finishUnlock(v: Vault, typedKey: string | null): VaultStatus {
+  function finishUnlock(v: Vault, typedKey: string | null, byHello = false): VaultStatus {
     if (typedKey) v.secretKey = typedKey; // this device now keeps the Secret Key
+    // A master-password unlock proves the password: with Hello on, the next lock keeps the key.
+    if (!byHello && settings.helloEnabled) helloHeld = true;
     needsSecretKey = false;
     state = "unlocked";
     purgeOldTrash(v);
@@ -645,7 +674,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       computerName: COMPUTER_NAME,
       defaultFolder: DEMO_DEFAULT_FOLDER,
       hotkeyStatus: { quick: hotkeyStatus(settings.hotkeyQuick), lock: hotkeyStatus(settings.hotkeyLock) },
-      helloAvailable: false,
+      helloAvailable,
       demo: true,
     }),
 
@@ -680,8 +709,17 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       return kit(vault);
     },
 
-    secret_key_rotate: () => {
-      throw fail("invalid", "Not available in this version.");
+    secret_key_rotate: async ({ password }) => {
+      const v = requireUnlocked();
+      await checkMaster(password);
+      await delay("slow");
+      // SPEC 3.3: a new Secret Key, a new vault key and full re-encryption; backups under the old key are deleted.
+      const key = generateSecretKey();
+      v.keyId = key.keyId;
+      v.secretKey = key.secretKey;
+      v.backups = [];
+      commit([]);
+      return { ...kit(v), createdAt: iso() };
     },
 
     vault_open: () => {
@@ -738,8 +776,28 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       return finishUnlock(v, typed);
     },
 
-    vault_unlock_hello: () => {
-      throw fail("invalid", "Not available in this version.");
+    vault_unlock_hello: async () => {
+      const v = requireVault();
+      if (state === "unlocked") return status();
+      if (state === "missing") throw fail("vaultMissing", `Coffer cannot find your vault at ${v.path}.`);
+      if (!settings.helloEnabled) throw fail("helloUnavailable", "Windows Hello unlock is off. Turn it on in Settings > Security.");
+      if (!helloHeld) throw fail("helloUnavailable", "Windows Hello works after one master-password unlock.");
+      if (!helloAvailable) throw fail("helloUnavailable", "Windows Hello is not available now. Use your master password.");
+      if (needsSecretKey) throw fail("needsSecretKey", "Enter the Secret Key from your Emergency Kit.");
+      // The Windows Security prompt is up for a moment.
+      await sleep(flags.latencyMs ?? 1600);
+      const result = helloResult;
+      helloResult = "ok"; // the flag shapes the first prompt only
+      if (result === "cancel") throw fail("helloFailed", "Windows Hello was cancelled. Use your master password.");
+      if (result === "failed") throw fail("helloFailed", "Windows Hello did not confirm it is you (the fingerprint did not match). Use your master password.");
+      if (result === "unavailable") throw fail("helloUnavailable", "Windows Hello could not start. Use your master password.");
+      if (result === "keyChanged") {
+        helloHeld = false;
+        throw fail("helloFailed", "The vault key changed, so Windows Hello cannot open it. Use your master password.");
+      }
+      if ((state as VaultState) === "unlocked") return status(); // unlocked with the password while the prompt was up
+      if (flags.tampered) throw fail("tampered", "This vault file was changed outside Coffer.");
+      return finishUnlock(v, null, true);
     },
 
     vault_lock: () => {
@@ -777,8 +835,18 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       return status();
     },
 
-    hello_set: () => {
-      throw fail("helloUnavailable", "Windows Hello is not set up on this PC.");
+    hello_set: async ({ enabled, password }) => {
+      requireUnlocked();
+      if (enabled) {
+        if (!password) throw fail("invalid", "Type your master password to turn on Windows Hello.");
+        await checkMaster(password);
+        if (!helloAvailable) throw fail("helloUnavailable", "Windows Hello is not set up on this PC. Set it up in Windows Settings > Accounts > Sign-in options.");
+        helloHeld = true; // the password was just proven
+      } else {
+        helloHeld = false;
+      }
+      settings = { ...settings, helloEnabled: !!enabled };
+      return status();
     },
 
     secret_key_validate: ({ secretKey }) => {
@@ -964,13 +1032,31 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       return { issuer: p?.issuer ?? null, account: p?.account ?? null, valid: !!p };
     },
 
-    totp_from_image: () => {
-      throw fail("invalid", "Not available in this version.");
+    totp_from_image: async ({ source }) => {
+      requireUnlocked();
+      if (source === "file" && flags.cancelDialogs) return null;
+      await delay("file");
+      const from = source === "screen" ? "on the screen" : "in that image";
+      switch (flags.qr) {
+        case "none":
+          throw fail("notFound", `Coffer found no QR code ${from}.`);
+        case "google":
+          throw fail("unsupportedFormat", "This QR code is a Google Authenticator export. Coffer reads the QR code of one account (otpauth://).");
+        case "other":
+          throw fail("invalid", "The QR code is not a one-time code setup (otpauth://).");
+        case "noSecret":
+          throw fail("invalid", "The QR code is a one-time code setup, but Coffer cannot read its secret.");
+        case "notImage":
+          if (source === "file") throw fail("unsupportedFormat", "Coffer cannot open this image. Use a PNG, JPEG or BMP file.");
+          break;
+        case "screenFail":
+          if (source === "screen") throw fail("io", "Coffer could not read the screen.");
+          break;
+      }
+      return { uri: DEMO_QR_URI };
     },
 
-    ssh_generate: () => {
-      throw fail("invalid", "Not available in this version.");
-    },
+    ssh_generate: () => demoSshKey(),
 
     // ----- generator -----
     // Like Rust: generate stores the options it used; generator_options returns them (defaults before the first).
@@ -1178,8 +1264,35 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     main_show: ({ itemId, view }) => {
       if (itemId || view) emit("main://navigate", { itemId: itemId ?? null, view: view ?? null });
     },
-    autotype: () => {
-      throw fail("invalid", "Not available in this version.");
+    autotype: async ({ id, password, only }) => {
+      requireUnlocked();
+      const item = getItem(id);
+      // Rust order (SPEC 10): the target window first, then every value, then type.
+      if (flags.autotype === "gone") throw fail("invalid", "The window to type into is gone. Click in it, then open Quick Access again.");
+      if (flags.autotype === "admin") throw fail("invalid", "Coffer cannot type into an app running as administrator.");
+      const seq = only === "password" ? "{PASSWORD}" : item.autotypeSequence?.trim() || DEFAULT_AUTOTYPE;
+      const parsed = parseAutotype(seq);
+      if (!parsed.ok) throw fail("invalid", parsed.message);
+      const fieldOf = (t: AutotypeToken) => {
+        if (t.kind === "username") return { field: item.fields.find((f) => f.builtin === "username" && f.value.trim()), what: "username" };
+        if (t.kind === "password") return { field: item.fields.find((f) => f.builtin === "password" && f.value.trim()), what: "password" };
+        if (t.kind === "totp") return { field: item.fields.find((f) => f.kind === "totp" && f.value.trim()), what: "one-time code" };
+        if (t.kind === "field") return { field: item.fields.find((f) => f.label.toLowerCase() === t.label.toLowerCase() && f.value.trim()), what: `field named "${t.label}"` };
+        return null;
+      };
+      let secret = false;
+      for (const t of parsed.tokens) {
+        const r = fieldOf(t);
+        if (!r) continue;
+        if (!r.field) throw fail("notFound", `This item has no ${r.what}, so Coffer typed nothing.`);
+        if (isSecretKind(r.field.kind)) secret = true;
+      }
+      if (secret) await checkReprompt(item, password);
+      if (flags.autotype === "front") throw fail("invalid", "Coffer could not bring that window to the front, so it typed nothing.");
+      if (flags.autotype === "modifiers") throw fail("invalid", "Let go of Ctrl, Shift, Alt and the Windows key, then try again. Coffer typed nothing.");
+      if (flags.autotype === "changed") throw fail("invalid", "The window in front changed, so Coffer stopped typing.");
+      if (flags.autotype === "keys") throw fail("invalid", "Windows did not take all the keys. Check what was typed.");
+      item.lastUsedAt = iso(); // auto-type is a use; demo: nothing is typed anywhere
     },
     main_hide: () => undefined,
     app_quit: () => undefined,
