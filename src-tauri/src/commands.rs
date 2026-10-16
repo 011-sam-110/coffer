@@ -706,12 +706,13 @@ pub async fn main_hide(app: AppHandle) -> CofferResult<()> {
 }
 
 /// Ctrl+Enter in Quick Access (SPEC 10): type the item into the window that
-/// was in front before Quick Access opened.
+/// was in front before Quick Access opened. `only: "password"` types the
+/// password alone; callers without `only` get the sequence.
 #[tauri::command]
-pub async fn autotype(app: AppHandle, window: Window, id: String, password: Option<Secret>) -> CofferResult<()> {
+pub async fn autotype(app: AppHandle, window: Window, id: String, password: Option<Secret>, only: Option<AutotypeOnly>) -> CofferResult<()> {
     let link = link_app(&app, &window);
     blocking(move || {
-        crate::autotype::run(&app, &id, pw(&password))?;
+        crate::autotype::run(&app, &id, pw(&password), only)?;
         record_use(&app, &id, link);
         Ok(())
     })

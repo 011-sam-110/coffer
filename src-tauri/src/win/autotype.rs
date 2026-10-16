@@ -141,13 +141,19 @@ fn send(inputs: &mut [INPUT]) -> Result<(), String> {
     }
 }
 
-/// Type `text` as Unicode key events (any layout, any character).
-pub fn type_text(text: &str) -> Result<(), String> {
+/// The key events for `text`: a Unicode down and up per UTF-16 unit.
+pub(crate) fn text_inputs(text: &str) -> Vec<INPUT> {
     let mut inputs: Vec<INPUT> = Vec::with_capacity(text.len() * 4);
     for unit in text.encode_utf16() {
         inputs.push(key_input(VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE));
         inputs.push(key_input(VIRTUAL_KEY(0), unit, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP));
     }
+    inputs
+}
+
+/// Type `text` as Unicode key events (any layout, any character).
+pub fn type_text(text: &str) -> Result<(), String> {
+    let mut inputs = text_inputs(text);
     if inputs.is_empty() {
         return Ok(());
     }
