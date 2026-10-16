@@ -174,25 +174,30 @@ function ItemRow({
         )}
       >
         <Monogram title={i.title} size={28} />
+        {/* The name has the whole first line; the tags and the Enter hint share the second line with the subtitle. */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium">{i.title}</span>
+            <span className="truncate text-sm font-medium" title={i.title}>
+              {i.title}
+            </span>
             {i.favorite && <Star aria-label="Favourite" className="size-3 shrink-0 fill-gold text-gold" />}
           </div>
-          <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
+            {/* A static tag: a turning ring in a list read as loading. The ring shows next to the digits only. */}
+            {i.hasTotp && (
+              <span title="Has a one-time code" className="shrink-0 rounded-sm border border-border px-1 text-2xs leading-3.5 font-medium text-muted-foreground">
+                2FA
+              </span>
+            )}
+            {selected && (
+              <span role="img" aria-label={`Enter: ${enterLabel.toLowerCase()}`} className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <CornerDownLeft aria-hidden className="size-3" />
+                {enterLabel}
+              </span>
+            )}
+          </div>
         </div>
-        {/* A static tag: a turning ring in a list read as loading. The ring shows next to the digits only. */}
-        {i.hasTotp && (
-          <span title="Has a one-time code" className="shrink-0 rounded-sm border border-border px-1.5 text-2xs leading-4 font-medium text-muted-foreground">
-            2FA
-          </span>
-        )}
-        {selected && (
-          <span role="img" aria-label={`Enter copies the ${enterLabel.toLowerCase()}`} className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            <CornerDownLeft aria-hidden className="size-3" />
-            {enterLabel}
-          </span>
-        )}
         <button
           type="button"
           tabIndex={-1}

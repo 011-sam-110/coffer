@@ -113,6 +113,12 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Quick Access is a 400 x 560 flyout: the original type size, so a row shows
+   a whole item name (the main window keeps the bigger 1.2). */
+:root.quick {
+  --type-scale: 1;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

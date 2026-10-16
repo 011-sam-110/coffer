@@ -1,7 +1,8 @@
 //! WebView2 hardening per webview (SPEC 3.7), through `with_webview`:
 //! browser accelerator keys off (Ctrl+P, Ctrl+R, F5, Ctrl+F, zoom keys, F12),
 //! general autofill and password autosave off, default context menu off,
-//! status bar off, and no devtools in release builds.
+//! status bar off, page zoom (Ctrl + wheel) and touchpad pinch zoom off, and
+//! no devtools in release builds.
 //!
 //! WebView2 applies `AreBrowserAcceleratorKeysEnabled` "after the next
 //! navigation" (Microsoft's own sample says so), and Tauri does not pass
@@ -12,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use tauri::WebviewWindow;
-use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Controller, ICoreWebView2Settings3, ICoreWebView2Settings4};
+use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Controller, ICoreWebView2Settings3, ICoreWebView2Settings4, ICoreWebView2Settings5};
 use windows::core::{BOOL, Interface};
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +66,14 @@ pub fn harden(window: &WebviewWindow) {
     }
 }
 
+/// Put the page zoom of `window` back to 100 % (Quick Access, on each open).
+/// Zoom gestures are off, so this only undoes a zoom that came in some other way.
+pub fn reset_zoom(window: &WebviewWindow) {
+    let _ = window.with_webview(|platform| unsafe {
+        let _ = platform.controller().SetZoomFactor(1.0);
+    });
+}
+
 /// Call when a page of `window` has finished loading.
 pub fn on_page_loaded(window: &WebviewWindow) {
     if step(window.label(), false, true) {
@@ -80,6 +89,8 @@ unsafe fn apply(controller: &ICoreWebView2Controller) -> windows::core::Result<b
         let settings = core.Settings()?;
         settings.SetAreDefaultContextMenusEnabled(false)?;
         settings.SetIsStatusBarEnabled(false)?;
+        // A zoomed Quick Access cuts the item names, and a zoom lasts until Coffer restarts.
+        settings.SetIsZoomControlEnabled(false)?;
         if !cfg!(debug_assertions) {
             settings.SetAreDevToolsEnabled(false)?;
         }
@@ -88,6 +99,8 @@ unsafe fn apply(controller: &ICoreWebView2Controller) -> windows::core::Result<b
         let s4: ICoreWebView2Settings4 = settings.cast()?;
         s4.SetIsGeneralAutofillEnabled(false)?;
         s4.SetIsPasswordAutosaveEnabled(false)?;
+        let s5: ICoreWebView2Settings5 = settings.cast()?;
+        s5.SetIsPinchZoomEnabled(false)?;
         let mut keys = BOOL::default();
         s3.AreBrowserAcceleratorKeysEnabled(&mut keys)?;
         Ok(keys.as_bool())

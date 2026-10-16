@@ -5,6 +5,11 @@
   python e2e/win.py fill-dialog PID TITLE PATH   type PATH into the open-file dialog
                                                  TITLE of process PID and press Open
   python e2e/win.py contact-sheet OUT IMG...     tile screenshots into one PNG
+  python e2e/win.py monitors                     print each monitor: work area, scale
+  python e2e/win.py focus-at X Y SECONDS         open a window at X, Y (physical px),
+                                                 bring it to the front, press the hotkey
+  python e2e/win.py ctrl-wheel PID NOTCHES       Ctrl + mouse wheel over the visible
+                                                 Quick Access of process PID (a zoom gesture)
 
 fill-dialog sends window messages to that one dialog: it never types into
 whatever window has the keyboard focus. hotkey is safe only while Coffer has
@@ -168,9 +173,124 @@ def contact_sheet(out, images):
     print(json.dumps({"ok": True, "out": out, "count": len(thumbs)}))
 
 
+class MONITORINFOEXW(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD), ("szDevice", wintypes.WCHAR * 32)]
+
+
+MONITORENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+
+
+def _per_monitor_aware():
+    # Physical pixels everywhere (per-monitor DPI aware v2).
+    user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+
+
+def monitors():
+    _per_monitor_aware()
+    shcore = ctypes.WinDLL("shcore")
+    out = []
+
+    def cb(h, _dc, _r, _l):
+        mi = MONITORINFOEXW()
+        mi.cbSize = ctypes.sizeof(MONITORINFOEXW)
+        user32.GetMonitorInfoW(h, ctypes.byref(mi))
+        dx, dy = wintypes.UINT(), wintypes.UINT()
+        shcore.GetDpiForMonitor(h, 0, ctypes.byref(dx), ctypes.byref(dy))
+        w = mi.rcWork
+        out.append({"device": mi.szDevice, "work": [w.left, w.top, w.right, w.bottom], "scale": dx.value / 96, "primary": bool(mi.dwFlags & 1)})
+        return True
+
+    user32.EnumDisplayMonitors(None, None, MONITORENUMPROC(cb), 0)
+    print(json.dumps(out))
+
+
+def focus_at(x, y, seconds):
+    """Open a small window with its top-left at physical (x, y), bring it to
+    the front, press the Quick Access hotkey, and keep it open `seconds`.
+    Quick Access then opens on that window's monitor."""
+    _per_monitor_aware()
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.title("Coffer DPI probe")
+    root.geometry(f"420x220+{x}+{y}")
+    tk.Label(root, text="Coffer test window\nIt closes by itself.", font=("Segoe UI", 12)).pack(expand=True)
+    root.update()
+    hwnd = user32.GetAncestor(root.winfo_id(), 2)  # GA_ROOT
+    # An Alt tap lets this process take the foreground (SetForegroundWindow rules).
+    VK_MENU, KEYUP = 0x12, 0x0002
+    tap = (INPUT * 2)(INPUT(type=1), INPUT(type=1))
+    tap[0].u.ki = KEYBDINPUT(VK_MENU, 0, 0, 0, 0)
+    tap[1].u.ki = KEYBDINPUT(VK_MENU, 0, KEYUP, 0, 0)
+    user32.SendInput(2, tap, ctypes.sizeof(INPUT))
+    user32.SetForegroundWindow(hwnd)
+    root.focus_force()
+    root.update()
+    time.sleep(0.3)
+    front = user32.GetForegroundWindow() == hwnd
+    if front:
+        hotkey()
+    else:
+        print(json.dumps({"sent": 0}))
+    print(json.dumps({"front": front}), flush=True)
+    root.after(int(seconds * 1000), root.destroy)
+    root.mainloop()
+
+
+def _visible_window(pid, title):
+    found = []
+
+    def cb(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd) and _text(hwnd) == title:
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(cb), 0)
+    return found[0] if found else None
+
+
+def ctrl_wheel(pid, notches):
+    """Hold Ctrl and turn the mouse wheel `notches` up over the middle of the
+    visible Quick Access window of process `pid`, then put the cursor back.
+    This is what a zoom gesture sends."""
+    _per_monitor_aware()
+    hwnd = _visible_window(pid, "Coffer Quick Access")
+    if not hwnd:
+        print(json.dumps({"ok": False, "error": "no visible Quick Access"}))
+        return
+    r = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    x, y = (r.left + r.right) // 2, (r.top + r.bottom) // 2
+    VK_CONTROL, KEYUP, MOUSEEVENTF_WHEEL, WHEEL_DELTA = 0x11, 0x0002, 0x0800, 120
+    old = wintypes.POINT()
+    user32.GetCursorPos(ctypes.byref(old))
+    user32.SetCursorPos(x, y)
+    time.sleep(0.15)
+    ctrl = INPUT(type=1)
+    ctrl.u.ki = KEYBDINPUT(VK_CONTROL, 0, 0, 0, 0)
+    user32.SendInput(1, ctypes.byref(ctrl), ctypes.sizeof(INPUT))
+    for _ in range(notches):
+        w = INPUT(type=0)
+        w.u.mi = MOUSEINPUT(0, 0, ctypes.c_ulong(WHEEL_DELTA).value, MOUSEEVENTF_WHEEL, 0, 0)
+        user32.SendInput(1, ctypes.byref(w), ctypes.sizeof(INPUT))
+        time.sleep(0.08)
+    ctrl.u.ki = KEYBDINPUT(VK_CONTROL, 0, KEYUP, 0, 0)
+    user32.SendInput(1, ctypes.byref(ctrl), ctypes.sizeof(INPUT))
+    user32.SetCursorPos(old.x, old.y)
+    print(json.dumps({"ok": True}))
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1]
-    if cmd == "hotkey":
+    if cmd == "monitors":
+        monitors()
+    elif cmd == "ctrl-wheel":
+        ctrl_wheel(int(sys.argv[2]), int(sys.argv[3]))
+    elif cmd == "focus-at":
+        focus_at(int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4]))
+    elif cmd == "hotkey":
         hotkey()
     elif cmd == "clipboard":
         clipboard()
