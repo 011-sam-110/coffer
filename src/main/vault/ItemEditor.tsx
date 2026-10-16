@@ -1,6 +1,6 @@
 // The ONE item form for all 11 types, driven by the contract's field tables.
 // Secret fields stay null (unchanged) until the user shows, types or generates.
-import { Eye, Plus, Trash2, WandSparkles, X } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle, Plus, Trash2, WandSparkles, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Generator } from "../../components/Generator";
 import { Monogram } from "../../components/bits";
@@ -31,16 +31,12 @@ function SecretInput({
   itemId,
   onChange,
   invalid,
-  generatorOpen,
-  onToggleGenerator,
   id,
 }: {
   field: FormField;
   itemId?: string;
   onChange: (v: string | null) => void;
   invalid?: boolean;
-  generatorOpen?: boolean;
-  onToggleGenerator?: () => void;
   id: string;
 }) {
   const { withReprompt } = useReprompt();
@@ -49,7 +45,6 @@ function SecretInput({
   const [visible, setVisible] = useState(false);
   const unchanged = field.value === null;
   const multiline = field.kind === "concealedMultiline";
-  const canGenerate = field.kind === "concealed" || field.kind === "pin";
 
   const showStored = async () => {
     if (!itemId || !field.id) return;
@@ -80,35 +75,30 @@ function SecretInput({
       <Textarea id={id} mono rows={5} value={field.value ?? ""} invalid={invalid} onChange={(e) => onChange(e.target.value)} placeholder="Paste the key" />
     );
 
+  const stored = unchanged && field.hasStored;
   return (
-    <div className="flex items-center gap-1.5">
-      <div className="control flex flex-1 items-center gap-1 pr-1" aria-invalid={invalid || undefined}>
-        <input
-          id={id}
-          type={visible ? "text" : "password"}
-          autoComplete="off"
-          spellCheck={false}
-          value={field.value ?? ""}
-          placeholder={unchanged && field.hasStored ? "Unchanged" : ""}
-          aria-invalid={invalid || undefined}
-          onChange={(e) => onChange(e.target.value === "" && field.hasStored ? null : e.target.value)}
-          className="h-[1.875rem] min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
-        />
-        {unchanged && field.hasStored ? (
-          <Button size="sm" variant="quiet" className="h-6" loading={busy} onClick={showStored}>
-            Show
-          </Button>
-        ) : (
-          <IconButton size="sm" label={visible ? "Hide" : "Show"} onClick={() => setVisible((v) => !v)}>
-            <Eye />
-          </IconButton>
-        )}
-      </div>
-      {canGenerate && onToggleGenerator && (
-        <IconButton label="Generate a password" active={generatorOpen} aria-expanded={generatorOpen} onClick={onToggleGenerator}>
-          <WandSparkles />
-        </IconButton>
-      )}
+    <div className="control flex items-center gap-1 pr-1" aria-invalid={invalid || undefined}>
+      <input
+        id={id}
+        type={visible ? "text" : "password"}
+        autoComplete="off"
+        spellCheck={false}
+        value={field.value ?? ""}
+        placeholder={stored ? "Saved. Type to replace." : ""}
+        aria-invalid={invalid || undefined}
+        onChange={(e) => onChange(e.target.value === "" && field.hasStored ? null : e.target.value)}
+        className="h-[1.875rem] min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
+      />
+      {/* The eye sits inside the field. On a saved value it fetches the value to edit it. */}
+      <IconButton
+        size="sm"
+        label={stored ? "Show the saved value" : visible ? "Hide" : "Show"}
+        aria-pressed={stored ? undefined : visible}
+        disabled={busy}
+        onClick={stored ? showStored : () => setVisible((v) => !v)}
+      >
+        {busy ? <LoaderCircle className="animate-spin" /> : visible && !stored ? <EyeOff /> : <Eye />}
+      </IconButton>
     </div>
   );
 }
@@ -119,29 +109,14 @@ function ValueInput({
   onChange,
   invalid,
   id,
-  generatorOpen,
-  onToggleGenerator,
 }: {
   field: FormField;
   itemId?: string;
   onChange: (v: string | null) => void;
   invalid?: boolean;
   id: string;
-  generatorOpen?: boolean;
-  onToggleGenerator?: () => void;
 }) {
-  if (isSecretKind(field.kind) && field.kind !== "totp")
-    return (
-      <SecretInput
-        id={id}
-        field={field}
-        itemId={itemId}
-        onChange={onChange}
-        invalid={invalid}
-        generatorOpen={generatorOpen}
-        onToggleGenerator={onToggleGenerator}
-      />
-    );
+  if (isSecretKind(field.kind) && field.kind !== "totp") return <SecretInput id={id} field={field} itemId={itemId} onChange={onChange} invalid={invalid} />;
   if (field.kind === "totp") return <TotpInput id={id} field={field} itemId={itemId} onChange={onChange} invalid={invalid} />;
   const v = field.value ?? "";
   switch (field.kind) {
@@ -199,7 +174,7 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
           id={id}
           mono
           value={field.value ?? ""}
-          placeholder={field.value === null && field.hasStored ? "Set up. Paste to replace it." : "otpauth://... or the setup key"}
+          placeholder={field.value === null && field.hasStored ? "Saved. Paste a new setup key to replace." : "otpauth://... or the setup key"}
           invalid={invalid}
           onChange={(e) => onChange(e.target.value === "" && field.hasStored ? null : e.target.value)}
         />
@@ -410,12 +385,14 @@ export function ItemEditor({
   const custom = form.fields.filter((f) => !f.builtin || !builtinKeys.has(f.builtin));
   const fid = (k: string) => `${uid}-${k}`;
 
+  const canGenerate = (f: FormField) => f.kind === "concealed" || f.kind === "pin";
+  // Every row: label 148 px | value | actions 64 px (two 28 px buttons, 8 px apart).
   const renderRow = (f: FormField, isCustom: boolean) => {
     const err = errors[`field:${f.key}`];
     const labelErr = errors[`label:${f.key}`];
     return (
       <div key={f.key} className="flex flex-col gap-2 px-4 py-3" data-err={err ? `field:${f.key}` : labelErr ? `label:${f.key}` : undefined}>
-        <div className={cx("grid items-start gap-3", isCustom ? "grid-cols-[160px_1fr_auto]" : "grid-cols-[140px_1fr]")}>
+        <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
           {isCustom ? (
             <div className="flex flex-col gap-1">
               <Input
@@ -446,8 +423,6 @@ export function ItemEditor({
               itemId={form.id}
               invalid={!!err}
               onChange={(v) => patchField(f.key, { value: v })}
-              generatorOpen={genFor === f.key}
-              onToggleGenerator={() => setGenFor((g) => (g === f.key ? null : f.key))}
             />
             {(err || labelErr) && (
               <p role="alert" className="text-xs text-danger-text">
@@ -456,11 +431,27 @@ export function ItemEditor({
             )}
             {isCustom && <p className="text-2xs text-muted-foreground">{FIELD_KIND_LABELS[f.kind]}</p>}
           </div>
-          {isCustom && (
-            <IconButton label={`Remove ${f.label || "field"}`} onClick={() => setForm({ ...form, fields: form.fields.filter((x) => x.key !== f.key) })}>
-              <Trash2 />
-            </IconButton>
-          )}
+          <div className="flex h-8 items-center justify-end gap-2">
+            {canGenerate(f) && (
+              <IconButton
+                label="Generate a password"
+                active={genFor === f.key}
+                aria-expanded={genFor === f.key}
+                onClick={() => setGenFor((g) => (g === f.key ? null : f.key))}
+              >
+                <WandSparkles />
+              </IconButton>
+            )}
+            {isCustom && (
+              <IconButton
+                label={`Remove ${f.label || "field"}`}
+                className="hover:text-danger-text"
+                onClick={() => setForm({ ...form, fields: form.fields.filter((x) => x.key !== f.key) })}
+              >
+                <Trash2 />
+              </IconButton>
+            )}
+          </div>
         </div>
         {genFor === f.key && (
           <div className="rounded-sm border border-border bg-muted/40 p-3">
@@ -554,13 +545,63 @@ export function ItemEditor({
             </Notice>
           )}
 
-          {builtins.length > 0 && <div className="divide-y divide-border rounded-sm border border-border bg-card">{builtins.map((f) => renderRow(f, false))}</div>}
+          <div className="divide-y divide-border rounded-sm border border-border bg-card">
+            {builtins.map((f) => renderRow(f, false))}
+            {def.hasUrls &&
+              form.urls.map((u, i) => (
+                <div key={`url-${i}`} className="flex flex-col gap-1 px-4 py-3" data-err={errors[`url:${i}`] ? `url:${i}` : undefined}>
+                  <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
+                    <label htmlFor={`${uid}-url-${i}`} className="pt-2 text-xs text-muted-foreground">
+                      {form.urls.length > 1 ? `Website ${i + 1}` : "Website"}
+                    </label>
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <Input
+                        id={`${uid}-url-${i}`}
+                        value={u.url}
+                        placeholder="https://example.com"
+                        invalid={!!errors[`url:${i}`]}
+                        onChange={(e) => patch({ urls: form.urls.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) })}
+                      />
+                      {errors[`url:${i}`] && <p className="text-xs text-danger-text">{errors[`url:${i}`]}</p>}
+                    </div>
+                    <div className="flex h-8 items-center justify-end gap-2">
+                      <IconButton label={`Remove website ${i + 1}`} className="hover:text-danger-text" onClick={() => patch({ urls: form.urls.filter((_, j) => j !== i) })}>
+                        <X />
+                      </IconButton>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            {def.hasUrls && (
+              <div className="px-4 py-2">
+                <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
+                  <span />
+                  <div>
+                    <Button size="sm" variant="ghost" className="-ml-2.5" icon={<Plus className="size-3.5" />} onClick={() => patch({ urls: [...form.urls, { url: "", label: null }] })}>
+                      Add a website
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="px-4 py-3">
+              <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
+                <label htmlFor={`${uid}-notes`} className="pt-2 text-xs text-muted-foreground">
+                  Notes
+                </label>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <Textarea id={`${uid}-notes`} rows={form.type === "note" ? 12 : 4} value={form.notes} onChange={(e) => patch({ notes: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">Formatting: # heading, - list, **bold**, *italic*, `code`.</p>
+                </div>
+              </div>
+            </div>
+          </div>
 
           {custom.length > 0 && (
             <section className="flex flex-col gap-1.5">
               <h2 className="px-1 text-xs font-medium text-muted-foreground">{builtins.length ? "More fields" : "Fields"}</h2>
               <div className="rounded-sm border border-border bg-card">
-                <div aria-hidden className="grid grid-cols-[160px_1fr_auto] gap-3 border-b border-border px-4 pt-2 pb-1.5 text-2xs text-muted-foreground">
+                <div aria-hidden className="grid grid-cols-[148px_minmax(0,1fr)_64px] gap-3 border-b border-border px-4 pt-2 pb-1.5 text-2xs text-muted-foreground">
                   <span>Name and section</span>
                   <span>Value</span>
                 </div>
@@ -587,44 +628,6 @@ export function ItemEditor({
               )}
             />
           </div>
-
-          {def.hasUrls && (
-            <section className="flex flex-col gap-1.5">
-              <h2 className="px-1 text-xs font-medium text-muted-foreground">Websites</h2>
-              <div className="flex flex-col gap-2">
-                {form.urls.map((u, i) => (
-                  <div key={i} className="flex flex-col gap-1" data-err={errors[`url:${i}`] ? `url:${i}` : undefined}>
-                    <div className="flex items-center gap-1.5">
-                      <Input
-                        aria-label={`Website ${i + 1}`}
-                        value={u.url}
-                        placeholder="https://example.com"
-                        invalid={!!errors[`url:${i}`]}
-                        onChange={(e) => patch({ urls: form.urls.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) })}
-                      />
-                      <IconButton label={`Remove website ${i + 1}`} onClick={() => patch({ urls: form.urls.filter((_, j) => j !== i) })}>
-                        <X />
-                      </IconButton>
-                    </div>
-                    {errors[`url:${i}`] && <p className="text-xs text-danger-text">{errors[`url:${i}`]}</p>}
-                  </div>
-                ))}
-                <div>
-                  <Button size="sm" variant="ghost" icon={<Plus className="size-3.5" />} onClick={() => patch({ urls: [...form.urls, { url: "", label: null }] })}>
-                    Add a website
-                  </Button>
-                </div>
-              </div>
-            </section>
-          )}
-
-          <section className="flex flex-col gap-1.5">
-            <label htmlFor={`${uid}-notes`} className="px-1 text-xs font-medium text-muted-foreground">
-              Notes
-            </label>
-            <Textarea id={`${uid}-notes`} rows={form.type === "note" ? 12 : 4} value={form.notes} onChange={(e) => patch({ notes: e.target.value })} />
-            <p className="px-1 text-xs text-muted-foreground">Formatting: # heading, - list, **bold**, *italic*, `code`.</p>
-          </section>
 
           <section className="flex flex-col gap-1.5">
             <h2 className="px-1 text-xs font-medium text-muted-foreground">Tags</h2>
