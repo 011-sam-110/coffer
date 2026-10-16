@@ -387,9 +387,9 @@ function Prefs({ onNext }: { onNext: () => void }) {
             loading={busy}
             onClick={async () => {
               setBusy(true);
-              await updateSettings({ startWithWindows, hotkeyQuick: hotkey });
+              const saved = await updateSettings({ startWithWindows, hotkeyQuick: hotkey });
               setBusy(false);
-              onNext();
+              if (saved) onNext(); // on an error the toast says why, and this step stays
             }}
           >
             Continue

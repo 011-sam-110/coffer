@@ -1159,6 +1159,10 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) {
         if (key in p && p[key] !== undefined) (next as Record<keyof Settings, unknown>)[key] = p[key];
       }
+      // Rust's settings::apply_patch checks this too; the UI shows the message and keeps the old value.
+      if (next.hotkeyLock && next.hotkeyLock.toLowerCase() === next.hotkeyQuick.toLowerCase()) {
+        throw fail("invalid", "The Lock shortcut and the Quick Access shortcut must differ.");
+      }
       settings = next;
       return { ...settings };
     },
@@ -1227,9 +1231,14 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
         // A browser tab has no window close; this stands in for the first close with closeBehavior "hide".
         emit("main://closeNotice", {});
         return true;
-      case "keyChanged":
+      case "keyChanged": {
+        // Like Rust (SPEC 3.5): write the open state to a conflict file, say so, then lock.
+        if (!vault || state !== "unlocked") return false;
+        const stamp = iso().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+        emit("vault://conflict", { conflictPath: vault.path.replace(/\.coffer$/i, ` (conflict ${stamp}).coffer`), since: iso() });
         lockNow("keyChanged");
         return true;
+      }
       default:
         return false;
     }
