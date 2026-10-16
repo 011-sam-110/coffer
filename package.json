@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check-ui": "node scripts/check-ui.mjs",
+    "brand": "node scripts/render-brand.mjs",
     "fonts": "node scripts/fetch-fonts.mjs",
     "tauri": "tauri"
   },

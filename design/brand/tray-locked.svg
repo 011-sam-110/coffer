@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <title>Coffer: locked</title>
+  <!-- Tray icon, vault locked: a white strongbox with the lid shut, a lock plate over the
+       seam and a keyhole. A 1 px dark edge (theme background #1a1a1a) keeps the shape on
+       a light taskbar; on a dark taskbar the edge disappears into the bar.
+       16 px grid: fill edges sit on whole pixels, so 16, 32 and 48 px stay crisp. -->
+  <g fill="#fafafa" stroke="#1a1a1a" stroke-width="2" stroke-linejoin="round" paint-order="stroke">
+    <path d="M2 7V5.75C2 3.9 4.7 2.5 8 2.5s6 1.4 6 3.25V7z"/>
+    <path d="M2 8h12v4.5c0 .83-.67 1.5-1.5 1.5h-9c-.83 0-1.5-.67-1.5-1.5z"/>
+  </g>
+  <rect x="6" y="5" width="4" height="5.5" rx="1" fill="#fafafa"/>
+  <circle cx="8" cy="7.25" r="1" fill="#1a1a1a"/>
+  <rect x="7.5" y="7.25" width="1" height="2" fill="#1a1a1a"/>
+</svg>
