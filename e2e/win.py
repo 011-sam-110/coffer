@@ -217,17 +217,9 @@ def focus_at(x, y, seconds):
     tk.Label(root, text="Coffer test window\nIt closes by itself.", font=("Segoe UI", 12)).pack(expand=True)
     root.update()
     hwnd = user32.GetAncestor(root.winfo_id(), 2)  # GA_ROOT
-    # An Alt tap lets this process take the foreground (SetForegroundWindow rules).
-    VK_MENU, KEYUP = 0x12, 0x0002
-    tap = (INPUT * 2)(INPUT(type=1), INPUT(type=1))
-    tap[0].u.ki = KEYBDINPUT(VK_MENU, 0, 0, 0, 0)
-    tap[1].u.ki = KEYBDINPUT(VK_MENU, 0, KEYUP, 0, 0)
-    user32.SendInput(2, tap, ctypes.sizeof(INPUT))
-    user32.SetForegroundWindow(hwnd)
+    front = _bring_front(hwnd)
     root.focus_force()
     root.update()
-    time.sleep(0.3)
-    front = user32.GetForegroundWindow() == hwnd
     if front:
         hotkey()
     else:
@@ -249,6 +241,46 @@ def _visible_window(pid, title):
 
     user32.EnumWindows(WNDENUMPROC(cb), 0)
     return found[0] if found else None
+
+
+def _bring_front(hwnd):
+    """Bring a window to the front the way Coffer does (join the input of the
+    window in front). No Alt tap: in Chrome, Alt moves the keyboard focus to
+    the app menu button."""
+    user32.SetForegroundWindow(hwnd)
+    time.sleep(0.1)
+    if user32.GetForegroundWindow() != hwnd:
+        fg = user32.GetForegroundWindow()
+        fg_thread = user32.GetWindowThreadProcessId(fg, None)
+        me = kernel32.GetCurrentThreadId()
+        if fg_thread and fg_thread != me:
+            user32.AttachThreadInput(me, fg_thread, True)
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+            user32.AttachThreadInput(me, fg_thread, False)
+    time.sleep(0.3)
+    return user32.GetForegroundWindow() == hwnd
+
+
+def front_hotkey(title_part):
+    """Bring the visible top-level window whose title contains `title_part`
+    to the front and press the Quick Access hotkey there."""
+    _per_monitor_aware()
+    found = []
+
+    def cb(hwnd, _):
+        if user32.IsWindowVisible(hwnd) and title_part in _text(hwnd):
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(cb), 0)
+    if not found:
+        print(json.dumps({"front": False, "error": f"no window titled *{title_part}*"}))
+        return
+    front = _bring_front(found[0])
+    if front:
+        hotkey()
+    print(json.dumps({"front": front}))
 
 
 def ctrl_wheel(pid, notches):
@@ -286,6 +318,8 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "monitors":
         monitors()
+    elif cmd == "front-hotkey":
+        front_hotkey(sys.argv[2])
     elif cmd == "ctrl-wheel":
         ctrl_wheel(int(sys.argv[2]), int(sys.argv[3]))
     elif cmd == "focus-at":

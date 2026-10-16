@@ -1,6 +1,8 @@
 // Quick Access (SPEC 9): a 400 x 560 frameless flyout above the clock.
-// Search-first; Enter copies the item's main secret; Right arrow lists every
-// action; the window closes after a copy.
+// Search-first; Enter on a login fills the window you came from (email and
+// password, then the next step at the next open), Enter on other items and
+// Ctrl+C copy the main secret; Right arrow lists every action; the window
+// closes after a copy or a fill.
 import { MotionConfig } from "motion/react";
 import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, FolderPlus, Keyboard, KeyRound, Lock, Search, SearchX, Star, WandSparkles, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -15,7 +17,7 @@ import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, TotpCode, 
 import { call, isCofferError, on } from "../lib/ipc";
 import { isSecretKind } from "../lib/itemForm";
 import { ITEM_TYPES } from "../lib/itemTypes";
-import { enterPlan, enterWords, fieldHasValue, groupCode, nextChainField, quickKey, resolveCopyTarget, SHORTCUT_WORDS, type ChainRole } from "../lib/quickKeys";
+import { enterPlan, entersFill, enterWords, fieldHasValue, groupCode, nextChainField, quickKey, resolveCopyTarget, SHORTCUT_WORDS, type ChainRole } from "../lib/quickKeys";
 import { recentlyUsed, searchItems } from "../lib/search";
 
 const APP_NAMES: Record<string, string> = {
@@ -43,10 +45,12 @@ export function appName(process: string | null): string | null {
 
 type Row = { item: ItemSummary; section: string };
 type Mode = { kind: "list" } | { kind: "actions"; item: ItemSummary } | { kind: "generator" };
-/** A login being copied one field per open: what Enter copies next. */
-type Continuation = { itemId: string; role: ChainRole; fieldId: string; label: string };
+/** A login being copied one field per open, or filled one page per open: what Enter does next. */
+type Continuation = { itemId: string; role: ChainRole; fieldId: string; label: string; fill?: boolean };
 
 const CONTINUE_MS = 60_000;
+/** A 2FA text or app can take more than a minute. */
+const CONTINUE_FILL_MS = 120_000;
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 /** The simulated flyout frame in a browser; the real window is the frame itself. */
@@ -286,6 +290,8 @@ function Quick() {
   const [hidden, setHidden] = useState(false);
   // Quick Access is only hidden between opens, so this survives a close.
   const lastCopy = useRef<{ itemId: string; role: string | null; at: number } | null>(null);
+  /** The last fill and the app it filled: its next step shows only in that app. */
+  const lastFill = useRef<{ itemId: string; next: "password" | "totp"; at: number; process: string | null } | null>(null);
   const [cont, setCont] = useState<Continuation | null>(null);
   const [actCode, setActCode] = useState<TotpCode | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -317,7 +323,12 @@ function Quick() {
       setMode({ kind: "list" });
       setCont(null);
       const lc = lastCopy.current;
-      if (lc && Date.now() - lc.at < CONTINUE_MS) {
+      const lf = lastFill.current;
+      const sameApp = !lf?.process || !c?.process || lf.process === c.process;
+      if (lf && Date.now() - lf.at < CONTINUE_FILL_MS && sameApp) {
+        const role = lf.next;
+        setCont({ itemId: lf.itemId, role, fieldId: "", label: role === "totp" ? "Type code" : "Type password", fill: true });
+      } else if (lc && Date.now() - lc.at < CONTINUE_MS) {
         call("item_get", { id: lc.itemId })
           .then((view) => {
             const next = nextChainField(view, lc.role);
@@ -406,7 +417,10 @@ function Quick() {
 
   const remember = (item: ItemSummary, role: string | null) => {
     lastCopy.current = { itemId: item.id, role, at: Date.now() };
+    lastFill.current = null;
   };
+  /** A window was in front when Quick Access opened: Enter can fill it. */
+  const hasTarget = !!ctx?.title;
 
   /** With under 5 s left, wait for the next code so the pasted code is still good. */
   const waitForFreshCode = async (item: ItemSummary, fieldId: string | null) => {
@@ -452,7 +466,16 @@ function Quick() {
   };
 
   const enter = async (item: ItemSummary) => {
-    if (cont && cont.itemId === item.id) return copyField(item, cont.fieldId, cont.role, cont.role === "totp");
+    if (cont && cont.itemId === item.id) {
+      if (cont.fill) return typeItem(item, cont.role === "totp" ? "totp" : "passwordStep");
+      return copyField(item, cont.fieldId, cont.role, cont.role === "totp");
+    }
+    if (entersFill(item.type, hasTarget)) return typeItem(item, null);
+    return copyMain(item);
+  };
+
+  /** What Enter copied before fill: the item's main secret (Ctrl+C, and Enter on other types). */
+  const copyMain = async (item: ItemSummary) => {
     const plan = enterPlan(item.type);
     if (plan.kind === "open") return openInCoffer(item);
     try {
@@ -466,15 +489,17 @@ function Quick() {
     }
   };
 
-  /** Ctrl+Enter / Ctrl+Shift+Enter: Rust hides Quick Access and types into the window that was in front. */
+  /** Enter on a login (fill), a Continue row, Ctrl+Enter, Ctrl+Shift+Enter: Rust hides Quick Access and types into the window that was in front. */
   const typeItem = async (item: ItemSummary, only: AutotypeOnly) => {
-    if (await autotype(item, only)) {
+    const result = await autotype(item, only);
+    if (result) {
       remember(item, null);
+      if (result.next) lastFill.current = { itemId: item.id, next: result.next, at: Date.now(), process: ctx?.process ?? null };
       hide();
     }
   };
 
-  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? cont.label : enterWords(item.type));
+  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? cont.label : entersFill(item.type, hasTarget) ? "Fill" : enterWords(item.type));
 
   const openActions = async (item: ItemSummary) => {
     setMode({ kind: "actions", item });
@@ -561,6 +586,7 @@ function Quick() {
       altKey: e.altKey,
       metaKey: e.metaKey,
       caretAtEnd: input.selectionStart === input.value.length && input.selectionEnd === input.value.length,
+      hasSelection: input.selectionStart !== input.selectionEnd,
     });
     if (mode.kind === "actions" && !e.ctrlKey && !e.altKey && !e.metaKey && /^[1-6]$/.test(e.key)) {
       e.preventDefault();
@@ -590,6 +616,7 @@ function Quick() {
     } else if (!current) {
       if (k === "openInCoffer") openInCoffer(null);
     } else if (k === "enter") enter(current);
+    else if (k === "copy") copyMain(current);
     else if (k === "copyUsername") copyRole(current, "username");
     else if (k === "copyPassword") copyRole(current, "password");
     else if (k === "copyTotp") copyRole(current, "totp");
@@ -747,7 +774,7 @@ function Quick() {
 
         {hint && mode.kind === "list" && (
           <p className="shrink-0 border-t border-border px-4 py-1.5 text-xs text-muted-foreground" role="note">
-            Enter: copy · Ctrl+U: username · Right arrow: more actions
+            {hasTarget ? "Enter: fill · Ctrl+C: copy · Right arrow: more actions" : "Enter: copy · Ctrl+U: username · Right arrow: more actions"}
           </p>
         )}
       </>

@@ -2,7 +2,7 @@
 // and the "Auto-type sequence" field of the login editor.
 import { ChevronRight, Keyboard } from "lucide-react";
 import { useCallback, useState } from "react";
-import type { ItemView } from "../lib/contract";
+import type { AutotypeOnly as ContractOnly, AutotypeResult, ItemView } from "../lib/contract";
 import { autotypeLabel, DEFAULT_AUTOTYPE, parseAutotype } from "../lib/autotype";
 import { call, isCofferError } from "../lib/ipc";
 import { fieldHasValue } from "../lib/quickKeys";
@@ -10,7 +10,7 @@ import { autotypeErrorText } from "../lib/tier2Errors";
 import { useReprompt, useToast } from "./overlays";
 import { cx, ErrorText, Input } from "./ui";
 
-export type AutotypeOnly = "password" | null;
+export type AutotypeOnly = ContractOnly | null;
 
 export interface AutotypeChoice {
   only: AutotypeOnly;
@@ -39,14 +39,13 @@ export function useAutotype() {
   const { withReprompt } = useReprompt();
   const { toast } = useToast();
   return useCallback(
-    async (item: { id: string; title: string }, only: AutotypeOnly): Promise<boolean> => {
+    async (item: { id: string; title: string }, only: AutotypeOnly): Promise<AutotypeResult | null> => {
       try {
-        await withReprompt((password) => call("autotype", { id: item.id, password, only }), `${item.title} asks for your master password.`);
-        return true;
+        return await withReprompt((password) => call("autotype", { id: item.id, password, only }), `${item.title} asks for your master password.`);
       } catch (e) {
-        if (isCofferError(e) && e.message === "Cancelled.") return false;
+        if (isCofferError(e) && e.message === "Cancelled.") return null;
         toast(isCofferError(e) ? autotypeErrorText(e) : String(e), { tone: "error", ms: 6000 });
-        return false;
+        return null;
       }
     },
     [withReprompt, toast],
@@ -66,7 +65,7 @@ export function autotypeHint(
   return {
     label: "Auto-type in Quick Access",
     shortcut: hotkey,
-    help: `To auto-type, open Quick Access (${hotkey}), pick ${view.title} and press Ctrl+Enter. Coffer types into the app you came from.`,
+    help: `To fill a sign-in, open Quick Access (${hotkey}), pick ${view.title} and press Enter. Coffer types into the app you came from.`,
   };
 }
 

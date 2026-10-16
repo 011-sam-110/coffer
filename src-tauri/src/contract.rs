@@ -88,7 +88,26 @@ pub struct TotpImage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AutotypeOnly {
+    /// The password alone (no Enter).
     Password,
+    /// The next step of a fill: the password, then Enter.
+    PasswordStep,
+    /// The next step of a fill: the one-time code, then Enter.
+    Totp,
+}
+
+/// What the next Enter on the item types, after a fill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutotypeNext {
+    Password,
+    Totp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutotypeResult {
+    pub next: Option<AutotypeNext>,
 }
 
 /// `totp_from_image` source: a file (Rust opens the dialog) or the screen.

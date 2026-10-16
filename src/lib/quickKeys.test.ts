@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Field, ItemType } from "./contract";
 import { ITEM_TYPE_ORDER } from "./itemTypes";
-import { enterPlan, enterWords, groupCode, nextChainField, quickKey, resolveCopyTarget } from "./quickKeys";
+import { enterPlan, entersFill, enterWords, groupCode, nextChainField, quickKey, resolveCopyTarget } from "./quickKeys";
 
-type Mods = Partial<{ ctrlKey: boolean; shiftKey: boolean; altKey: boolean; caretAtEnd: boolean }>;
+type Mods = Partial<{ ctrlKey: boolean; shiftKey: boolean; altKey: boolean; caretAtEnd: boolean; hasSelection: boolean }>;
 const k = (key: string, mods: Mods = {}) =>
   quickKey({ key, ctrlKey: false, shiftKey: false, altKey: false, caretAtEnd: false, ...mods });
 
@@ -19,6 +19,16 @@ describe("quickKey", () => {
     expect(k("Enter", { ctrlKey: true })).toBe("autotype");
     expect(k("Enter", { ctrlKey: true, shiftKey: true })).toBe("autotypePassword");
     expect(k("Escape")).toBe("escape");
+  });
+  it("copies with Ctrl+C, unless text is selected in the search", () => {
+    expect(k("c", { ctrlKey: true })).toBe("copy");
+    expect(k("C", { ctrlKey: true })).toBe("copy");
+    expect(k("c", { ctrlKey: true, hasSelection: true })).toBeNull();
+  });
+  it("fills logins only, and only with a window to fill", () => {
+    expect(entersFill("login", true)).toBe(true);
+    expect(entersFill("login", false)).toBe(false);
+    for (const t of ["password", "card", "note", "sshKey"] as ItemType[]) expect(entersFill(t, true)).toBe(false);
   });
   it("opens the action list with Right arrow only when the caret is at the end", () => {
     expect(k("ArrowRight", { caretAtEnd: true })).toBe("actions");

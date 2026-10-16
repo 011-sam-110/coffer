@@ -52,7 +52,7 @@ Tier 1 is v1. Tier 2 is built tonight only after tier 1 passes QA, in the order 
 
 ### Not doing in v1
 - No account, sync service, sharing, family plans, organisations, emergency access, Send or sharing links: each needs a server.
-- No browser extension and no in-page autofill. Copy (and tier-2 auto-type) cover desktop use.
+- No browser extension and no in-page autofill. Copy and smart fill (tier 2: typed by Windows into the box that has the focus) cover browsers and desktop apps.
 - No email breach monitoring (it needs a paid HIBP key) and no VPN.
 - No Travel Mode (it needs a server copy to restore from).
 - No passkey use. Imported passkeys stay as data, shown as "Stored passkey (Coffer cannot sign in with it)".
@@ -293,8 +293,9 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
   - Action list (Right arrow): copy each field of the item (by role or field id), auto-type (tier 2), Open site, Open in Coffer.
   - **Suggestions**: active items only, at most 5. Score 3: the item's `apps` holds the process name. Score 2: `usage.json` links the process and the item (a copy or auto-type from Quick Access adds the link; at most 10 per process; never for browsers). Score 1, browsers only (chrome, msedge, firefox, brave, opera, vivaldi): a URL host label of 4 or more characters other than `www`, or the item title, is a whole word of the window title. Ties: `lastUsedAt`, then title. A "use" (for `lastUsedAt` and Recently used) = copy, reveal, auto-type or open site.
   - Unlocked: search field focused. Before typing: "Suggested for <app>" (hidden when empty), Recently used, Favourites (recent first: design review round 1). A "Continue" row for an item used in the last minutes may come first; like every row it says which field Enter copies. Search covers title, username, URL host and tags; rank: title prefix, word prefix, substring, then recent use. Archived and trashed matches show as one row "n more in Archive or Trash".
-  - Keys: Up/Down move; Enter copies (table in section 4); Ctrl+U username; Ctrl+P password; Ctrl+T one-time code; Right arrow (caret at end of text) opens the action list; Ctrl+Enter auto-type (tier 2); Ctrl+O open in Coffer; Esc clears the text, a second Esc closes.
-  - First 3 opens show a hint line: "Enter copies the password · Ctrl+U username · → more".
+  - Keys: Up/Down move; Enter on a login fills the window you came from (section 10), Enter on other types copies (table in section 4); Ctrl+C copies what Enter copies on that type (not while text is selected in the search); Ctrl+U username; Ctrl+P password; Ctrl+T one-time code; Right arrow (caret at end of text) opens the action list; Ctrl+Enter fill (or the item's own sequence); Ctrl+Shift+Enter types the password alone; Ctrl+O open in Coffer; Esc clears the text, a second Esc closes. With no window in front when Quick Access opened, Enter copies.
+  - After a fill, for 2 minutes and in the same app, the item's Continue row says what Enter types next: "Type password", then "Type code".
+  - First 3 opens show a hint line: "Enter: fill · Ctrl+C: copy · Right arrow: more actions" (with no window to fill: "Enter: copy · Ctrl+U: username · Right arrow: more actions").
 - **Main window**: three panes (sidebar, list, detail), minimum 900 x 600. Close hides it to the tray; the first time, a notice says "Coffer is still running in the tray. Drag its icon from ^ to the taskbar to keep it in view." Setting "Close button: hide to tray / quit".
 - **Global hotkeys** (changeable in Settings > Shortcuts): Quick Access `Ctrl+Shift+Space` (on). Lock `Ctrl+Shift+L` (off by default: Windows lock already locks Coffer). If `RegisterHotKey` fails, Settings shows "In use by another app".
 - **Start with Windows**: asked at setup (default on), starts hidden in the tray. **One instance**: a second launch shows the running one.
@@ -304,9 +305,16 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
 - **Main-window keys**: Ctrl+F search; Ctrl+N new item; Ctrl+E edit; Ctrl+S save; Esc cancel (asks "Discard changes?" when edited); Ctrl+U/P/T copy (not in edit mode); Ctrl+R reveal; Ctrl+G generator; Ctrl+L lock; Delete moves to Trash only when focus is not in a text field (Undo toast for 6 s); Ctrl+, settings; F1 shortcut list.
 - **Settings storage**: device settings in `%LOCALAPPDATA%\Coffer\settings.json` (no secrets): vault path, vault id, hotkeys, auto-lock, lock on Windows lock and sleep, clipboard clear (10, 30, 60, 90, 120, 300 s, never; the clipboard-history exclusion always applies), capture protection, start with Windows, start hidden, tray click, close behaviour, Hello, require-password days, breach-check mode. `settings_get` works in every state. Vault settings are in the meta record. `settings.json` also stores the vault path and vault id.
 
-## 10. Auto-type (tier 2)
-- Ctrl+Enter in Quick Access: Coffer hides Quick Access, brings back the stored foreground window, checks it is in front, waits until Ctrl, Shift, Alt and Win are released (2 s at most), then sends the sequence with `SendInput` (`KEYEVENTF_UNICODE`). Default `{USERNAME}{TAB}{PASSWORD}{ENTER}`. Tokens: `{USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {DELAY ms} {FIELD:label}`.
-- If the target is gone, not in front, or runs elevated (higher integrity level), Coffer types nothing and says why ("Coffer cannot type into an app running as administrator.").
+## 10. Smart fill and auto-type (tier 2)
+- Enter on a login in Quick Access (or Ctrl+Enter): Coffer hides Quick Access, brings back the stored foreground window, checks it is in front, waits until Ctrl, Shift, Alt and Win are released (2 s at most), reads with UI Automation which box has the keyboard focus (`src-tauri/src/win/uia.rs`: control type, `IsPassword`, the box's name, a password box on the same page), then sends keys with `SendInput` (`KEYEVENTF_UNICODE`):
+  - a text box with a password box on the page: the username (or a field named Email), the focus moves to the password box (UI Automation `SetFocus`; Tab when it cannot), the password, Enter;
+  - a text box alone (a two-page sign-in): the username, Enter; next: the password;
+  - a password box: the password, Enter;
+  - a box whose name asks for a code ("Verification code", "Enter the 6-digit code", not a postal or promo code), on an item with a one-time code: the code, Enter;
+  - no answer from UI Automation: `{USERNAME}{TAB}{PASSWORD}{ENTER}`.
+  After the password, an item with a one-time code says "next: the code". `autotype` returns `{ next }`; Quick Access shows it as the Continue row, and its Enter sends `only: "passwordStep"` (the password, Enter) or `only: "totp"` (the code, Enter; with under 4 s left Coffer waits for the next code).
+- An item with an auto-type sequence of its own types that sequence. Tokens: `{USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {DELAY ms} {FIELD:label}`. Ctrl+Shift+Enter types the password alone (`only: "password"`).
+- If the target is gone, not in front, runs elevated (higher integrity level), or is a Coffer window, Coffer types nothing and says why ("Coffer cannot type into an app running as administrator.").
 
 ## 11. Screens and states
 1. **Welcome**: "Create a new vault" / "Open an existing vault".

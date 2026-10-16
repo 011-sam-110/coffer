@@ -38,6 +38,18 @@ export type ErrorCode =
   | "exists" // vault_create: that file already exists
   | "pinUnavailable"; // vault_unlock_pin: no PIN can open the vault now (none set, removed after 5 wrong PINs, or the master-password days ran out)
 
+/**
+ * autotype `only`: "password" types the password alone (no Enter); "passwordStep"
+ * and "totp" are the next steps of a fill (the password or the one-time code,
+ * then Enter).
+ */
+export type AutotypeOnly = "password" | "passwordStep" | "totp";
+
+/** After a fill: what the next Enter on the item types (Quick Access's Continue row). */
+export interface AutotypeResult {
+  next: "password" | "totp" | null;
+}
+
 export interface CofferError {
   code: ErrorCode;
   message: string; // plain sentence, safe to show to the user
@@ -533,7 +545,7 @@ export interface Commands {
   quick_set_modal: [{ modal: boolean }, void]; // true while a prompt or dialog of Quick Access is up: no close on blur
   main_show: [{ itemId: string | null; view: "item" | "settings" | "generator" | "health" | null }, void];
   main_hide: [Record<string, never>, void]; // main hides itself, e.g. after the first-close notice
-  autotype: [{ id: string; password: string | null; only?: "password" | null }, void]; // tier 2; only "password" types the password alone (no sequence, no Enter)
+  autotype: [{ id: string; password: string | null; only?: AutotypeOnly | null }, AutotypeResult]; // tier 2; no only: smart fill (or the item's own sequence); see AutotypeOnly
   app_quit: [Record<string, never>, void];
 }
 

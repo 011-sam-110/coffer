@@ -1,4 +1,6 @@
-// Quick Access keys (SPEC 9) and the "Enter copies" table (SPEC 4).
+// Quick Access keys (SPEC 9) and the "Enter copies" table (SPEC 4). On a
+// login, Enter fills the window you came from; Ctrl+C copies what Enter
+// copied before.
 import type { Field, ItemType, ItemView } from "./contract";
 import { ITEM_TYPES } from "./itemTypes";
 
@@ -6,6 +8,7 @@ export type QuickKey =
   | "up"
   | "down"
   | "enter"
+  | "copy"
   | "copyUsername"
   | "copyPassword"
   | "copyTotp"
@@ -24,6 +27,8 @@ export interface KeyInput {
   metaKey?: boolean;
   /** The search caret is at the end of its text (Right arrow opens the action list only then). */
   caretAtEnd: boolean;
+  /** Text is selected in the search: Ctrl+C copies that text, not the item. */
+  hasSelection?: boolean;
 }
 
 /** Map one keydown to a Quick Access command, or null to let the field handle it. */
@@ -31,6 +36,7 @@ export function quickKey(e: KeyInput): QuickKey | null {
   if (e.altKey || e.metaKey) return null;
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (e.ctrlKey && !e.shiftKey) {
+    if (k === "c") return e.hasSelection ? null : "copy";
     if (k === "u") return "copyUsername";
     if (k === "p") return "copyPassword";
     if (k === "t") return "copyTotp";
@@ -96,6 +102,11 @@ export function enterWords(type: ItemType): string {
   const plan = enterPlan(type);
   if (plan.kind === "open") return "Open";
   return plan.words.charAt(0).toUpperCase() + plan.words.slice(1);
+}
+
+/** Enter fills logins (with a window to fill); every other type keeps Enter = copy or open. */
+export function entersFill(type: ItemType, hasTarget: boolean): boolean {
+  return type === "login" && hasTarget;
 }
 
 /** The order Quick Access walks a login in, one copy per open. */

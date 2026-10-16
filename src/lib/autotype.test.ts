@@ -32,7 +32,7 @@ describe("parseAutotype", () => {
   it("names the action by the sequence", () => {
     expect(isDefaultSequence(null)).toBe(true);
     expect(isDefaultSequence(" {username}{tab}{password}{enter} ")).toBe(true);
-    expect(autotypeLabel(null)).toBe("Type username + password");
+    expect(autotypeLabel(null)).toBe("Fill sign-in");
     expect(autotypeLabel("{PASSWORD}{ENTER}")).toBe("Type sequence");
   });
 });

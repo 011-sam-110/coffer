@@ -1329,7 +1329,18 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       // Rust order (SPEC 10): the target window first, then every value, then type.
       if (flags.autotype === "gone") throw fail("invalid", "The window to type into is gone. Click in it, then open Quick Access again.");
       if (flags.autotype === "admin") throw fail("invalid", "Coffer cannot type into an app running as administrator.");
-      const seq = only === "password" ? "{PASSWORD}" : item.autotypeSequence?.trim() || DEFAULT_AUTOTYPE;
+      const own = item.autotypeSequence?.trim();
+      const hasTotp = item.fields.some((f) => f.kind === "totp" && f.value.trim());
+      // The demo has no window to read: a fill acts as on a one-page sign-in.
+      const seq =
+        only === "password"
+          ? "{PASSWORD}"
+          : only === "passwordStep"
+            ? "{PASSWORD}{ENTER}"
+            : only === "totp"
+              ? "{TOTP}{ENTER}"
+              : own || DEFAULT_AUTOTYPE;
+      const next: "totp" | null = (only === null || only === undefined || only === "passwordStep") && !own && hasTotp ? "totp" : null;
       const parsed = parseAutotype(seq);
       if (!parsed.ok) throw fail("invalid", parsed.message);
       const fieldOf = (t: AutotypeToken) => {
@@ -1352,6 +1363,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       if (flags.autotype === "changed") throw fail("invalid", "The window in front changed, so Coffer stopped typing.");
       if (flags.autotype === "keys") throw fail("invalid", "Windows did not take all the keys. Check what was typed.");
       item.lastUsedAt = iso(); // auto-type is a use; demo: nothing is typed anywhere
+      return { next };
     },
     main_hide: () => undefined,
     app_quit: () => undefined,

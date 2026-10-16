@@ -34,13 +34,14 @@ export const MAIN_SHORTCUTS: Array<[string, string]> = [
 
 export const QUICK_SHORTCUTS: Array<[string, string]> = [
   ["Up / Down", "Move"],
-  ["Enter", "Copy the main secret (the password for a login)"],
+  ["Enter", "Fill a login into the app you came from: email and password, then the next step at the next open (other items: copy)"],
+  ["Ctrl+C", "Copy the main secret (the password for a login)"],
   ["Ctrl+U", "Copy the username"],
   ["Ctrl+P", "Copy the password"],
   ["Ctrl+T", "Copy the one-time code"],
   ["Right", "All actions (caret at the end of the search)"],
   ["Ctrl+O", "Open in Coffer"],
-  ["Ctrl+Enter", "Type username and password into the app you came from"],
+  ["Ctrl+Enter", "Fill, or type the item's own auto-type sequence"],
   ["Ctrl+Shift+Enter", "Type the password alone into that app"],
   ["Esc", "Clear the search; again to close"],
 ];

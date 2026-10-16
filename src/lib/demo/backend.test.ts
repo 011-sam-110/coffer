@@ -784,8 +784,11 @@ describe("tier 2: auto-type", () => {
   it("types the sequence or the password alone, and says why it refuses", async () => {
     const b = mkq();
     const id = (await ids(b))("GitHub");
-    await expect(call(b, "autotype", { id, password: null })).resolves.toBeUndefined();
-    await expect(call(b, "autotype", { id, password: null, only: "password" })).resolves.toBeUndefined();
+    // GitHub has a one-time code: a fill says the code comes next; the password alone says nothing.
+    await expect(call(b, "autotype", { id, password: null })).resolves.toEqual({ next: "totp" });
+    await expect(call(b, "autotype", { id, password: null, only: "password" })).resolves.toEqual({ next: null });
+    await expect(call(b, "autotype", { id, password: null, only: "passwordStep" })).resolves.toEqual({ next: "totp" });
+    await expect(call(b, "autotype", { id, password: null, only: "totp" })).resolves.toEqual({ next: null });
     expect(await err(mkq({ autotype: "admin" }), "autotype", { id, password: null })).toEqual({ code: "invalid", message: "Coffer cannot type into an app running as administrator." });
     expect((await err(mkq({ autotype: "gone" }), "autotype", { id, password: null })).message).toMatch(/gone/);
   });
@@ -795,7 +798,7 @@ describe("tier 2: auto-type", () => {
     await call(b, "item_save", { item: { ...toInput(v), reprompt: true, autotypeSequence: "{PASSWORD}{ENTER}" }, password: null });
     expect((await err(b, "autotype", { id: v.id, password: null })).code).toBe("repromptRequired");
     expect((await err(b, "autotype", { id: v.id, password: "nope" })).code).toBe("badCredentials");
-    await expect(call(b, "autotype", { id: v.id, password: "demo" })).resolves.toBeUndefined();
+    await expect(call(b, "autotype", { id: v.id, password: "demo" })).resolves.toEqual({ next: null });
     await call(b, "item_save", { item: { ...toInput(await call<ItemView>(b, "item_get", { id: v.id })), autotypeSequence: "{USER}" }, password: "demo" });
     expect(await err(b, "autotype", { id: v.id, password: "demo" })).toEqual({ code: "invalid", message: "Coffer does not know the auto-type token {USER}." });
   });
