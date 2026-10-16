@@ -44,7 +44,8 @@ export function Monogram({ title, size = 32, className }: { title: string; size?
       style={{
         width: size,
         height: size,
-        fontSize: Math.round(size * 0.4),
+        // The tile stays put; its letters follow the type knob.
+        fontSize: `calc(${Math.round(size * 0.4)}px * var(--type-scale))`,
         letterSpacing: 0,
         background: `oklch(var(--mono-bg-l) var(--mono-bg-c) ${hue})`,
         color: `oklch(var(--mono-fg-l) var(--mono-fg-c) ${hue})`,

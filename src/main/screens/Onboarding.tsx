@@ -244,7 +244,7 @@ export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; 
       </dl>
       <div className="mt-6">
         <p className="mb-2 text-xs font-medium text-muted-foreground">Secret Key</p>
-        <p className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[1.375rem] leading-8 font-medium tracking-[0.04em]" data-selectable aria-label={`Secret Key ${kit.secretKey}`}>
+        <p className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-lg font-medium tracking-[0.04em]" data-selectable aria-label={`Secret Key ${kit.secretKey}`}>
           {groups.map((g, i) => (
             <span key={i} className={i === 0 ? "text-muted-foreground" : undefined}>
               {g}

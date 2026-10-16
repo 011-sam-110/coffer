@@ -136,7 +136,7 @@ export function Generator({
           <output
             aria-live="polite"
             aria-label="Generated password"
-            className={cx("min-h-[1.75rem] flex-1 leading-relaxed", compact ? "text-sm" : "text-lg", busy && !result && "opacity-50")}
+            className={cx("min-h-7 flex-1 leading-relaxed", compact ? "text-sm" : "text-lg", busy && !result && "opacity-50")}
           >
             {result ? <PasswordChars value={result.value} /> : <span className="text-muted-foreground">...</span>}
           </output>

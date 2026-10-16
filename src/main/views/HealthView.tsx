@@ -14,10 +14,11 @@ import { useStore } from "../store";
 import type { HealthTab, Nav } from "../vault/nav";
 import { PageShell, Tabs, type TabDef } from "./PageShell";
 
-type Tab = HealthTab;
-/** Checks that get a tab only while they have findings. */
+/** The tabs: the three scored checks, one tab for the other checks, Excluded. */
+type Tab = "breached" | "reused" | "weak" | "other" | "excluded";
+/** Checks under "Other checks"; the panel shows each with its own count (they add up to the tab's). */
 const MINOR: HealthCheck[] = ["unsecured", "old", "expiring", "duplicate"];
-const TAB_ORDER: HealthCheck[] = ["breached", "reused", "weak", ...MINOR];
+const TAB_ORDER: Tab[] = ["breached", "reused", "weak", "other"];
 const TAB_LABEL: Record<HealthCheck, string> = {
   breached: "Breached",
   reused: "Reused",
@@ -52,10 +53,16 @@ const CHECK_WORD: Record<HealthCheck, string> = {
 export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; initialTab?: HealthTab }) {
   const { items, changeTick } = useStore();
   const [report, setReport] = useState<HealthReport | null>(null);
-  const [tab, setTab] = useState<Tab | null>(initialTab ?? null);
+  const toTab = (t: HealthTab): Tab => (MINOR.includes(t as HealthCheck) ? "other" : (t as Tab));
+  const [tab, setTab] = useState<Tab | null>(initialTab ? toTab(initialTab) : null);
+  // Inside "Other checks": one check, or null for all of them.
+  const [sub, setSub] = useState<HealthCheck | null>(initialTab && MINOR.includes(initialTab as HealthCheck) ? (initialTab as HealthCheck) : null);
   // A flag chip in the list can open a given tab while Health is already shown.
   useEffect(() => {
-    if (initialTab) setTab(initialTab);
+    if (!initialTab) return;
+    setTab(toTab(initialTab));
+    setSub(MINOR.includes(initialTab as HealthCheck) ? (initialTab as HealthCheck) : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab]);
   const [checking, setChecking] = useState(false);
   const [excluded, setExcluded] = useState<ItemSummary[] | null>(null);
@@ -67,7 +74,15 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
   useEffect(load, [load, changeTick]);
 
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const counts: Record<Tab, number> | null = report ? { ...report.counts, excluded: report.excludedCount } : null;
+  const counts: Record<Tab, number> | null = report
+    ? {
+        breached: report.counts.breached,
+        reused: report.counts.reused,
+        weak: report.counts.weak,
+        other: MINOR.reduce((n, c) => n + report.counts[c], 0),
+        excluded: report.excludedCount,
+      }
+    : null;
   const active: Tab = tab ?? (counts ? (TAB_ORDER.find((t) => counts[t] > 0) ?? "breached") : "breached");
 
   // The report counts excluded items but does not list them; read them from the items.
@@ -125,7 +140,12 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
     );
 
   const findings = report.findings.filter((f) => byId.get(f.itemId)?.state === "active");
-  const list = active === "excluded" ? [] : findings.filter((f) => f.check === active);
+  const list =
+    active === "excluded"
+      ? []
+      : active === "other"
+        ? findings.filter((f) => (sub ? f.check === sub : MINOR.includes(f.check)))
+        : findings.filter((f) => f.check === active);
   const noCounted = counts.breached + counts.reused + counts.weak === 0;
 
   const row = (f: HealthFinding, key: string, extra?: ReactNode) => {
@@ -138,6 +158,7 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
         <button type="button" onClick={() => go({ view: "items", filter: { kind: "all" }, itemId: it.id, editing: null })} className="min-w-0 flex-1 cursor-pointer text-left">
           <span className="block truncate text-sm font-medium hover:underline">{it.title}</span>
           <span className="block truncate text-xs text-muted-foreground" title={CHECK_WORD[f.check]}>
+            {active === "other" ? `${CHECK_WORD[f.check]}. ` : ""}
             {f.detail}
           </span>
         </button>
@@ -168,14 +189,9 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
   const groups = new Map<string, HealthFinding[]>();
   if (active === "reused") for (const f of list) groups.set(f.groupId ?? f.itemId, [...(groups.get(f.groupId ?? f.itemId) ?? []), f]);
 
-  // Breached, Reused and Weak always show; a minor check shows while it has findings (or is open).
+  // Five tabs fit on one line at the 900 px window minimum with the larger type.
   const tabs: TabDef<Tab>[] = [
-    ...TAB_ORDER.filter((c) => !MINOR.includes(c) || counts[c] > 0 || active === c).map((c) => ({
-      id: c as Tab,
-      label: TAB_LABEL[c],
-      count: counts[c],
-      danger: c === "breached",
-    })),
+    ...TAB_ORDER.map((c) => ({ id: c, label: c === "other" ? "Other checks" : TAB_LABEL[c as HealthCheck], count: counts[c], danger: c === "breached" })),
     { id: "excluded", label: "Excluded", count: counts.excluded },
   ];
 
@@ -232,6 +248,25 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
       <div>
         <Tabs label="Findings" tabs={tabs} value={active} onChange={setTab} />
         <div role="tabpanel" aria-label={tabs.find((t) => t.id === active)?.label} className="pt-4">
+          {active === "other" && counts.other > 0 && (
+            <div role="group" aria-label="Show" className="mb-3 flex flex-wrap gap-1.5">
+              {[null, ...MINOR.filter((c) => report.counts[c] > 0)].map((c) => (
+                <button
+                  key={c ?? "all"}
+                  type="button"
+                  aria-pressed={sub === c}
+                  onClick={() => setSub(c)}
+                  className={cx(
+                    "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-sm border px-2.5 text-xs",
+                    sub === c ? "border-foreground bg-foreground font-semibold text-background" : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {c ? TAB_LABEL[c] : "All"}
+                  <span className="tabular-nums">{c ? report.counts[c] : counts.other}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {active === "breached" && report.breachCheck !== "off" && (
             <p className="mb-3 max-w-[90ch] text-xs text-muted-foreground">
               A breach check sends the first 5 characters of each password's SHA-1 hash to Have I Been Pwned, never the password, and compares the rest on this PC.
@@ -259,7 +294,13 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
             )
           ) : list.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {active === "breached" && !report.breachCheckedAt ? "Run a breach check to fill this tab." : EMPTY_TEXT[active]}
+              {active === "breached" && !report.breachCheckedAt
+                ? "Run a breach check to fill this tab."
+                : active === "other"
+                  ? sub
+                    ? EMPTY_TEXT[sub]
+                    : "No unsecured websites, old passwords, expiring items or duplicates."
+                  : EMPTY_TEXT[active as HealthCheck]}
             </p>
             ) : active === "reused" ? (
               <div className="flex flex-col gap-4">

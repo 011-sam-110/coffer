@@ -85,8 +85,8 @@ function FieldRow({
   else value = <span data-selectable>{displayValue(field)}</span>;
 
   return (
-    <div className="group grid min-h-10 grid-cols-[148px_1fr_auto] items-start gap-3 px-4 py-2.5">
-      <span className="pt-px text-xs text-muted-foreground">{field.label}</span>
+    <div className="group grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 px-4 py-2.5 @min-[440px]:grid-cols-[148px_minmax(0,1fr)_auto]">
+      <span className="col-span-2 pt-px text-xs text-muted-foreground @min-[440px]:col-span-1">{field.label}</span>
       <div className="min-w-0 text-sm break-words">{value}</div>
       <div className="flex items-center gap-0.5">
         {secret && field.kind !== "totp" && (
@@ -289,7 +289,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
           ];
 
   return (
-    <article aria-label={item.title} className="flex h-full flex-col">
+    <article aria-label={item.title} className="@container flex h-full flex-col">
       <header className="flex shrink-0 items-start gap-3 px-6 pt-5 pb-4">
         <Monogram title={item.title} size={40} />
         <div className="min-w-0 flex-1">
@@ -403,8 +403,8 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
           {item.urls.length > 0 && (
             <Group title={item.urls.length > 1 ? "Websites" : undefined}>
               {item.urls.map((u, i) => (
-                <div key={i} className="grid min-h-10 grid-cols-[148px_1fr_auto] items-center gap-3 px-4 py-2">
-                  <span className="text-xs text-muted-foreground">{u.label || "Website"}</span>
+                <div key={i} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 @min-[440px]:grid-cols-[148px_minmax(0,1fr)_auto]">
+                  <span className="col-span-2 text-xs text-muted-foreground @min-[440px]:col-span-1">{u.label || "Website"}</span>
                   <span className="min-w-0 truncate text-sm" data-selectable title={u.url}>
                     {u.url}
                   </span>
@@ -439,7 +439,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
 
           {item.notes.trim() && (
             <Group>
-              <div className="grid grid-cols-[148px_1fr] items-start gap-3 px-4 py-3">
+              <div className="grid grid-cols-1 items-start gap-x-3 gap-y-0.5 px-4 py-3 @min-[440px]:grid-cols-[148px_1fr]">
                 <span className="pt-px text-xs text-muted-foreground">Notes</span>
                 <div className="min-w-0">
                   <Markdown text={item.notes} />

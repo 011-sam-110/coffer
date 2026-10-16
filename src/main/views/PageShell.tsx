@@ -67,7 +67,7 @@ export function Tabs<T extends string>({ label, tabs, value, onChange }: { label
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(t.id)}
             className={cx(
-              "-mb-px inline-flex h-9 cursor-pointer items-center gap-1.5 border-b-2 px-3 text-sm transition-colors",
+              "-mb-px inline-flex h-9 cursor-pointer items-center gap-1.5 border-b-2 px-2.5 text-sm transition-colors",
               on ? "border-foreground font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
             )}
           >

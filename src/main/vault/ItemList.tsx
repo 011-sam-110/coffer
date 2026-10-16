@@ -200,10 +200,10 @@ export function ItemList({
   const title = filterTitle(nav.filter);
 
   return (
-    <section aria-label={title} className="flex h-full w-[340px] shrink-0 flex-col border-r border-border">
+    <section aria-label={title} className="flex h-full w-[clamp(280px,32vw,360px)] shrink-0 flex-col border-r border-border">
       <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 pt-3 pb-2">
         <div className="flex items-center gap-2">
-          <div className="control flex h-8 flex-1 items-center gap-2">
+          <div className="control flex h-8 min-w-0 flex-1 items-center gap-2">
             <Search aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <input
               ref={searchRef}
@@ -323,7 +323,9 @@ export function ItemList({
                     {compact ? (
                       <>
                         <TypeIcon aria-hidden className={cx("size-3.5 shrink-0 text-muted-foreground", (bulk || checked) && "opacity-0")} />
-                        <span className="min-w-0 shrink truncate text-sm font-medium">{i.title}</span>
+                        <span className="min-w-0 shrink truncate text-sm font-medium" title={i.title}>
+                          {i.title}
+                        </span>
                         {i.favorite && <Star aria-label="Favourite" className="size-3 shrink-0 fill-gold text-gold" />}
                         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{i.subtitle}</span>
                         {i.urlHost && <span className="max-w-[96px] shrink-0 truncate text-right text-xs text-muted-foreground">{i.urlHost}</span>}
@@ -335,10 +337,14 @@ export function ItemList({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-1.5">
-                            <span className="truncate text-sm font-medium">{i.title}</span>
+                            <span className="truncate text-sm font-medium" title={i.title}>
+                              {i.title}
+                            </span>
                             {i.favorite && <Star aria-label="Favourite" className="size-3 shrink-0 fill-gold text-gold" />}
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
+                          <span className="block truncate text-xs text-muted-foreground" title={i.subtitle || undefined}>
+                            {i.subtitle || ITEM_TYPES[i.type].label}
+                          </span>
                         </span>
                       </>
                     )}
