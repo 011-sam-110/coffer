@@ -28,7 +28,7 @@
 //   invoke("demo_clipboard")  what the simulated clipboard holds (tests only)
 //   invoke("demo_simulate", { what, title? }) with what = "idleLock" | "systemLock" |
 //   "sleepLock" | "quitLock" | "fileMissing" | "conflict" | "reloaded" | "quickShown" |
-//   "editDiscarded" | "quitRequested" | "keyChanged". In a browser:
+//   "editDiscarded" | "quitRequested" | "keyChanged" | "closeNotice". In a browser:
 //   window.__cofferDemo.simulate(what).
 //
 // A banner event that fires before any listener exists is delivered to the first
@@ -1195,6 +1195,10 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
         return true;
       case "quitRequested":
         emit("app://quitRequested", {});
+        return true;
+      case "closeNotice":
+        // A browser tab has no window close; this stands in for the first close with closeBehavior "hide".
+        emit("main://closeNotice", {});
         return true;
       case "keyChanged":
         lockNow("keyChanged");

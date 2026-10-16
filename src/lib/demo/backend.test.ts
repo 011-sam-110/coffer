@@ -387,6 +387,8 @@ describe("item_save", () => {
 
     const change = toInput(v2);
     change.fields = change.fields.map((f) => (f.builtin === "password" ? { ...f, value: "Zr5^nB9!cX2#hL7q" } : f));
+    // With no latency both saves can land in the same millisecond; the timestamp check needs a later clock.
+    await new Promise((r) => setTimeout(r, 5));
     const v3 = await call<ItemView>(b, "item_save", { item: change, password: null });
     expect(v3.passwordHistoryCount).toBe(1);
     expect(v3.passwordChangedAt).not.toBe(v2.passwordChangedAt);
@@ -670,5 +672,19 @@ describe("settings, shell and tier 2", () => {
     expect(shown).toHaveLength(1);
     await call(q, "quick_set_modal", { modal: true });
     await call(q, "quick_hide");
+  });
+});
+
+describe("demo window events", () => {
+  it("emits main://closeNotice and app://quitRequested on demand, and main_hide resolves", async () => {
+    const b = mk();
+    const seen: string[] = [];
+    b.listen("main://closeNotice", () => seen.push("closeNotice"));
+    b.listen("app://quitRequested", () => seen.push("quitRequested"));
+    expect(await call(b, "demo_simulate", { what: "closeNotice" })).toBe(true);
+    expect(await call(b, "demo_simulate", { what: "quitRequested" })).toBe(true);
+    await flush();
+    expect(seen).toEqual(["closeNotice", "quitRequested"]);
+    await expect(call(b, "main_hide")).resolves.toBeUndefined();
   });
 });
