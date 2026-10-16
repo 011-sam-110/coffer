@@ -57,7 +57,7 @@ export function Generator({
   const [opts, setOpts] = useState<GeneratorOptions>(DEFAULT_GENERATOR);
   const [result, setResult] = useState<Generated | null>(null);
   const [busy, setBusy] = useState(false);
-  const { error } = useToast();
+  const { error, expectCopy } = useToast();
   const req = useRef(0);
   const ids = { len: useId(), sep: useId(), ex: useId(), md: useId(), ms: useId() };
 
@@ -98,6 +98,7 @@ export function Generator({
   const copy = async () => {
     if (!result) return;
     try {
+      expectCopy();
       await call("generator_copy", { value: result.value });
       onCopied?.();
     } catch (e) {

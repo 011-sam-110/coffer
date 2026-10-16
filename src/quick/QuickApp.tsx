@@ -248,7 +248,7 @@ function Quick() {
   const [actCode, setActCode] = useState<TotpCode | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
-  const { toast, error } = useToast();
+  const { toast, error, expectCopy } = useToast();
   const { withReprompt } = useReprompt();
 
   const loadItems = useCallback(() => {
@@ -381,6 +381,7 @@ function Quick() {
   const copyRole = async (item: ItemSummary, role: "username" | "password" | "totp") => {
     try {
       if (role === "totp") await waitForFreshCode(item, null);
+      expectCopy();
       await withReprompt((password) => call("item_copy", { id: item.id, field: role, password }), `${item.title} asks for your master password.`);
       remember(item, role);
       hide();
@@ -393,6 +394,7 @@ function Quick() {
   const copyField = async (item: ItemSummary, field: string, role: string | null = null, isTotp = false) => {
     try {
       if (isTotp) await waitForFreshCode(item, field);
+      expectCopy();
       await withReprompt((password) => call("item_copy", { id: item.id, field, password }), `${item.title} asks for your master password.`);
       remember(item, role);
       hide();
