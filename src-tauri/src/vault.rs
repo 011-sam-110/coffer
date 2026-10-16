@@ -806,7 +806,7 @@ pub fn backups_list(app: &AppHandle) -> CofferResult<Vec<BackupEntry>> {
             Ok(bytes) => (bytes.len() as u64, coffer_core::vault_file::read_header(&bytes).map(|h| h.generation).unwrap_or(0)),
             Err(_) => (0, 0),
         };
-        out.push(BackupEntry { index: i as u32, saved_at: coffer_core::time_util::fmt(*t), size, generation });
+        out.push(BackupEntry { index: i as u32, saved_at: coffer_core::time_util::fmt(*t).unwrap_or_default(), size, generation });
     }
     *state.backups_listed.lck() = files.into_iter().map(|(p, _)| p).collect();
     Ok(out)
@@ -815,7 +815,9 @@ pub fn backups_list(app: &AppHandle) -> CofferResult<Vec<BackupEntry>> {
 /// Restore (SPEC 3.5). Unlocked: take the backup's records into the open
 /// vault and save over the file the user was shown. Locked or missing: put
 /// the backup file in place and take its generation as the highest seen.
-pub fn backup_restore(app: &AppHandle, index: u32) -> CofferResult<VaultStatus> {
+/// `password`: the master password, when the restore would weaken re-prompt
+/// on an item (the core answers `repromptRequired` without it).
+pub fn backup_restore(app: &AppHandle, index: u32, password: Option<&str>) -> CofferResult<VaultStatus> {
     let state = app.state::<AppState>();
     let path = state.backups_listed.lck().get(index as usize).cloned().ok_or_else(|| CofferError::new(ErrorCode::NotFound, "List the backups again."))?;
     let bytes = std::fs::read(&path).map_err(|e| io_err("read that backup", e))?;
@@ -827,7 +829,7 @@ pub fn backup_restore(app: &AppHandle, index: u32) -> CofferResult<VaultStatus> 
     let target = vault_path(&state).ok_or_else(|| CofferError::invalid("There is no vault on this PC yet."))?;
     if state.is_unlocked() {
         with_session(app, |s| {
-            s.vault.restore_backup(&bytes)?;
+            s.vault.restore_backup(&bytes, password).map_err(unlocked_err)?;
             if s.shown.is_none() && s.block.is_some() {
                 s.shown = Some(disk_base(&s.path));
             }

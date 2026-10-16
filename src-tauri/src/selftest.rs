@@ -403,7 +403,7 @@ fn vault_round_trip(app: &AppHandle) {
     let blocked = crate::vault::mutate(app, |v| v.item_save(&login("Blocked", "x@example.com", "Selftest-pass-three-3"), None));
     c.check("an older file pauses saves (vault://olderOnDisk)", older && blocked.is_err(), code_of(&blocked));
     let listed = crate::vault::backups_list(app).unwrap_or_default();
-    let restored = crate::vault::backup_restore(app, 0);
+    let restored = crate::vault::backup_restore(app, 0, None);
     let unblocked = crate::vault::with_session(app, |s| Ok(s.block.is_none())).unwrap_or(false);
     c.check(
         "restoring the newest backup (unlocked) saves and unpauses",

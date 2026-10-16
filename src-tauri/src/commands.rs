@@ -575,14 +575,9 @@ pub async fn backups_list(app: AppHandle) -> CofferResult<Vec<BackupEntry>> {
 
 #[tauri::command]
 /// `password`: the master password, needed when the restore would weaken
-/// re-prompt on an item (contract 208fbdd). The core checks it once
-/// `restore_backup(bytes, password)` lands; until then it is not used.
+/// re-prompt on an item (`repromptRequired` without it).
 pub async fn backup_restore(app: AppHandle, index: u32, password: Option<Secret>) -> CofferResult<VaultStatus> {
-    blocking(move || {
-        let _ = &password;
-        vault::backup_restore(&app, index)
-    })
-    .await?
+    blocking(move || vault::backup_restore(&app, index, pw(&password))).await?
 }
 
 // ---------- settings ----------
