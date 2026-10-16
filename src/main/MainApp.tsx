@@ -141,7 +141,7 @@ function Shell() {
         onDone={() => setSetup(null)}
       />
     );
-  else if (setup === "open") screen = <OpenVault onCancel={() => setSetup(status.state === "noVault" ? "welcome" : null)} />;
+  else if (setup === "open") screen = <OpenVault onCancel={() => setSetup(status.state === "noVault" ? "welcome" : null)} onDone={() => setSetup(null)} />;
   else if (outcome?.kind === "tampered") screen = <Tampered onDone={() => setOutcome(null)} />;
   else if (outcome?.kind === "older") screen = <OlderFile message={outcome.message} onDone={() => setOutcome(null)} />;
   else if (status.state === "missing") screen = <Missing onCreate={() => setSetup("create")} />;
