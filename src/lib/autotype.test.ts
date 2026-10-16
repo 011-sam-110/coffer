@@ -32,8 +32,8 @@ describe("parseAutotype", () => {
   it("names the action by the sequence", () => {
     expect(isDefaultSequence(null)).toBe(true);
     expect(isDefaultSequence(" {username}{tab}{password}{enter} ")).toBe(true);
-    expect(autotypeLabel(null)).toBe("Type username and password");
-    expect(autotypeLabel("{PASSWORD}{ENTER}")).toBe("Type the item's sequence");
+    expect(autotypeLabel(null)).toBe("Type username + password");
+    expect(autotypeLabel("{PASSWORD}{ENTER}")).toBe("Type sequence");
   });
 });
 

@@ -739,16 +739,21 @@ describe("tier 2: Windows Hello", () => {
 });
 
 describe("tier 2: auto-type", () => {
-  it("types the sequence or the password alone, and says why it refuses", async () => {
+  const mkq = (o: Partial<DemoBackendOptions> = {}): Backend => mk({ page: "quick", ...o });
+  it("is a Quick Access command: the main window gets the ACL refusal", async () => {
     const b = mk();
+    expect(await err(b, "autotype", { id: (await ids(b))("GitHub"), password: null })).toBe("Command autotype not allowed by ACL");
+  });
+  it("types the sequence or the password alone, and says why it refuses", async () => {
+    const b = mkq();
     const id = (await ids(b))("GitHub");
     await expect(call(b, "autotype", { id, password: null })).resolves.toBeUndefined();
     await expect(call(b, "autotype", { id, password: null, only: "password" })).resolves.toBeUndefined();
-    expect(await err(mk({ autotype: "admin" }), "autotype", { id, password: null })).toEqual({ code: "invalid", message: "Coffer cannot type into an app running as administrator." });
-    expect((await err(mk({ autotype: "gone" }), "autotype", { id, password: null })).message).toMatch(/gone/);
+    expect(await err(mkq({ autotype: "admin" }), "autotype", { id, password: null })).toEqual({ code: "invalid", message: "Coffer cannot type into an app running as administrator." });
+    expect((await err(mkq({ autotype: "gone" }), "autotype", { id, password: null })).message).toMatch(/gone/);
   });
   it("asks for the master password on a re-prompt item and types its own sequence", async () => {
-    const b = mk();
+    const b = mkq();
     const v = await call<ItemView>(b, "item_get", { id: (await ids(b))("GitHub") });
     await call(b, "item_save", { item: { ...toInput(v), reprompt: true, autotypeSequence: "{PASSWORD}{ENTER}" }, password: null });
     expect((await err(b, "autotype", { id: v.id, password: null })).code).toBe("repromptRequired");
@@ -758,7 +763,7 @@ describe("tier 2: auto-type", () => {
     expect(await err(b, "autotype", { id: v.id, password: "demo" })).toEqual({ code: "invalid", message: "Coffer does not know the auto-type token {USER}." });
   });
   it("refuses an item without the value", async () => {
-    const b = mk();
+    const b = mkq();
     const note = (await call<ItemSummary[]>(b, "items_list")).find((i) => i.type === "note")!.id;
     expect((await err(b, "autotype", { id: note, password: null })).code).toBe("notFound");
   });

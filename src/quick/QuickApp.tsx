@@ -449,7 +449,8 @@ function Quick() {
     for (const f of fields) {
       const isTotp = f.kind === "totp";
       list.push({
-        label: `Copy ${f.label.toLowerCase()}`,
+        // Labels never truncate at 400 px: the code row says "Copy code" beside its digits.
+        label: isTotp ? "Copy code" : `Copy ${f.label.toLowerCase()}`,
         hint: f.builtin ? shortcut[f.builtin] : undefined,
         detail: isTotp && actCode ? groupCode(actCode.code) : undefined,
         ring: isTotp && actCode ? { remaining: actCode.remaining, period: actCode.period } : undefined,
@@ -646,7 +647,8 @@ function Quick() {
                           )}
                         </span>
                       )}
-                      {i === actSel && <Kbd>↵</Kbd>}
+                      {/* Enter is shown by the selection; a row with its own key chip shows only that. */}
+                      {i === actSel && !a.hint && <Kbd>↵</Kbd>}
                       {a.hint && <Kbd>{a.hint}</Kbd>}
                     </div>
                   </li>

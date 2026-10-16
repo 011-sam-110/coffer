@@ -65,7 +65,7 @@ export function isDefaultSequence(seq: string | null | undefined): boolean {
   return s === "" || s === DEFAULT_AUTOTYPE;
 }
 
-/** The words on the action that types the item's sequence. */
+/** The words on the Quick Access action that types the item's sequence (short: labels never truncate at 400 px; F1 has the long words). */
 export function autotypeLabel(seq: string | null | undefined): string {
-  return isDefaultSequence(seq) ? "Type username and password" : "Type the item's sequence";
+  return isDefaultSequence(seq) ? "Type username + password" : "Type sequence";
 }

@@ -53,15 +53,21 @@ export function useAutotype() {
   );
 }
 
-/** The main window: after a typing, say where it went (the window Quick Access would type into). */
-export async function typedIntoText(only: AutotypeOnly): Promise<string> {
-  const what = only === "password" ? "the password" : "the sequence";
-  try {
-    const ctx = await call("quick_context");
-    return ctx.title ? `Coffer typed ${what} into ${ctx.title}.` : `Coffer typed ${what} into the last app you used.`;
-  } catch {
-    return `Coffer typed ${what} into the last app you used.`;
-  }
+/**
+ * The main window cannot auto-type: autotype is a Quick Access command (Rust
+ * QUICK_ONLY_COMMANDS, SPEC 10). Its item menu shows how to do it instead.
+ */
+export function autotypeHint(
+  view: Pick<ItemView, "type" | "fields" | "autotypeSequence" | "state" | "title"> | null,
+  hotkeyQuick: string | null | undefined,
+): { label: string; shortcut: string; help: string } | null {
+  if (!view || autotypeChoices(view).length === 0) return null;
+  const hotkey = hotkeyQuick || "Ctrl+Shift+Space";
+  return {
+    label: "Auto-type in Quick Access",
+    shortcut: hotkey,
+    help: `To auto-type, open Quick Access (${hotkey}), pick ${view.title} and press Ctrl+Enter. Coffer types into the app you came from.`,
+  };
 }
 
 /** "Advanced" disclosure in the login editor with the auto-type sequence. */

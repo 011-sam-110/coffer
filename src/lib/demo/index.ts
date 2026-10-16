@@ -126,6 +126,9 @@ const WRITE_COMMANDS = new Set([
   "secret_key_rotate",
 ]);
 
+/** Commands the main window may not call (see invoke). */
+const QUICK_ONLY_COMMANDS = new Set(["autotype"]);
+
 const DEFAULT_SETTINGS: Settings = {
   autoLockMinutes: 10,
   lockOnSystemLock: true,
@@ -1370,6 +1373,10 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       await delay("base");
       if (name === "demo_simulate") return simulate(String(args?.what ?? ""), args?.title ? String(args.title) : undefined);
       if (name === "demo_clipboard") return lastCopied;
+      // Rust's ACL (command_names.rs QUICK_ONLY_COMMANDS, SPEC 10): auto-type is a Quick Access command.
+      // The main window gets Tauri's refusal, a plain string. (Rust also limits quick_context, quick_hide,
+      // quick_set_modal and quick_hint_seen to Quick Access; the demo tests still call those from a main page.)
+      if (QUICK_ONLY_COMMANDS.has(name) && opts.page !== "quick") throw `Command ${name} not allowed by ACL`;
       const h = (handlers as unknown as Record<string, ((a: unknown) => unknown) | undefined>)[name];
       if (!h) throw fail("invalid", `Unknown command: ${name}`);
       try {

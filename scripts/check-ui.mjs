@@ -98,13 +98,13 @@ const STATES = [
   ["t04-unlock-hello-not-ready", "/?state=locked&hello=on", MAIN],
   // Tier 2: auto-type (SPEC 10).
   ["t08-detail-menu-autotype", "/?item=GitHub", MAIN, [{ click: "header [aria-label='More actions']" }, { wait: 300 }]],
-  ["t09-detail-typed", "/?item=GitHub", MAIN, [{ click: "header [aria-label='More actions']" }, { click: "text=Type password" }, { wait: 700 }]],
-  ["t10-detail-autotype-admin", "/?item=GitHub&autotype=admin", MAIN, [{ click: "header [aria-label='More actions']" }, { click: "text=Type username and password" }, { wait: 700 }]],
+  // The main window cannot auto-type (a Quick Access command); its menu says how instead.
+  ["t09-detail-autotype-help", "/?item=GitHub", MAIN, [{ click: "header [aria-label='More actions']" }, { click: "text=Auto-type in Quick Access" }, { wait: 500 }]],
   ["t11-edit-autotype", "/?item=GitHub&edit=1", MAIN, [{ click: "text=Advanced" }, { fill: "input[placeholder='{USERNAME}{TAB}{PASSWORD}{ENTER}']", text: "{USERNAME}{TAB}{PASS}" }]],
   // Tier 2: revisions.
-  ["t12-revisions", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }]],
-  ["t13-revision-confirm", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }, { click: "main button:has-text('Restore') >> nth=0" }, { wait: 300 }]],
-  ["t14-revision-restored", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }, { click: "button:has-text('Restore') >> nth=0" }, { wait: 300 }, { click: "dialog button:has-text('Restore')" }, { wait: 700 }]],
+  ["t12-revisions", "/?item=GitHub", MAIN, [{ click: "button:has-text('revisions')" }, { wait: 400 }]],
+  ["t13-revision-confirm", "/?item=GitHub", MAIN, [{ click: "button:has-text('revisions')" }, { wait: 400 }, { click: "main button:has-text('Restore') >> nth=0" }, { wait: 300 }]],
+  ["t14-revision-restored", "/?item=GitHub", MAIN, [{ click: "button:has-text('revisions')" }, { wait: 400 }, { click: "button:has-text('Restore') >> nth=0" }, { wait: 300 }, { click: "dialog button:has-text('Restore')" }, { wait: 700 }]],
   // Tier 2: rotate Secret Key.
   ["t15-rotate-ask", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }]],
   ["t16-rotate-wrong", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }, { fill: "dialog input[type=password]", text: "nope" }, { press: "Enter" }, { wait: 1200 }]],
@@ -151,7 +151,7 @@ for (const [name, path, viewport, steps = []] of STATES) {
     if (m.type() === "error") errors.push(m.text());
   });
   page.on("pageerror", (e) => errors.push(String(e)));
-  const r = { name, errors, overflow: false, unfocused: [], focusChecked: 0, stepErrors: [], clipped: [], truncated: [] };
+  const r = { name, errors, overflow: false, unfocused: [], focusChecked: 0, stepErrors: [], clipped: [], truncated: [], actionTrunc: [] };
   try {
     await page.goto(BASE + path, { waitUntil: "networkidle" });
     await page.waitForTimeout(900);
@@ -218,10 +218,16 @@ for (const [name, path, viewport, steps = []] of STATES) {
         const need = ctx.measureText(el.placeholder).width;
         if (el.tagName === "INPUT" && need > room + 1) clipped.push(`placeholder "${el.placeholder.slice(0, 30)}" (${Math.ceil(need)}>${Math.floor(room)} wide)`);
       }
-      return { clipped: clipped.slice(0, 6), truncated };
+      // Quick Access action labels never truncate, not even with an ellipsis.
+      const actionTrunc = [];
+      for (const el of document.querySelectorAll("[role=listbox][aria-label^='Actions for'] [role=option] span")) {
+        if (ownText(el) && el.scrollWidth > el.clientWidth + 1) actionTrunc.push(el.textContent.trim().slice(0, 40));
+      }
+      return { clipped: clipped.slice(0, 6), truncated, actionTrunc };
     });
     r.clipped = fit.clipped;
     r.truncated = fit.truncated;
+    r.actionTrunc = fit.actionTrunc;
 
     // Tab through the first focusable elements; each must show a ring (outline on it or a near ancestor).
     if (!name.includes("copied")) {
@@ -263,6 +269,7 @@ for (const r of results) {
   if (r.unfocused.length) issues.push(`no focus ring: ${r.unfocused.join(", ")}`);
   if (r.stepErrors.length) issues.push(`step failed: ${r.stepErrors.join(" | ").slice(0, 200)}`);
   if (r.clipped.length) issues.push(`clipped text: ${r.clipped.join(", ")}`);
+  if (r.actionTrunc.length) issues.push(`action label truncated: ${r.actionTrunc.join(", ")}`);
   if (issues.length) bad++;
   console.log(`${issues.length ? "FAIL" : "ok  "} ${r.name.padEnd(26)} focus checked ${String(r.focusChecked).padStart(2)}${issues.length ? "  " + issues.join("; ") : ""}`);
 }
