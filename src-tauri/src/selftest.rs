@@ -373,7 +373,7 @@ fn vault_round_trip(app: &AppHandle) {
         Ok(p) => crate::vault::import_delete_source(app, &p.preview_id),
         Err(e) => Err(e.clone()),
     };
-    c.check("an encrypted source is not offered for deletion", deleted.is_err() && file.exists(), code_of(&deleted));
+    c.check("import_delete_source deletes a picked .cofferx too", deleted.is_ok() && !file.exists(), code_of(&deleted));
 
     // A damaged file: saves pause until "save again".
     let count_before = item_count(app);
