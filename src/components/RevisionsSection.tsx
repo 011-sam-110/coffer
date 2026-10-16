@@ -1,5 +1,6 @@
 // Item revisions (tier 2): earlier saved versions of an item, newest first,
-// each with Restore behind a confirm step. Next to Password history.
+// each with Restore behind a confirm step. Rows of the item's last card, under
+// Password history.
 import { FileClock, RotateCcw } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ItemView, Revision } from "../lib/contract";
@@ -71,40 +72,43 @@ export function RevisionsSection({ item, onRestored }: { item: ItemView; onResto
 
   if (count === 0 || item.state === "trashed") return null;
 
+  // Rows of the item's last card (tags, old passwords, dates): label 160 px | value, like the fields.
   return (
-    <section className="flex flex-col gap-1.5">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={toggle}
-        className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-sm px-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-      >
-        <FileClock aria-hidden className="size-3.5" />
-        {count === null ? "Revisions" : `Revisions (${count})`}
-      </button>
-      {open && (
-        <div className="divide-y divide-border rounded-sm border border-border bg-card">
-          {!list ? (
-            <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
-              <Spinner /> Loading...
-            </div>
-          ) : (
-            list.map((r) => (
-              <div key={r.rev} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 @min-[440px]:grid-cols-[148px_minmax(0,1fr)_auto]">
-                <span className="text-xs text-muted-foreground tabular-nums" title={relativeTime(r.savedAt)}>
-                  {formatDateTime(r.savedAt)}
-                </span>
-                <span className="col-start-1 row-start-2 min-w-0 truncate text-sm @min-[440px]:col-start-2 @min-[440px]:row-start-1" title={r.title}>
-                  {revisionSummary(r, item.title)}
-                </span>
-                <Button size="sm" className="row-span-2 @min-[440px]:row-span-1" icon={<RotateCcw className="size-3.5" />} onClick={() => setConfirm(r)}>
-                  Restore
-                </Button>
-              </div>
-            ))
-          )}
+    <>
+      <div className="grid min-h-10 grid-cols-1 items-center gap-x-3 gap-y-0.5 px-4 py-2 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
+        <span className="text-xs text-muted-foreground">Revisions</span>
+        <div className="min-w-0 text-sm">
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={toggle}
+            className="-ml-1 inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-sm px-1 text-sm hover:bg-muted"
+          >
+            <FileClock aria-hidden className="size-3.5 text-muted-foreground" />
+            {open ? "Hide" : "Show"} {count === null ? "revisions" : `${count} ${count === 1 ? "revision" : "revisions"}`}
+          </button>
         </div>
-      )}
+      </div>
+      {open &&
+        (!list ? (
+          <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
+            <Spinner /> Loading...
+          </div>
+        ) : (
+          list.map((r) => (
+            <div key={r.rev} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 @min-[440px]:grid-cols-[160px_minmax(0,1fr)_auto]">
+              <span className="text-xs text-muted-foreground tabular-nums" title={relativeTime(r.savedAt)}>
+                {formatDateTime(r.savedAt)}
+              </span>
+              <span className="col-start-1 row-start-2 min-w-0 truncate text-sm @min-[440px]:col-start-2 @min-[440px]:row-start-1" title={r.title}>
+                {revisionSummary(r, item.title)}
+              </span>
+              <Button size="sm" className="row-span-2 @min-[440px]:row-span-1" icon={<RotateCcw className="size-3.5" />} onClick={() => setConfirm(r)}>
+                Restore
+              </Button>
+            </div>
+          ))
+        ))}
       <ConfirmDialog
         open={!!confirm}
         title="Restore this version?"
@@ -117,6 +121,6 @@ export function RevisionsSection({ item, onRestored }: { item: ItemView; onResto
         onCancel={() => setConfirm(null)}
         onConfirm={restore}
       />
-    </section>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 // The ONE item form for all 11 types, driven by the contract's field tables.
 // Secret fields stay null (unchanged) until the user shows, types or generates.
-import { Eye, EyeOff, LoaderCircle, Plus, Trash2, WandSparkles, X } from "lucide-react";
+import { CalendarDays, Eye, EyeOff, LoaderCircle, Plus, WandSparkles, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AutotypeSequenceField } from "../../components/AutotypeActions";
 import { Generator } from "../../components/Generator";
@@ -29,18 +29,23 @@ import { editInfo, useKeyHandlers } from "./nav";
 
 const ADDABLE: FieldKind[] = ["text", "concealed", "email", "url", "phone", "date", "monthYear", "multiline", "totp", "pin", "boolean"];
 
+/** The generator wand of a password field: open state and toggle. */
+type GenToggle = { open: boolean; toggle: () => void };
+
 function SecretInput({
   field,
   itemId,
   onChange,
   invalid,
   id,
+  gen,
 }: {
   field: FormField;
   itemId?: string;
   onChange: (v: string | null) => void;
   invalid?: boolean;
   id: string;
+  gen?: GenToggle;
 }) {
   const { withReprompt } = useReprompt();
   const { error } = useToast();
@@ -92,6 +97,11 @@ function SecretInput({
         onChange={(e) => onChange(e.target.value === "" && field.hasStored ? null : e.target.value)}
         className="h-[1.875rem] min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
       />
+      {gen && (
+        <IconButton size="sm" label="Generate a password" active={gen.open} aria-expanded={gen.open} onClick={gen.toggle}>
+          <WandSparkles />
+        </IconButton>
+      )}
       {/* The eye sits inside the field. On a saved value it fetches the value to edit it. */}
       <IconButton
         size="sm"
@@ -106,29 +116,62 @@ function SecretInput({
   );
 }
 
+/** A date or month: our field and calendar button; the browser's own picker icon is hidden (theme.css). */
+function DateInput({ id, value, invalid, onChange, type }: { id: string; value: string; invalid?: boolean; onChange: (v: string) => void; type: "date" | "month" }) {
+  const ref = useRef<HTMLInputElement>(null);
+  return (
+    <div className="control flex w-48 max-w-full items-center gap-1 pr-1" aria-invalid={invalid || undefined}>
+      <input
+        ref={ref}
+        id={id}
+        type={type}
+        value={value}
+        aria-invalid={invalid || undefined}
+        onChange={(e) => onChange(e.target.value)}
+        className="date-input h-[1.875rem] min-w-0 flex-1 bg-transparent text-sm outline-none"
+      />
+      <IconButton
+        size="sm"
+        label={type === "date" ? "Choose a date" : "Choose a month"}
+        onClick={() => {
+          try {
+            ref.current?.showPicker();
+          } catch {
+            ref.current?.focus();
+          }
+        }}
+      >
+        <CalendarDays />
+      </IconButton>
+    </div>
+  );
+}
+
 function ValueInput({
   field,
   itemId,
   onChange,
   invalid,
   id,
+  gen,
 }: {
   field: FormField;
   itemId?: string;
   onChange: (v: string | null) => void;
   invalid?: boolean;
   id: string;
+  gen?: GenToggle;
 }) {
-  if (isSecretKind(field.kind) && field.kind !== "totp") return <SecretInput id={id} field={field} itemId={itemId} onChange={onChange} invalid={invalid} />;
+  if (isSecretKind(field.kind) && field.kind !== "totp") return <SecretInput id={id} field={field} itemId={itemId} onChange={onChange} invalid={invalid} gen={gen} />;
   if (field.kind === "totp") return <TotpInput id={id} field={field} itemId={itemId} onChange={onChange} invalid={invalid} />;
   const v = field.value ?? "";
   switch (field.kind) {
     case "multiline":
       return <Textarea id={id} rows={3} mono={field.builtin === "publicKey"} value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} />;
     case "date":
-      return <Input id={id} type="date" value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} className="w-44 max-w-full" />;
+      return <DateInput id={id} type="date" value={v} invalid={invalid} onChange={onChange} />;
     case "monthYear":
-      return <Input id={id} type="month" value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} className="w-44 max-w-full" placeholder="YYYY-MM" />;
+      return <DateInput id={id} type="month" value={v} invalid={invalid} onChange={onChange} />;
     case "boolean":
       return <Checkbox label="Yes" checked={v === "true"} onChange={(c) => onChange(c ? "true" : "false")} />;
     case "menu":
@@ -395,23 +438,36 @@ export function ItemEditor({
   const fid = (k: string) => `${uid}-${k}`;
 
   const canGenerate = (f: FormField) => f.kind === "concealed" || f.kind === "pin";
-  // Every row: label 148 px | value | actions 64 px (two 28 px buttons, 8 px apart).
+  // Every row: label 160 px | value, the same columns as the item view, so nothing moves on Ctrl+E.
+  // The generator wand and the remove button sit inside the inputs.
   const renderRow = (f: FormField, isCustom: boolean) => {
     const err = errors[`field:${f.key}`];
     const labelErr = errors[`label:${f.key}`];
     return (
       <div key={f.key} className="flex flex-col gap-2 px-4 py-3" data-err={err ? `field:${f.key}` : labelErr ? `label:${f.key}` : undefined}>
-        <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
+        <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
           {isCustom ? (
-            <div className="col-span-2 flex flex-col gap-1 @min-[560px]:col-span-1">
-              <Input
-                aria-label="Field name"
-                placeholder="Field name"
-                value={f.label}
-                invalid={!!labelErr}
-                onChange={(e) => patchField(f.key, { label: e.target.value })}
-                className="h-8 text-xs"
-              />
+            <div className="flex flex-col gap-1">
+              <div className="control flex items-center gap-1 pr-1" aria-invalid={!!labelErr || undefined}>
+                <input
+                  aria-label="Field name"
+                  placeholder="Field name"
+                  value={f.label}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-invalid={!!labelErr || undefined}
+                  onChange={(e) => patchField(f.key, { label: e.target.value })}
+                  className="h-[1.875rem] min-w-0 flex-1 bg-transparent text-xs outline-none"
+                />
+                <IconButton
+                  size="sm"
+                  label={`Remove ${f.label || "field"}`}
+                  className="hover:text-danger-text"
+                  onClick={() => setForm({ ...form, fields: form.fields.filter((x) => x.key !== f.key) })}
+                >
+                  <X />
+                </IconButton>
+              </div>
               <Input
                 aria-label="Section"
                 placeholder="Section (optional)"
@@ -421,8 +477,8 @@ export function ItemEditor({
               />
             </div>
           ) : (
-            <label htmlFor={fid(f.key)} className="col-span-2 text-xs text-muted-foreground @min-[560px]:col-span-1 @min-[560px]:pt-2">
-              {f.label}
+            <label htmlFor={fid(f.key)} className="text-xs text-muted-foreground @min-[440px]:pt-2">
+              {form.type === "identity" && f.builtin === "title" ? "Title (Mr, Ms, Dr)" : f.label}
             </label>
           )}
           <div className="flex min-w-0 flex-col gap-1">
@@ -432,6 +488,7 @@ export function ItemEditor({
               itemId={form.id}
               invalid={!!err}
               onChange={(v) => patchField(f.key, { value: v })}
+              gen={canGenerate(f) ? { open: genFor === f.key, toggle: () => setGenFor((g) => (g === f.key ? null : f.key)) } : undefined}
             />
             {(err || labelErr) && (
               <p role="alert" className="text-xs text-danger-text">
@@ -439,27 +496,6 @@ export function ItemEditor({
               </p>
             )}
             {isCustom && <p className="text-2xs text-muted-foreground">{FIELD_KIND_LABELS[f.kind]}</p>}
-          </div>
-          <div className="flex h-8 items-center justify-end gap-2">
-            {canGenerate(f) && (
-              <IconButton
-                label="Generate a password"
-                active={genFor === f.key}
-                aria-expanded={genFor === f.key}
-                onClick={() => setGenFor((g) => (g === f.key ? null : f.key))}
-              >
-                <WandSparkles />
-              </IconButton>
-            )}
-            {isCustom && (
-              <IconButton
-                label={`Remove ${f.label || "field"}`}
-                className="hover:text-danger-text"
-                onClick={() => setForm({ ...form, fields: form.fields.filter((x) => x.key !== f.key) })}
-              >
-                <Trash2 />
-              </IconButton>
-            )}
           </div>
         </div>
         {genFor === f.key && (
@@ -490,12 +526,12 @@ export function ItemEditor({
     >
       <header className="flex shrink-0 flex-wrap items-start gap-3 px-6 pt-5 pb-4">
         <Monogram title={form.title || def.label} size={40} />
-        <div className="min-w-0 flex-1" data-err={errors.title ? "title" : undefined}>
+        <div className="min-w-[12rem] flex-1" data-err={errors.title ? "title" : undefined}>
           <input
             ref={titleRef}
-            aria-label="Title"
+            aria-label="Item name"
             value={form.title}
-            placeholder="Title"
+            placeholder={`Name this ${def.label.toLowerCase()}`}
             autoComplete="off"
             spellCheck={false}
             aria-invalid={!!errors.title || undefined}
@@ -568,32 +604,35 @@ export function ItemEditor({
             {def.hasUrls &&
               form.urls.map((u, i) => (
                 <div key={`url-${i}`} className="flex flex-col gap-1 px-4 py-3" data-err={errors[`url:${i}`] ? `url:${i}` : undefined}>
-                  <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
-                    <label htmlFor={`${uid}-url-${i}`} className="col-span-2 text-xs text-muted-foreground @min-[560px]:col-span-1 @min-[560px]:pt-2">
+                  <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
+                    <label htmlFor={`${uid}-url-${i}`} className="text-xs text-muted-foreground @min-[440px]:pt-2">
                       {form.urls.length > 1 ? `Website ${i + 1}` : "Website"}
                     </label>
                     <div className="flex min-w-0 flex-col gap-1">
-                      <Input
-                        id={`${uid}-url-${i}`}
-                        value={u.url}
-                        placeholder="https://example.com"
-                        invalid={!!errors[`url:${i}`]}
-                        onChange={(e) => patch({ urls: form.urls.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) })}
-                      />
+                      <div className="control flex items-center gap-1 pr-1" aria-invalid={!!errors[`url:${i}`] || undefined}>
+                        <input
+                          id={`${uid}-url-${i}`}
+                          value={u.url}
+                          placeholder="https://example.com"
+                          autoComplete="off"
+                          spellCheck={false}
+                          aria-invalid={!!errors[`url:${i}`] || undefined}
+                          onChange={(e) => patch({ urls: form.urls.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) })}
+                          className="h-[1.875rem] min-w-0 flex-1 bg-transparent text-sm outline-none"
+                        />
+                        <IconButton size="sm" label={`Remove website ${i + 1}`} className="hover:text-danger-text" onClick={() => patch({ urls: form.urls.filter((_, j) => j !== i) })}>
+                          <X />
+                        </IconButton>
+                      </div>
                       {errors[`url:${i}`] && <p className="text-xs text-danger-text">{errors[`url:${i}`]}</p>}
-                    </div>
-                    <div className="flex h-8 items-center justify-end gap-2">
-                      <IconButton label={`Remove website ${i + 1}`} className="hover:text-danger-text" onClick={() => patch({ urls: form.urls.filter((_, j) => j !== i) })}>
-                        <X />
-                      </IconButton>
                     </div>
                   </div>
                 </div>
               ))}
             {def.hasUrls && (
               <div className="px-4 py-2">
-                <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
-                  <span className="hidden @min-[560px]:block" />
+                <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
+                  <span className="hidden @min-[440px]:block" />
                   <div>
                     <Button size="sm" variant="ghost" className="-ml-2.5" icon={<Plus className="size-3.5" />} onClick={() => patch({ urls: [...form.urls, { url: "", label: null }] })}>
                       Add a website
@@ -603,8 +642,8 @@ export function ItemEditor({
               </div>
             )}
             <div className="px-4 py-3">
-              <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
-                <label htmlFor={`${uid}-notes`} className="col-span-2 text-xs text-muted-foreground @min-[560px]:col-span-1 @min-[560px]:pt-2">
+              <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
+                <label htmlFor={`${uid}-notes`} className="text-xs text-muted-foreground @min-[440px]:pt-2">
                   Notes
                 </label>
                 <div className="flex min-w-0 flex-col gap-1">
@@ -619,7 +658,7 @@ export function ItemEditor({
             <section className="flex flex-col gap-1.5">
               <h2 className="px-1 text-xs font-medium text-muted-foreground">{builtins.length ? "More fields" : "Fields"}</h2>
               <div className="rounded-sm border border-border bg-card">
-                <div aria-hidden className="hidden grid-cols-[148px_minmax(0,1fr)_64px] gap-3 border-b border-border px-4 pt-2 pb-1.5 text-2xs text-muted-foreground @min-[560px]:grid">
+                <div aria-hidden className="hidden grid-cols-[160px_minmax(0,1fr)] gap-3 border-b border-border px-4 pt-2 pb-1.5 text-2xs text-muted-foreground @min-[440px]:grid">
                   <span>Name and section</span>
                   <span>Value</span>
                 </div>
