@@ -514,7 +514,7 @@ export interface Commands {
   export_vault: [{ kind: ExportKind; masterPassword: string; exportPassword: string | null }, { path: string } | null];
 
   backups_list: [Record<string, never>, BackupEntry[]];
-  backup_restore: [{ index: number }, VaultStatus];
+  backup_restore: [{ index: number; password: string | null }, VaultStatus]; // password needed when the restore would weaken re-prompt on an item
 
   settings_get: [Record<string, never>, Settings];
   settings_set: [{ patch: Partial<Settings> }, Settings]; // main window only; rejects helloEnabled (use hello_set)
