@@ -45,6 +45,7 @@ import type {
   Field,
   FolderInfo,
   GeneratorMode,
+  GeneratorOptions,
   HealthReport,
   ItemFlags,
   ItemState,
@@ -165,6 +166,24 @@ type Handlers = {
 
 const fail = (code: ErrorCode, message: string): CofferError => ({ code, message });
 
+/** The generator's defaults before any generate (the same values as the UI's DEFAULT_GENERATOR). */
+const DEMO_GENERATOR_DEFAULTS: GeneratorOptions = {
+  mode: "random",
+  length: 20,
+  upper: true,
+  lower: true,
+  digits: true,
+  symbols: true,
+  minDigits: 1,
+  minSymbols: 1,
+  avoidAmbiguous: false,
+  exclude: "",
+  words: 5,
+  separator: "-",
+  capitalize: true,
+  includeNumber: true,
+};
+
 export function isCofferError(e: unknown): e is CofferError {
   return !!e && typeof e === "object" && "code" in e && "message" in e;
 }
@@ -242,6 +261,8 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   let lastCopied: string | null = null;
   /** Generated values not yet copied or saved, with their mode (SPEC 5: only those enter history). */
   const pendingGenerated = new Map<string, GeneratorMode>();
+  /** The options of the last generate (vault meta in Rust); null before the first. */
+  let lastGeneratorOptions: GeneratorOptions | null = null;
   const previews = new Map<string, PlannedImport>();
   const issuedPreviews = new Set<string>();
   let lastImportFile: { source: ImportSource; locked: boolean; needsKey: boolean } | null = null;
@@ -952,9 +973,15 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     },
 
     // ----- generator -----
+    // Like Rust: generate stores the options it used; generator_options returns them (defaults before the first).
+    generator_options: () => {
+      requireUnlocked();
+      return { ...(lastGeneratorOptions ?? DEMO_GENERATOR_DEFAULTS) };
+    },
     generate: ({ options }) => {
       try {
         const g = generateValue(options ?? {});
+        if (options) lastGeneratorOptions = { ...options };
         const mode: GeneratorMode = options?.mode === "passphrase" || options?.mode === "pin" ? options.mode : "random";
         pendingGenerated.set(g.value, mode);
         if (pendingGenerated.size > 100) pendingGenerated.delete(pendingGenerated.keys().next().value as string);

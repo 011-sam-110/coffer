@@ -55,6 +55,9 @@ export function Generator({
   onCopied?: () => void;
 }) {
   const [opts, setOpts] = useState<GeneratorOptions>(DEFAULT_GENERATOR);
+  // The last options come from the vault first; until then nothing is generated,
+  // so a mount never writes the defaults over them (the tray's "Copy a new password" uses them).
+  const [loaded, setLoaded] = useState(false);
   const [result, setResult] = useState<Generated | null>(null);
   const [busy, setBusy] = useState(false);
   const { error, expectCopy } = useToast();
@@ -79,9 +82,21 @@ export function Generator({
   );
 
   useEffect(() => {
+    let alive = true;
+    call("generator_options")
+      .then((o) => alive && setOpts(o))
+      .catch(() => undefined)
+      .finally(() => alive && setLoaded(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
     const t = window.setTimeout(() => run(opts), 60);
     return () => window.clearTimeout(t);
-  }, [opts, run]);
+  }, [opts, run, loaded]);
 
   const set = (patch: Partial<GeneratorOptions>) => setOpts((o) => ({ ...o, ...patch }));
   const setMode = (mode: GeneratorMode) =>
