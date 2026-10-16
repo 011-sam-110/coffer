@@ -527,7 +527,7 @@ export interface Commands {
   quick_set_modal: [{ modal: boolean }, void]; // true while a prompt or dialog of Quick Access is up: no close on blur
   main_show: [{ itemId: string | null; view: "item" | "settings" | "generator" | "health" | null }, void];
   main_hide: [Record<string, never>, void]; // main hides itself, e.g. after the first-close notice
-  autotype: [{ id: string; password: string | null }, void]; // tier 2
+  autotype: [{ id: string; password: string | null; only?: "password" | null }, void]; // tier 2; only "password" types the password alone (no sequence, no Enter)
   app_quit: [Record<string, never>, void];
 }
 
