@@ -8,7 +8,7 @@ import { call, isCofferError } from "../lib/ipc";
 import { fieldHasValue } from "../lib/quickKeys";
 import { autotypeErrorText } from "../lib/tier2Errors";
 import { useReprompt, useToast } from "./overlays";
-import { cx, Input } from "./ui";
+import { cx, ErrorText, Input } from "./ui";
 
 export type AutotypeOnly = "password" | null;
 
@@ -96,9 +96,7 @@ export function AutotypeSequenceField({ id, value, onChange, error }: { id: stri
           </label>
           <Input id={id} mono value={v} placeholder={DEFAULT_AUTOTYPE} invalid={!!problem} onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)} />
           {problem ? (
-            <p role="alert" className="text-xs text-danger-text">
-              {problem}
-            </p>
+            <ErrorText>{problem}</ErrorText>
           ) : (
             <p className="text-xs text-muted-foreground">
               Tokens: {"{USERNAME} {PASSWORD} {TOTP} {TAB} {ENTER} {DELAY 500} {FIELD:name}"}. Empty uses the default.

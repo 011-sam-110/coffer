@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CofferError, VaultStatus } from "../lib/contract";
 import { call, isCofferError, on } from "../lib/ipc";
 import { helloErrorText } from "../lib/tier2Errors";
-import { Button, cx } from "./ui";
+import { Button, cx, ErrorText } from "./ui";
 
 export function HelloUnlock({
   status,
@@ -101,9 +101,7 @@ export function HelloUnlock({
         </p>
       )}
       {error && !waiting && (
-        <p role="alert" className="text-xs text-danger-text">
-          {error}
-        </p>
+        <ErrorText>{error}</ErrorText>
       )}
     </div>
   );

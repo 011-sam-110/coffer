@@ -4,7 +4,7 @@ import { ImageUp, ScanQrCode } from "lucide-react";
 import { useState } from "react";
 import { call, isCofferError } from "../lib/ipc";
 import { qrErrorText } from "../lib/tier2Errors";
-import { Button } from "./ui";
+import { Button, ErrorText } from "./ui";
 
 export function QrScanButtons({ onUri }: { onUri: (uri: string) => void }) {
   const [busy, setBusy] = useState<"screen" | "file" | null>(null);
@@ -35,9 +35,7 @@ export function QrScanButtons({ onUri }: { onUri: (uri: string) => void }) {
         </Button>
       </div>
       {err && (
-        <p role="alert" className="text-xs text-danger-text">
-          {err}
-        </p>
+        <ErrorText>{err}</ErrorText>
       )}
     </div>
   );
