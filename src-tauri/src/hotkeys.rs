@@ -64,7 +64,11 @@ fn register(app: &AppHandle, text: &str, action: Action) -> HotkeyState {
         }
         match action {
             Action::Quick => crate::shell::toggle_quick(app, crate::shell::QuickOrigin::Hotkey),
-            Action::Lock => crate::lock::lock(app, LockReason::Manual),
+            Action::Lock => {
+                // A lock waits for a save in progress: not on this callback thread.
+                let app = app.clone();
+                let _ = std::thread::Builder::new().name("coffer-hotkey-lock".into()).spawn(move || crate::lock::lock(&app, LockReason::Manual));
+            }
         }
     });
     match result {
