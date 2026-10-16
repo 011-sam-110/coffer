@@ -594,9 +594,9 @@ export function ItemEditor({
             </Notice>
           )}
 
-          {form.type === "sshKey" && <SshGenerateButton form={form} setForm={setForm} />}
           <div className="divide-y divide-border rounded-sm border border-border bg-card">
             {builtins.map((f) => renderRow(f, false))}
+            {form.type === "sshKey" && <SshGenerateButton form={form} setForm={setForm} />}
             {def.hasUrls &&
               form.urls.map((u, i) => (
                 <div key={`url-${i}`} className="flex flex-col gap-1 px-4 py-3" data-err={errors[`url:${i}`] ? `url:${i}` : undefined}>

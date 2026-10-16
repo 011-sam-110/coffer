@@ -43,12 +43,18 @@ export function SshGenerateButton({ form, setForm }: { form: ItemForm; setForm: 
     }
   };
 
+  // A row of the editor card, under the key fields: the value column holds the button (label column 160 px).
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <Button size="sm" icon={<KeyRound className="size-3.5" />} loading={busy} onClick={() => (formHasSshKey(form) ? setConfirm(true) : generate())}>
-        Generate key
-      </Button>
-      <p className="text-xs text-muted-foreground">Makes a new Ed25519 key pair and fills the key fields.</p>
+    <div className="px-4 py-2">
+      <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
+        <span className="hidden @min-[440px]:block" />
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Button size="sm" icon={<KeyRound className="size-3.5" />} loading={busy} onClick={() => (formHasSshKey(form) ? setConfirm(true) : generate())}>
+            Generate key
+          </Button>
+          <p className="text-xs text-muted-foreground">Makes a new Ed25519 key pair and fills the key fields.</p>
+        </div>
+      </div>
       <ConfirmDialog
         open={confirm}
         title="Replace this key?"
