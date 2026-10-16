@@ -30,6 +30,8 @@ pub enum ErrorCode {
     KdfTooStrong,
     /// vault_create: that file already exists.
     Exists,
+    /// vault_unlock_pin: no PIN can open the vault now (none set, removed, or the days ran out).
+    PinUnavailable,
 }
 
 /// `CofferError` in the contract. `message` is a plain sentence, safe to show.

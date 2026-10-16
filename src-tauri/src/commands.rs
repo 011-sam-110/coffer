@@ -151,6 +151,11 @@ pub async fn vault_unlock_hello(app: AppHandle, window: Window) -> CofferResult<
 }
 
 #[tauri::command]
+pub async fn vault_unlock_pin(app: AppHandle, pin: Secret) -> CofferResult<VaultStatus> {
+    blocking(move || vault::unlock_pin(&app, &pin)).await?
+}
+
+#[tauri::command]
 pub async fn vault_lock(app: AppHandle) -> CofferResult<()> {
     blocking(move || crate::lock::lock(&app, LockReason::Manual)).await
 }
@@ -207,6 +212,12 @@ pub async fn vault_open_older(app: AppHandle) -> CofferResult<VaultStatus> {
 #[tauri::command]
 pub async fn hello_set(app: AppHandle, enabled: bool, password: Option<Secret>) -> CofferResult<VaultStatus> {
     blocking(move || crate::hello::set(&app, enabled, pw(&password))).await?
+}
+
+/// Setting a PIN needs the master password and the open vault; `null` turns it off.
+#[tauri::command]
+pub async fn pin_set(app: AppHandle, pin: Option<Secret>, password: Option<Secret>) -> CofferResult<VaultStatus> {
+    blocking(move || crate::pin::set(&app, pw(&pin), pw(&password))).await?
 }
 
 #[tauri::command]
@@ -709,12 +720,12 @@ pub async fn main_hide(app: AppHandle) -> CofferResult<()> {
 /// was in front before Quick Access opened. `only: "password"` types the
 /// password alone; callers without `only` get the sequence.
 #[tauri::command]
-pub async fn autotype(app: AppHandle, window: Window, id: String, password: Option<Secret>, only: Option<AutotypeOnly>) -> CofferResult<()> {
+pub async fn autotype(app: AppHandle, window: Window, id: String, password: Option<Secret>, only: Option<AutotypeOnly>) -> CofferResult<AutotypeResult> {
     let link = link_app(&app, &window);
     blocking(move || {
-        crate::autotype::run(&app, &id, pw(&password), only)?;
+        let result = crate::autotype::run(&app, &id, pw(&password), only)?;
         record_use(&app, &id, link);
-        Ok(())
+        Ok(result)
     })
     .await?
 }

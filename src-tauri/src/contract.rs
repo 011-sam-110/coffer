@@ -38,6 +38,12 @@ pub struct VaultStatus {
     pub hello_available: bool,
     pub hello_enabled: bool,
     pub hello_ready: bool,
+    /// A PIN is set for this vault on this PC.
+    pub pin_set: bool,
+    /// The PIN can unlock now (set, same Secret Key, master password typed within the days).
+    pub pin_ready: bool,
+    /// The number of digits of the PIN, when one is set.
+    pub pin_length: Option<u8>,
     pub item_count: Option<u32>,
 }
 
@@ -82,7 +88,26 @@ pub struct TotpImage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AutotypeOnly {
+    /// The password alone (no Enter).
     Password,
+    /// The next step of a fill: the password, then Enter.
+    PasswordStep,
+    /// The next step of a fill: the one-time code, then Enter.
+    Totp,
+}
+
+/// What the next Enter on the item types, after a fill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutotypeNext {
+    Password,
+    Totp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutotypeResult {
+    pub next: Option<AutotypeNext>,
 }
 
 /// `totp_from_image` source: a file (Rust opens the dialog) or the screen.

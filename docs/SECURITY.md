@@ -12,7 +12,7 @@ Coffer is a local-first password manager. It keeps the vault in one encrypted fi
 | The vault file and the Secret Key (for example, a stolen Emergency Kit) | Each password guess runs Argon2id with 128 MiB of memory. A strong master password holds against guessing. |
 | Write access to the vault file | Coffer detects a changed, deleted, added or older record and refuses to open the file. A changed KDF header makes the unwrap fail. |
 | An old copy of the file and the old secrets, after the user changed them | A password change with the re-key option, or a Secret Key rotation, makes a new vault key. Old secrets then do not open new copies. |
-| Code that runs as the same Windows user while Coffer is locked | Partial protection only. Such code can read the Secret Key that DPAPI protects. It can also record keystrokes. With Windows Hello on, it can open the vault. |
+| Code that runs as the same Windows user while Coffer is locked | Partial protection only. Such code can read the Secret Key that DPAPI protects. It can also record keystrokes. With Windows Hello on, it can open the vault. With a PIN set, it can try every PIN offline (section 8). |
 | Code that runs as the same Windows user while Coffer is unlocked | Out of scope. Such code can read the memory of the Coffer process. |
 | Script injected into the UI (for example, from imported data) | The UI cannot load remote code, cannot navigate away, and can call only the commands of its window. It cannot open a file or a URL of its choice. |
 | A view of the screen, a screen capture, or clipboard history | Secret fields are masked by default. Windows are excluded from most screen capture (a setting, on by default). Copied values stay out of clipboard history and are cleared. |
@@ -193,7 +193,26 @@ The master password is necessary again in these cases:
 
 Hello is a convenience gate, not encryption. The Hello prompt only decides whether Coffer uses the key that it holds. A program that runs as the same Windows user can read or control the Coffer process. With Hello on, such a program can open the vault without the master password.
 
-## 8. Breach check
+## 8. PIN unlock
+
+PIN unlock is off by default. A PIN has 6 to 12 digits. It unlocks the vault on one PC, also after a restart.
+
+- To set a PIN, the user types the master password while the vault is open.
+- The shell derives a key from the PIN with Argon2id and the vault's default cost (128 MiB, 3 passes, 4 lanes) and a random 16-byte salt. It encrypts the vault key with XChaCha20-Poly1305 under that key. The associated data binds the record to the vault id and the Secret Key id.
+- The record (salt, nonce, ciphertext, KDF settings, PIN length, wrong-PIN count, time of the last master-password unlock) goes into `device.json`, sealed with DPAPI for the current Windows user (entropy `coffer/v1/device-pin` and the vault id).
+- To unlock, the shell derives the key from the typed PIN and opens the vault key. Then it opens the file with `unlock_with_vault_key`, as Hello does.
+- The vault file does not change. Away from this PC, the file needs the master password and the Secret Key.
+
+The master password is necessary again in these cases:
+
+- after 5 wrong PINs in a row: the shell deletes the record
+- after the set number of days (14 by default) without a master-password unlock on this PC
+- after a re-key or a Secret Key rotation: the shell deletes the record
+- after the user turns the PIN off
+
+A PIN is a convenience gate, like Hello. The wrong-PIN count lives in `device.json`. A program that runs as the same Windows user can open the DPAPI seal, copy the record and try all PINs offline. Each try costs one Argon2id run, so 1,000,000 six-digit PINs take hours to days on one PC, not years. The UI says this in one sentence next to the setting.
+
+## 9. Breach check
 
 The breach check is off by default. The user can run it with "Check now", or turn on a weekly check after unlock.
 
@@ -211,7 +230,7 @@ What stays on the PC:
 - Coffer checks active login and password items that have a password and are not excluded from health.
 - Coffer stores the results in the encrypted meta record. The key of each result is the item id and the SHA-256 of the password.
 
-## 9. Backups
+## 10. Backups
 
 - After each save, the shell copies the encrypted vault file to `%LOCALAPPDATA%\Coffer\backups\<vault id>\<YYYYMMDDTHHMMSSZ>.coffer`.
 - The shell keeps the last 20 backups and the newest backup of each day for the last 30 days. It deletes the others.
@@ -219,7 +238,7 @@ What stays on the PC:
 - After a re-key, the shell deletes the old backups, because they open with the old vault key.
 - A restore while unlocked takes only a backup of the same vault and vault key. It needs the master password when it would weaken re-prompt on an item.
 
-## 10. Known limits
+## 11. Known limits
 
 - **Third-party buffers.** The `csv` crate and the `serde_json` parser keep internal copies of plain text that Coffer cannot wipe:
   - the CSV writer buffer when Coffer writes a CSV export
@@ -235,7 +254,7 @@ What stays on the PC:
 - **No key commitment.** The header has no commitment to the KEK. An attack on this needs the Secret Key and many unlocks of crafted files.
 - **Unsigned installer.** The installer has no code signature. Windows SmartScreen warns on the first run. A user cannot check the publisher of the file through Windows.
 
-## 11. Test vectors
+## 12. Test vectors
 
 The tests copy each vector from the source document, not from memory.
 

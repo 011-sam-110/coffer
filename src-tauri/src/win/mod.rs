@@ -12,6 +12,7 @@ pub mod monitor;
 pub mod open;
 pub mod screen;
 pub mod signals;
+pub mod uia;
 pub mod webview;
 
 use std::sync::OnceLock;

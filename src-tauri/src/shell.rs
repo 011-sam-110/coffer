@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use tauri::webview::{NewWindowResponse, PageLoadEvent, PermissionResponse};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Url, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Url, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent};
 
 use crate::contract::{Empty, LockReason, MainView, NavigateEvent, QuickContext, events};
 use crate::placement;
@@ -136,9 +136,11 @@ fn place_quick(window: &WebviewWindow, app: &AppHandle, origin: QuickOrigin) -> 
         None => placement::centered(area.work, size),
     };
     // First move: onto the target monitor (the window takes that monitor's
-    // scale, so its size can change).
+    // scale, so its size can change). Then set the size for that scale: a
+    // hidden window does not always get the resize that comes with a move.
     let first = at(size);
     let _ = window.set_position(PhysicalPosition::new(first.0, first.1));
+    let _ = window.set_size(PhysicalSize::new(size.0 as u32, size.1 as u32));
     // Then place the client area, which is what the user sees: an undecorated
     // window with a shadow has invisible borders outside it.
     let Ok(inner_size) = window.inner_size() else { return None };
@@ -159,6 +161,7 @@ fn move_client_to(window: &WebviewWindow, client: (i32, i32)) {
 pub fn show_quick(app: &AppHandle, origin: QuickOrigin) {
     let Some(window) = app.get_webview_window(QUICK) else { return };
     place_quick(&window, app, origin);
+    crate::win::webview::reset_zoom(&window);
     app.state::<AppState>().quick.lck().modal = false;
     let _ = window.show();
     let _ = window.set_focus();

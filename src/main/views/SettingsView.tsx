@@ -5,7 +5,7 @@ import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
 import { RotateSecretKey } from "../../components/RotateSecretKey";
 import { Dialog, useToast } from "../../components/overlays";
-import { Button, Checkbox, cx, FormRow, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
+import { Button, Checkbox, cx, FormRow, Input, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
 import type { EmergencyKit, ExportKind, Settings } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
 import { useListDensity } from "../prefs";
@@ -34,13 +34,14 @@ export const MAIN_SHORTCUTS: Array<[string, string]> = [
 
 export const QUICK_SHORTCUTS: Array<[string, string]> = [
   ["Up / Down", "Move"],
-  ["Enter", "Copy the main secret (the password for a login)"],
+  ["Enter", "Fill a login into the app you came from: email and password, then the next step at the next open (other items: copy)"],
+  ["Ctrl+C", "Copy the main secret (the password for a login)"],
   ["Ctrl+U", "Copy the username"],
   ["Ctrl+P", "Copy the password"],
   ["Ctrl+T", "Copy the one-time code"],
   ["Right", "All actions (caret at the end of the search)"],
   ["Ctrl+O", "Open in Coffer"],
-  ["Ctrl+Enter", "Type username and password into the app you came from"],
+  ["Ctrl+Enter", "Fill, or type the item's own auto-type sequence"],
   ["Ctrl+Shift+Enter", "Type the password alone into that app"],
   ["Esc", "Clear the search; again to close"],
 ];
@@ -148,6 +149,7 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
   const [kitOpen, setKitOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [hello, setHello] = useState<boolean | null>(null);
+  const [pin, setPin] = useState<boolean | null>(null);
   const ids = { lock: useId(), clip: useId(), days: useId() };
   // vault_status is fresh; app_info only says what Coffer saw at start.
   const helloAvailable = status?.helloAvailable ?? info?.helloAvailable ?? false;
@@ -194,8 +196,18 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
             onChange={(v) => setHello(v)}
           />
         </Row>
-        {helloAvailable && (
-          <Row title="Ask for the master password every" htmlFor={ids.days} description="Windows Hello stops working after this many days without a master-password unlock.">
+        <Row
+          title="Unlock with a PIN"
+          description="Unlock Coffer and Quick Access with 6 to 12 digits on this PC, also after a restart. 5 wrong PINs remove it. A program running as you could try every PIN, so the master password still guards the vault file."
+        >
+          <Switch label="Unlock with a PIN" checked={status?.pinSet ?? false} onChange={(v) => setPin(v)} />
+        </Row>
+        {(helloAvailable || status?.pinSet) && (
+          <Row
+            title="Ask for the master password every"
+            htmlFor={ids.days}
+            description="Windows Hello and the PIN stop working after this many days without a master-password unlock."
+          >
             <Select id={ids.days} value={String(settings.requirePasswordDays)} onChange={(e) => set({ requirePasswordDays: Number(e.target.value) })} className="w-28">
               {[7, 14, 30].map((d) => (
                 <option key={d} value={d}>
@@ -259,6 +271,14 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
       </Section>
       <ShowKitDialog open={kitOpen} onClose={() => setKitOpen(false)} />
       <ChangePasswordDialog open={pwOpen} onClose={() => setPwOpen(false)} />
+      <PinDialog
+        enable={pin}
+        onClose={() => setPin(null)}
+        onDone={(s) => {
+          setStatus(s);
+          setPin(null);
+        }}
+      />
       <HelloDialog
         enable={hello}
         onClose={() => setHello(null)}
@@ -428,6 +448,74 @@ function ChangePasswordDialog({ open, onClose }: { open: boolean; onClose: () =>
         />
         <p className="text-xs text-muted-foreground">Copies made before now (sync history, other backups) still open with the old password and Secret Key.</p>
       </form>
+    </Dialog>
+  );
+}
+
+function PinDialog({ enable, onClose, onDone }: { enable: boolean | null; onClose: () => void; onDone: (s: import("../../lib/contract").VaultStatus) => void }) {
+  const [pin, setPin] = useState("");
+  const [again, setAgain] = useState("");
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const ids = { pin: useId(), again: useId(), pw: useId() };
+  useEffect(() => {
+    if (enable === null) {
+      setPin("");
+      setAgain("");
+      setPw("");
+      setErr(null);
+    }
+  }, [enable]);
+  const formatOk = /^[0-9]{6,12}$/.test(pin);
+  const pinError = pin && !formatOk ? "Use 6 to 12 digits." : again && again !== pin ? "The two PINs are not the same." : null;
+  const ready = !enable || (formatOk && again === pin && !!pw);
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      onDone(await call("pin_set", { pin: enable ? pin : null, password: enable ? pw : null }));
+    } catch (er) {
+      setErr(isCofferError(er) ? (er.code === "badCredentials" ? "Wrong master password." : er.message) : String(er));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const digits = (v: string) => v.replace(/\D/g, "").slice(0, 12);
+  return (
+    <Dialog
+      open={enable !== null}
+      onClose={onClose}
+      title={enable ? "Set a PIN" : "Turn off the PIN"}
+      description={enable ? "The PIN unlocks Coffer on this PC only. Coffer asks for your master password again after the days you chose and after 5 wrong PINs." : "Unlocking will need your master password again."}
+      width={420}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={busy} disabled={!ready} onClick={submit}>
+            {enable ? "Set PIN" : "Turn off"}
+          </Button>
+        </>
+      }
+    >
+      {enable && (
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <FormRow label="PIN" htmlFor={ids.pin} hint="6 to 12 digits.">
+            <Input id={ids.pin} type="password" inputMode="numeric" mono value={pin} onChange={(e) => setPin(digits(e.target.value))} autoFocus />
+          </FormRow>
+          <FormRow label="Type the PIN again" htmlFor={ids.again} error={pinError}>
+            <Input id={ids.again} type="password" inputMode="numeric" mono value={again} invalid={!!pinError} onChange={(e) => setAgain(digits(e.target.value))} />
+          </FormRow>
+          <MasterPasswordField id={ids.pw} value={pw} onChange={setPw} error={err} />
+        </form>
+      )}
     </Dialog>
   );
 }

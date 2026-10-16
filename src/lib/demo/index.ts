@@ -26,6 +26,7 @@
 //   ?hello=none|off|on|ready  Windows Hello: not set up / set up, unlock off (default) / on, but no
 //                        key held yet (after a restart) / on and ready to unlock
 //   ?helloResult=cancel|failed|unavailable|keyChanged  how the next Hello prompt ends (default: verified)
+//   ?pin=on|stale        a PIN (482917) is set: ready / set, but the master-password days ran out
 //   ?autotype=gone|admin|front|modifiers|changed|keys  why auto-type refuses (default: it types)
 //   ?qr=none|google|other|noSecret|notImage|screenFail  what totp_from_image finds (default: a QR code)
 //
@@ -94,6 +95,7 @@ export interface DemoExtras {
   cancelDialogs?: boolean;
   hello?: "none" | "off" | "on" | "ready";
   helloResult?: "ok" | "cancel" | "failed" | "unavailable" | "keyChanged";
+  pin?: "none" | "on" | "stale";
   autotype?: "ok" | "gone" | "admin" | "front" | "modifiers" | "changed" | "keys";
   qr?: "ok" | "none" | "google" | "other" | "noSecret" | "notImage" | "screenFail";
   /** Use this instead of location.search for the flags above (tests). */
@@ -253,6 +255,7 @@ function readFlags(opts: DemoBackendOptions) {
     cancelDialogs: opts.cancelDialogs ?? q.get("dialogs") === "cancel",
     hello: opts.hello ?? pick(q.get("hello"), ["none", "off", "on", "ready"] as const, "off"),
     helloResult: opts.helloResult ?? pick(q.get("helloResult"), ["ok", "cancel", "failed", "unavailable", "keyChanged"] as const, "ok"),
+    pin: opts.pin ?? pick(q.get("pin"), ["none", "on", "stale"] as const, "none"),
     autotype: opts.autotype ?? pick(q.get("autotype"), ["ok", "gone", "admin", "front", "modifiers", "changed", "keys"] as const, "ok"),
     qr: opts.qr ?? pick(q.get("qr"), ["ok", "none", "google", "other", "noSecret", "notImage", "screenFail"] as const, "ok"),
     latencyMs: opts.latencyMs ?? (latencyParam !== null && Number.isFinite(Number(latencyParam)) ? Number(latencyParam) : undefined),
@@ -296,6 +299,8 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   if (flags.hello === "on" || flags.hello === "ready") settings.helloEnabled = true;
   let helloHeld = flags.hello === "ready";
   let helloResult = flags.helloResult;
+  /** PIN unlock: the PIN, wrong tries in a row, and whether the master-password days still hold. */
+  let pin: { value: string; failures: number; fresh: boolean } | null = flags.pin === "none" ? null : { value: "482917", failures: 0, fresh: flags.pin === "on" };
 
   // ---------- helpers ----------
   const now = (): number => Date.now();
@@ -378,7 +383,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
 
   function status(): VaultStatus {
     if (!vault || state === "noVault") {
-      return { state: "noVault", vaultPath: null, vaultName: null, keyId: null, needsSecretKey: false, helloAvailable: false, helloEnabled: false, helloReady: false, itemCount: null };
+      return { state: "noVault", vaultPath: null, vaultName: null, keyId: null, needsSecretKey: false, helloAvailable: false, helloEnabled: false, helloReady: false, pinSet: false, pinReady: false, pinLength: null, itemCount: null };
     }
     const unlocked = state === "unlocked";
     return {
@@ -390,6 +395,9 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       helloAvailable,
       helloEnabled: settings.helloEnabled,
       helloReady: helloAvailable && settings.helloEnabled && helloHeld,
+      pinSet: !!pin,
+      pinReady: !!pin && pin.fresh && !(state === "locked" && needsSecretKey),
+      pinLength: pin ? pin.value.length : null,
       itemCount: unlocked ? [...vault.items.values()].filter((i) => i.state === "active").length : null,
     };
   }
@@ -557,6 +565,8 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     if (typedKey) v.secretKey = typedKey; // this device now keeps the Secret Key
     // A master-password unlock proves the password: with Hello on, the next lock keeps the key.
     if (!byHello && settings.helloEnabled) helloHeld = true;
+    // ...and the PIN's days start again.
+    if (!byHello && pin) pin = { ...pin, fresh: true, failures: 0 };
     needsSecretKey = false;
     state = "unlocked";
     purgeOldTrash(v);
@@ -673,7 +683,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   // ---------- commands ----------
   const handlers: Handlers = {
     app_info: (): AppInfo => ({
-      version: "0.1.0",
+      version: "0.2.0",
       computerName: COMPUTER_NAME,
       defaultFolder: DEMO_DEFAULT_FOLDER,
       hotkeyStatus: { quick: hotkeyStatus(settings.hotkeyQuick), lock: hotkeyStatus(settings.hotkeyLock) },
@@ -721,6 +731,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       v.keyId = key.keyId;
       v.secretKey = key.secretKey;
       v.backups = [];
+      pin = null; // the PIN held the old vault key
       commit([]);
       return { ...kit(v), createdAt: iso() };
     },
@@ -803,6 +814,29 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       return finishUnlock(v, null, true);
     },
 
+    vault_unlock_pin: async ({ pin: typed }) => {
+      const v = requireVault();
+      if (state === "unlocked") return status();
+      if (state === "missing") throw fail("vaultMissing", `Coffer cannot find your vault at ${v.path}.`);
+      if (needsSecretKey) throw fail("needsSecretKey", "Enter the Secret Key from your Emergency Kit.");
+      if (!pin) throw fail("pinUnavailable", "There is no PIN for this vault on this PC. Use your master password.");
+      if (!pin.fresh) throw fail("pinUnavailable", `Coffer asks for your master password every ${settings.requirePasswordDays} days. Type it once, then your PIN works again.`);
+      await sleep(flags.latencyMs ?? 600); // Argon2id
+      if (typed !== pin.value) {
+        const failures = pin.failures + 1;
+        if (failures >= 5) {
+          pin = null;
+          throw fail("pinUnavailable", "5 wrong PINs, so Coffer removed the PIN. Use your master password.");
+        }
+        pin = { ...pin, failures };
+        const left = 5 - failures;
+        throw fail("badCredentials", `Wrong PIN. ${left} ${left === 1 ? "try" : "tries"} left.`);
+      }
+      if (flags.tampered) throw fail("tampered", "This vault file was changed outside Coffer.");
+      pin = { ...pin, failures: 0 };
+      return finishUnlock(v, null, true);
+    },
+
     vault_lock: () => {
       lockNow("manual");
     },
@@ -815,6 +849,8 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       v.password = pw;
       // "My old password may be known": a new vault key, so this PC's old backups are deleted.
       if (rekey) v.backups = [];
+      // A new vault key: the PIN held the old one.
+      if (rekey) pin = null;
       commit([]);
     },
 
@@ -849,6 +885,19 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
         helloHeld = false;
       }
       settings = { ...settings, helloEnabled: !!enabled };
+      return status();
+    },
+
+    pin_set: async ({ pin: next, password }) => {
+      requireUnlocked();
+      if (next === null) {
+        pin = null;
+        return status();
+      }
+      if (!/^[0-9]{6,12}$/.test(next)) throw fail("invalid", "A PIN is 6 to 12 digits, with no letters or spaces.");
+      if (!password) throw fail("invalid", "Type your master password to set a PIN.");
+      await checkMaster(password);
+      pin = { value: next, failures: 0, fresh: true };
       return status();
     },
 
@@ -1280,7 +1329,18 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       // Rust order (SPEC 10): the target window first, then every value, then type.
       if (flags.autotype === "gone") throw fail("invalid", "The window to type into is gone. Click in it, then open Quick Access again.");
       if (flags.autotype === "admin") throw fail("invalid", "Coffer cannot type into an app running as administrator.");
-      const seq = only === "password" ? "{PASSWORD}" : item.autotypeSequence?.trim() || DEFAULT_AUTOTYPE;
+      const own = item.autotypeSequence?.trim();
+      const hasTotp = item.fields.some((f) => f.kind === "totp" && f.value.trim());
+      // The demo has no window to read: a fill acts as on a one-page sign-in.
+      const seq =
+        only === "password"
+          ? "{PASSWORD}"
+          : only === "passwordStep"
+            ? "{PASSWORD}{ENTER}"
+            : only === "totp"
+              ? "{TOTP}{ENTER}"
+              : own || DEFAULT_AUTOTYPE;
+      const next: "totp" | null = (only === null || only === undefined || only === "passwordStep") && !own && hasTotp ? "totp" : null;
       const parsed = parseAutotype(seq);
       if (!parsed.ok) throw fail("invalid", parsed.message);
       const fieldOf = (t: AutotypeToken) => {
@@ -1303,6 +1363,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       if (flags.autotype === "changed") throw fail("invalid", "The window in front changed, so Coffer stopped typing.");
       if (flags.autotype === "keys") throw fail("invalid", "Windows did not take all the keys. Check what was typed.");
       item.lastUsedAt = iso(); // auto-type is a use; demo: nothing is typed anywhere
+      return { next };
     },
     main_hide: () => undefined,
     app_quit: () => undefined,

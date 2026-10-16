@@ -1,12 +1,15 @@
 // Quick Access (SPEC 9): a 400 x 560 frameless flyout above the clock.
-// Search-first; Enter copies the item's main secret; Right arrow lists every
-// action; the window closes after a copy.
+// Search-first; Enter on a login fills the window you came from (email and
+// password, then the next step at the next open), Enter on other items and
+// Ctrl+C copy the main secret; Right arrow lists every action; the window
+// closes after a copy or a fill.
 import { MotionConfig } from "motion/react";
 import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, FolderPlus, Keyboard, KeyRound, Lock, Search, SearchX, Star, WandSparkles, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
 import { HelloUnlock } from "../components/HelloUnlock";
+import { PinUnlock } from "../components/PinUnlock";
 import { autotypeChoices, useAutotype, type AutotypeOnly } from "../components/AutotypeActions";
 import { RepromptProvider, ToastProvider, useReprompt, useToast } from "../components/overlays";
 import { Button, cx, ErrorText, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
@@ -14,7 +17,7 @@ import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, TotpCode, 
 import { call, isCofferError, on } from "../lib/ipc";
 import { isSecretKind } from "../lib/itemForm";
 import { ITEM_TYPES } from "../lib/itemTypes";
-import { enterPlan, enterWords, fieldHasValue, groupCode, nextChainField, quickKey, resolveCopyTarget, SHORTCUT_WORDS, type ChainRole } from "../lib/quickKeys";
+import { enterPlan, entersFill, enterWords, fieldHasValue, groupCode, nextChainField, quickKey, resolveCopyTarget, SHORTCUT_WORDS, type ChainRole } from "../lib/quickKeys";
 import { recentlyUsed, searchItems } from "../lib/search";
 
 const APP_NAMES: Record<string, string> = {
@@ -42,10 +45,12 @@ export function appName(process: string | null): string | null {
 
 type Row = { item: ItemSummary; section: string };
 type Mode = { kind: "list" } | { kind: "actions"; item: ItemSummary } | { kind: "generator" };
-/** A login being copied one field per open: what Enter copies next. */
-type Continuation = { itemId: string; role: ChainRole; fieldId: string; label: string };
+/** A login being copied one field per open, or filled one page per open: what Enter does next. */
+type Continuation = { itemId: string; role: ChainRole; fieldId: string; label: string; fill?: boolean };
 
 const CONTINUE_MS = 60_000;
+/** A 2FA text or app can take more than a minute. */
+const CONTINUE_FILL_MS = 120_000;
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 /** The simulated flyout frame in a browser; the real window is the frame itself. */
@@ -65,7 +70,39 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
   const [err, setErr] = useState<string | null>(null);
   const [fails, setFails] = useState(0);
   const ref = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<"pin" | "password">(status.pinReady ? "pin" : "password");
+  const [pinNote, setPinNote] = useState<string | null>(null);
   useEffect(() => ref.current?.focus(), []);
+  const usePassword = (note: string | null = null) => {
+    setPinNote(note);
+    setMode("password");
+    requestAnimationFrame(() => ref.current?.focus());
+  };
+  if (mode === "pin" && status.pinReady)
+    return (
+      <div className="flex flex-1 flex-col justify-center px-8">
+        <div className="mb-6 flex items-center gap-3">
+          <span className="inline-flex size-9 items-center justify-center rounded-sm border border-border bg-card">
+            <Lock aria-hidden className="size-4 text-muted-foreground" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate text-md font-semibold">{status.vaultName ?? "Coffer"} is locked</h1>
+            <p className="text-xs text-muted-foreground">Type your PIN to search and copy.</p>
+          </div>
+        </div>
+        <PinUnlock
+          status={status}
+          onUnlocked={onUnlocked}
+          onUnavailable={(message) => {
+            usePassword(message);
+            call("vault_status").then(onUnlocked).catch(() => undefined);
+          }}
+        />
+        <Button variant="quiet" size="sm" className="mt-3 -ml-2.5 w-fit" onClick={() => usePassword()}>
+          Use master password instead
+        </Button>
+      </div>
+    );
   return (
     <div className="flex flex-1 flex-col justify-center px-8">
       <div className="mb-6 flex items-center gap-3">
@@ -102,6 +139,10 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
           }
         }}
       >
+        {pinNote && <p className="text-xs text-gold">{pinNote}</p>}
+        {!pinNote && status.pinSet && !status.pinReady && !status.needsSecretKey && (
+          <p className="text-xs text-balance text-muted-foreground">Type your master password this time. Then your PIN works again.</p>
+        )}
         <label htmlFor="quick-pw" className="sr-only">
           Master password
         </label>
@@ -113,6 +154,11 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
         <Button type="submit" variant="primary" loading={busy}>
           {busy ? "Unlocking..." : "Unlock"}
         </Button>
+        {status.pinReady && (
+          <Button variant="quiet" size="sm" className="-ml-2.5 w-fit" onClick={() => setMode("pin")}>
+            Use PIN instead
+          </Button>
+        )}
       </form>
       <HelloUnlock className="mt-3" status={status} onUnlocked={onUnlocked} onStatus={onUnlocked} onWaiting={(w) => call("quick_set_modal", { modal: w }).catch(() => undefined)} autoStartOnShow />
     </div>
@@ -174,25 +220,30 @@ function ItemRow({
         )}
       >
         <Monogram title={i.title} size={28} />
+        {/* The name has the whole first line; the tags and the Enter hint share the second line with the subtitle. */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium">{i.title}</span>
+            <span className="truncate text-sm font-medium" title={i.title}>
+              {i.title}
+            </span>
             {i.favorite && <Star aria-label="Favourite" className="size-3 shrink-0 fill-gold text-gold" />}
           </div>
-          <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
+            {/* A static tag: a turning ring in a list read as loading. The ring shows next to the digits only. */}
+            {i.hasTotp && (
+              <span title="Has a one-time code" className="shrink-0 rounded-sm border border-border px-1 text-2xs leading-3.5 font-medium text-muted-foreground">
+                2FA
+              </span>
+            )}
+            {selected && (
+              <span role="img" aria-label={`Enter: ${enterLabel.toLowerCase()}`} className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                <CornerDownLeft aria-hidden className="size-3" />
+                {enterLabel}
+              </span>
+            )}
+          </div>
         </div>
-        {/* A static tag: a turning ring in a list read as loading. The ring shows next to the digits only. */}
-        {i.hasTotp && (
-          <span title="Has a one-time code" className="shrink-0 rounded-sm border border-border px-1.5 text-2xs leading-4 font-medium text-muted-foreground">
-            2FA
-          </span>
-        )}
-        {selected && (
-          <span role="img" aria-label={`Enter copies the ${enterLabel.toLowerCase()}`} className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            <CornerDownLeft aria-hidden className="size-3" />
-            {enterLabel}
-          </span>
-        )}
         <button
           type="button"
           tabIndex={-1}
@@ -242,6 +293,8 @@ function Quick() {
   const [hidden, setHidden] = useState(false);
   // Quick Access is only hidden between opens, so this survives a close.
   const lastCopy = useRef<{ itemId: string; role: string | null; at: number } | null>(null);
+  /** The last fill and the app it filled: its next step shows only in that app. */
+  const lastFill = useRef<{ itemId: string; next: "password" | "totp"; at: number; process: string | null } | null>(null);
   const [cont, setCont] = useState<Continuation | null>(null);
   const [actCode, setActCode] = useState<TotpCode | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -273,7 +326,12 @@ function Quick() {
       setMode({ kind: "list" });
       setCont(null);
       const lc = lastCopy.current;
-      if (lc && Date.now() - lc.at < CONTINUE_MS) {
+      const lf = lastFill.current;
+      const sameApp = !lf?.process || !c?.process || lf.process === c.process;
+      if (lf && Date.now() - lf.at < CONTINUE_FILL_MS && sameApp) {
+        const role = lf.next;
+        setCont({ itemId: lf.itemId, role, fieldId: "", label: role === "totp" ? "Type code" : "Type password", fill: true });
+      } else if (lc && Date.now() - lc.at < CONTINUE_MS) {
         call("item_get", { id: lc.itemId })
           .then((view) => {
             const next = nextChainField(view, lc.role);
@@ -362,7 +420,10 @@ function Quick() {
 
   const remember = (item: ItemSummary, role: string | null) => {
     lastCopy.current = { itemId: item.id, role, at: Date.now() };
+    lastFill.current = null;
   };
+  /** A window was in front when Quick Access opened: Enter can fill it. */
+  const hasTarget = !!ctx?.title;
 
   /** With under 5 s left, wait for the next code so the pasted code is still good. */
   const waitForFreshCode = async (item: ItemSummary, fieldId: string | null) => {
@@ -408,7 +469,16 @@ function Quick() {
   };
 
   const enter = async (item: ItemSummary) => {
-    if (cont && cont.itemId === item.id) return copyField(item, cont.fieldId, cont.role, cont.role === "totp");
+    if (cont && cont.itemId === item.id) {
+      if (cont.fill) return typeItem(item, cont.role === "totp" ? "totp" : "passwordStep");
+      return copyField(item, cont.fieldId, cont.role, cont.role === "totp");
+    }
+    if (entersFill(item.type, hasTarget)) return typeItem(item, null);
+    return copyMain(item);
+  };
+
+  /** What Enter copied before fill: the item's main secret (Ctrl+C, and Enter on other types). */
+  const copyMain = async (item: ItemSummary) => {
     const plan = enterPlan(item.type);
     if (plan.kind === "open") return openInCoffer(item);
     try {
@@ -422,15 +492,17 @@ function Quick() {
     }
   };
 
-  /** Ctrl+Enter / Ctrl+Shift+Enter: Rust hides Quick Access and types into the window that was in front. */
+  /** Enter on a login (fill), a Continue row, Ctrl+Enter, Ctrl+Shift+Enter: Rust hides Quick Access and types into the window that was in front. */
   const typeItem = async (item: ItemSummary, only: AutotypeOnly) => {
-    if (await autotype(item, only)) {
+    const result = await autotype(item, only);
+    if (result) {
       remember(item, null);
+      if (result.next) lastFill.current = { itemId: item.id, next: result.next, at: Date.now(), process: ctx?.process ?? null };
       hide();
     }
   };
 
-  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? cont.label : enterWords(item.type));
+  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? cont.label : entersFill(item.type, hasTarget) ? "Fill" : enterWords(item.type));
 
   const openActions = async (item: ItemSummary) => {
     setMode({ kind: "actions", item });
@@ -517,6 +589,7 @@ function Quick() {
       altKey: e.altKey,
       metaKey: e.metaKey,
       caretAtEnd: input.selectionStart === input.value.length && input.selectionEnd === input.value.length,
+      hasSelection: input.selectionStart !== input.selectionEnd,
     });
     if (mode.kind === "actions" && !e.ctrlKey && !e.altKey && !e.metaKey && /^[1-6]$/.test(e.key)) {
       e.preventDefault();
@@ -546,6 +619,7 @@ function Quick() {
     } else if (!current) {
       if (k === "openInCoffer") openInCoffer(null);
     } else if (k === "enter") enter(current);
+    else if (k === "copy") copyMain(current);
     else if (k === "copyUsername") copyRole(current, "username");
     else if (k === "copyPassword") copyRole(current, "password");
     else if (k === "copyTotp") copyRole(current, "totp");
@@ -703,7 +777,7 @@ function Quick() {
 
         {hint && mode.kind === "list" && (
           <p className="shrink-0 border-t border-border px-4 py-1.5 text-xs text-muted-foreground" role="note">
-            Enter: copy · Ctrl+U: username · Right arrow: more actions
+            {hasTarget ? "Enter: fill · Ctrl+C: copy · Right arrow: more actions" : "Enter: copy · Ctrl+U: username · Right arrow: more actions"}
           </p>
         )}
       </>

@@ -6,7 +6,7 @@
 // vault through Welcome / Create / Kit / Confirm / Prefs / Try it, add a
 // login, lock, unlock (wrong password first), change a setting (clipboard
 // clear time), copy the password (the Windows clipboard holds it, then is
-// cleared), Quick Access with Ctrl+Shift+Space (search, Enter copies), the
+// cleared), Quick Access with Ctrl+Shift+Space (search, Ctrl+C copies), the
 // generator, an import of a synthetic Bitwarden CSV through the real file
 // dialog, Health, and quit with app_quit. A screenshot of each step goes to
 // .shots-real/ (git-ignored), plus one contact sheet.
@@ -268,9 +268,10 @@ try {
     await search.fill("Exam");
     await sleep(400);
     await shot(quick, "14-quick-search");
-    await search.press("Enter");
+    // Ctrl+C copies. Enter would fill the window you were in before (e2e/fill.mjs tests that).
+    await search.press("Control+c");
     const quickCopy = await poll(() => clip() === ITEM_PW, 5000);
-    check("Quick Access: hotkey, search, Enter copies the password", shown && quickCopy);
+    check("Quick Access: hotkey, search, Ctrl+C copies the password", shown && quickCopy);
   }
 
   // ---------- generator ----------

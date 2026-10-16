@@ -751,7 +751,8 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
             crate::log!("selftest vault: info typed text matches={}", text == expect);
         }
     };
-    run(&item.id, "autotype: default sequence typed into the window (WM_GETTEXT)", format!("{user}\t{pass}\r\n"), None);
+    // One text box and no password box: smart fill types the email and Enter (a two-page sign-in).
+    run(&item.id, "autotype: smart fill types the email into a lone text box (WM_GETTEXT)", format!("{user}\r\n"), None);
     if let Ok(custom) = &custom {
         run(&custom.id, "autotype: custom sequence with DELAY, FIELD and text", format!("{user}\t4711:x\r\n"), None);
         run(&custom.id, "autotype: only = password types the password alone", pass.to_string(), Some(crate::contract::AutotypeOnly::Password));

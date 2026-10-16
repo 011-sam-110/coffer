@@ -35,7 +35,20 @@ export type ErrorCode =
   | "network"
   | "olderFile" // the file's generation is lower than this PC has seen; vault_open_older completes the open
   | "kdfTooStrong" // the header asks for KDF settings over the ceiling
-  | "exists"; // vault_create: that file already exists
+  | "exists" // vault_create: that file already exists
+  | "pinUnavailable"; // vault_unlock_pin: no PIN can open the vault now (none set, removed after 5 wrong PINs, or the master-password days ran out)
+
+/**
+ * autotype `only`: "password" types the password alone (no Enter); "passwordStep"
+ * and "totp" are the next steps of a fill (the password or the one-time code,
+ * then Enter).
+ */
+export type AutotypeOnly = "password" | "passwordStep" | "totp";
+
+/** After a fill: what the next Enter on the item types (Quick Access's Continue row). */
+export interface AutotypeResult {
+  next: "password" | "totp" | null;
+}
 
 export interface CofferError {
   code: ErrorCode;
@@ -54,6 +67,9 @@ export interface VaultStatus {
   helloAvailable: boolean; // Windows Hello is set up on this PC
   helloEnabled: boolean; // the user turned on Hello unlock
   helloReady: boolean; // Hello can unlock right now (in-session key held)
+  pinSet: boolean; // a PIN is set for this vault on this PC
+  pinReady: boolean; // the PIN can unlock right now (same Secret Key, master password typed within requirePasswordDays)
+  pinLength: number | null; // digits in the PIN, when one is set (the lock screen draws that many boxes)
   itemCount: number | null; // only when unlocked
 }
 
@@ -463,6 +479,7 @@ export interface Commands {
   vault_open: [Record<string, never>, VaultStatus | null]; // Rust opens the file dialog; null = cancelled
   vault_unlock: [{ password: string; secretKey: string | null }, VaultStatus];
   vault_unlock_hello: [Record<string, never>, VaultStatus]; // tier 2
+  vault_unlock_pin: [{ pin: string }, VaultStatus]; // wrong PIN: badCredentials ("4 tries left"); 5 wrong, or none usable: pinUnavailable
   vault_lock: [Record<string, never>, void];
   vault_change_password: [{ current: string; next: string; rekey: boolean }, void]; // rekey = "My old password may be known"
   vault_move: [Record<string, never>, VaultStatus | null]; // Rust opens the folder dialog
@@ -471,6 +488,7 @@ export interface Commands {
   vault_save_again: [{ saveAs: boolean }, VaultStatus | null];
   vault_open_older: [Record<string, never>, VaultStatus]; // after vault_unlock failed with "olderFile" (keys held 60 s)
   hello_set: [{ enabled: boolean; password: string | null }, VaultStatus]; // tier 2; enabling needs the master password
+  pin_set: [{ pin: string | null; password: string | null }, VaultStatus]; // a PIN (6 to 12 digits) needs the master password and the open vault; null turns it off
   secret_key_validate: [{ secretKey: string }, { valid: boolean; keyId: string | null }];
   emergency_kit: [{ password: string }, EmergencyKit];
   kdf_benchmark: [Record<string, never>, { millis: number; mKib: number; t: number; p: number }];
@@ -527,7 +545,7 @@ export interface Commands {
   quick_set_modal: [{ modal: boolean }, void]; // true while a prompt or dialog of Quick Access is up: no close on blur
   main_show: [{ itemId: string | null; view: "item" | "settings" | "generator" | "health" | null }, void];
   main_hide: [Record<string, never>, void]; // main hides itself, e.g. after the first-close notice
-  autotype: [{ id: string; password: string | null; only?: "password" | null }, void]; // tier 2; only "password" types the password alone (no sequence, no Enter)
+  autotype: [{ id: string; password: string | null; only?: AutotypeOnly | null }, AutotypeResult]; // tier 2; no only: smart fill (or the item's own sequence); see AutotypeOnly
   app_quit: [Record<string, never>, void];
 }
 

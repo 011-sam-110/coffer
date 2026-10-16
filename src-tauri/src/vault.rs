@@ -375,6 +375,9 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
         hello_available: crate::hello::available(&state),
         hello_enabled,
         hello_ready: false,
+        pin_set: false,
+        pin_ready: false,
+        pin_length: None,
         item_count: None,
     };
     if let Some(s) = state.session.lck().as_ref() {
@@ -383,6 +386,8 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
         st.vault_name = Some(stem_of(&s.path));
         st.key_id = Some(s.vault.key_id().to_string());
         st.item_count = Some(s.vault.active_item_count() as u32);
+        let pin = crate::pin::status(&state, &s.vault_id, s.vault.key_id());
+        (st.pin_set, st.pin_length) = (pin.set, pin.len);
         return Ok(st);
     }
     let Some(path) = vault_path(&state) else { return Ok(st) };
@@ -396,6 +401,10 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
                 let stored = device_key(&state, &h.vault_id)?;
                 st.needs_secret_key = stored.is_none_or(|k| k.key_id() != h.key_id);
                 st.hello_ready = !st.needs_secret_key && crate::hello::ready(&state, &h.vault_id, &h.key_id);
+                let pin = crate::pin::status(&state, &h.vault_id, &h.key_id);
+                st.pin_set = pin.set;
+                st.pin_ready = !st.needs_secret_key && pin.ready;
+                st.pin_length = pin.len;
                 st.key_id = Some(h.key_id);
             }
         }
@@ -563,6 +572,7 @@ pub fn unlock(app: &AppHandle, password: &str, typed_key: Option<&str>) -> Coffe
     let outcome = Vault::unlock(&bytes, password, &key, seen);
     if outcome.is_ok() {
         crate::hello::password_proven(&state);
+        crate::pin::password_proven(&state, &header.vault_id);
     }
     match outcome {
         Ok(UnlockOutcome::Ready(vault)) => finish_unlock(app, vault, path, typed),
@@ -631,6 +641,68 @@ pub fn unlock_hello_with(app: &AppHandle, verify: impl FnOnce() -> CofferResult<
         Err(e) => Err(e.into()),
     }
 }
+
+/// `vault_unlock_pin`: the vault key from the PIN record of this PC.
+pub fn unlock_pin(app: &AppHandle, pin: &str) -> CofferResult<VaultStatus> {
+    let state = app.state::<AppState>();
+    if state.is_unlocked() {
+        return status(app);
+    }
+    let path = vault_path(&state).ok_or_else(|| CofferError::new(ErrorCode::VaultMissing, "There is no vault on this PC yet."))?;
+    let bytes = read_vault(&path)?.ok_or_else(|| CofferError::new(ErrorCode::VaultMissing, format!("Coffer cannot find your vault at {}.", path.display())))?;
+    let header = coffer_core::vault_file::read_header(&bytes)?;
+    let key = device_key(&state, &header.vault_id)?
+        .filter(|k| k.key_id() == header.key_id)
+        .ok_or_else(|| CofferError::new(ErrorCode::NeedsSecretKey, "Enter the Secret Key from your Emergency Kit."))?;
+    // One PIN check at a time: the main window and Quick Access share the count.
+    let _turn = PIN_TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let record = crate::pin::load(&state, &header.vault_id)?.ok_or_else(|| crate::pin::unavailable("There is no PIN for this vault on this PC. Use your master password."))?;
+    if record.key_id != header.key_id {
+        crate::pin::remove(&state, &header.vault_id, "the Secret Key changed");
+        return Err(crate::pin::unavailable("This vault's Secret Key changed, so Coffer removed the PIN. Use your master password."));
+    }
+    let days = state.settings.rd().settings.require_password_days;
+    if !crate::pin::fresh(record.password_at, crate::pin::now_secs(), days) {
+        return Err(crate::pin::unavailable(format!("Coffer asks for your master password every {days} days. Type it once, then your PIN works again.")));
+    }
+    let Some(vk) = crate::pin::open(&record, pin, &header.vault_id)? else {
+        return Err(match crate::pin::record_miss(&state, &header.vault_id, record) {
+            crate::pin::Miss::TriesLeft(1) => CofferError::new(ErrorCode::BadCredentials, "Wrong PIN. 1 try left."),
+            crate::pin::Miss::TriesLeft(n) => CofferError::new(ErrorCode::BadCredentials, format!("Wrong PIN. {n} tries left.")),
+            crate::pin::Miss::Removed => crate::pin::unavailable(format!("{} wrong PINs, so Coffer removed the PIN. Use your master password.", crate::pin::MAX_FAILURES)),
+        });
+    };
+    if state.is_unlocked() {
+        return status(app);
+    }
+    let seen = highest_seen(&state, &header.vault_id)?;
+    match Vault::unlock_with_vault_key(&bytes, &vk, &key, seen) {
+        Ok(UnlockOutcome::Ready(vault)) => {
+            if record.failures > 0 {
+                let mut r = record;
+                r.failures = 0;
+                if let Err(e) = crate::pin::store(&state, &header.vault_id, &r) {
+                    crate::log!("pin: could not reset the count: {e}");
+                }
+            }
+            crate::log!("pin: unlocked");
+            finish_unlock(app, vault, path, None)
+        }
+        Ok(UnlockOutcome::Older(older)) => {
+            let err = older.error();
+            *state.older.lck() = Some(OlderHold { older, path, typed_key: None });
+            Err(err.into())
+        }
+        Err(CoreError::BadCredentials) => {
+            // The file has another vault key now (a re-key on another PC).
+            crate::pin::remove(&state, &header.vault_id, "the vault key changed");
+            Err(crate::pin::unavailable("The vault key changed, so Coffer removed the PIN. Use your master password."))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+static PIN_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Check the master password against the open vault (`hello_set`).
 pub fn verify_master(app: &AppHandle, password: &str) -> CofferResult<()> {
@@ -1027,6 +1099,9 @@ pub fn change_password(app: &AppHandle, current: &str, next: &str, rekey: bool) 
         if rekey {
             // They open with the old vault key (SPEC 3.3).
             delete_old_backups(&old_backups, started);
+            crate::pin::remove(&state, &s.vault_id, "new vault key");
+        } else {
+            crate::pin::password_proven(&state, &s.vault_id);
         }
         Ok(())
     });
@@ -1058,6 +1133,7 @@ pub fn rotate_secret_key(app: &AppHandle, password: &str) -> CofferResult<Emerge
             crate::log!("vault: the new Secret Key is saved in the vault but not on this PC: {e}");
         }
         delete_old_backups(&old_backups, started);
+        crate::pin::remove(&state, &s.vault_id, "new Secret Key");
         Ok(kit_for(s, &key))
     });
     if lock_after {

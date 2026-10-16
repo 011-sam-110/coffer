@@ -14,6 +14,42 @@ export function comboFromEvent(e: { key: string; code: string; ctrlKey: boolean;
   return [...mods, key].join("+");
 }
 
+/** What Ctrl + a letter does in most apps. */
+const APP_KEYS: Record<string, string> = {
+  A: "Select all",
+  B: "Bold",
+  C: "Copy",
+  D: "Bookmark",
+  F: "Find",
+  N: "New window",
+  O: "Open",
+  P: "Print",
+  R: "Reload",
+  S: "Save",
+  T: "New tab",
+  V: "Paste",
+  W: "Close tab",
+  X: "Cut",
+  Y: "Redo",
+  Z: "Undo",
+};
+/** Quick Access's own keys (they never reach Quick Access while a global hotkey takes them). */
+const QUICK_KEYS: Record<string, string> = { C: "Copy", P: "Copy password", U: "Copy username", T: "Copy code", O: "Open in Coffer" };
+
+/**
+ * A warning when a global hotkey takes a key that apps or Quick Access use:
+ * Windows gives the keys to Coffer, so no app sees them any more.
+ */
+export function hotkeyClash(combo: string | null): string | null {
+  const m = combo?.match(/^Ctrl\+([A-Z0-9])$/);
+  if (!m) return null;
+  const key = m[1];
+  const app = APP_KEYS[key];
+  const quick = QUICK_KEYS[key];
+  const what = [app && `${app} in most apps`, quick && `${quick} in Quick Access`].filter(Boolean).join(" and ") || "a shortcut in many apps";
+  return `Ctrl+${key} is ${what}. While Coffer holds it, no app gets it. Try Ctrl+Shift+Space.`;
+}
+
 export function HotkeyInput({
   value,
   onChange,
@@ -31,6 +67,7 @@ export function HotkeyInput({
       <button
         type="button"
         aria-label={`${label}: ${value ?? "off"}. Press to change.`}
+        data-hotkey-recording={recording || undefined}
         onClick={() => setRecording(true)}
         onBlur={() => setRecording(false)}
         onKeyDown={(e) => {
@@ -49,6 +86,7 @@ export function HotkeyInput({
         {recording ? <span className="text-xs text-muted-foreground">Press the new keys. Esc cancels.</span> : value ? <Keys combo={value} /> : <span className="text-muted-foreground">Off</span>}
       </button>
       {status === "inUse" && <ErrorText alert={false}>In use by another app. Choose other keys.</ErrorText>}
+      {status !== "inUse" && hotkeyClash(value) && <p className="max-w-[300px] text-xs text-gold">{hotkeyClash(value)}</p>}
     </div>
   );
 }
