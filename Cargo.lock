@@ -597,6 +597,7 @@ dependencies = [
  "base64 0.23.1",
  "coffer-core",
  "rfd",
+ "ring",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -609,6 +610,7 @@ dependencies = [
  "ureq",
  "webview2-com",
  "windows",
+ "windows-future",
  "zeroize",
 ]
 

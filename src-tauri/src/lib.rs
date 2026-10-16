@@ -7,6 +7,7 @@ compile_error!("Coffer's app shell builds on Windows only (coffer-core is portab
 #[macro_use]
 mod logging;
 mod autostart;
+mod autotype;
 mod clipboard;
 mod clock;
 // Used by build.rs and the contract tests.
@@ -19,6 +20,7 @@ mod contract_tests;
 mod device;
 mod error;
 mod folders;
+mod hello;
 mod hibp;
 mod hotkeys;
 mod lock;
@@ -28,6 +30,7 @@ mod placement;
 mod selftest;
 mod settings;
 mod shell;
+mod ssh;
 mod state;
 mod tray;
 mod usage;
@@ -100,6 +103,7 @@ pub fn run() {
             win::set_app(&handle);
             win::signals::start();
             vault::start_watcher(&handle);
+            hello::start(&handle);
             shell::create_windows(&handle)?;
             tray::create(&handle)?;
             log!("tray ready");

@@ -80,8 +80,7 @@ pub async fn app_info(app: AppHandle, state: State<'_, AppState>) -> CofferResul
         computer_name: crate::paths::computer_name(),
         default_folder: crate::paths::default_vault_folder().to_string_lossy().into_owned(),
         hotkey_status: *state.hotkeys.lck(),
-        // Windows Hello is tier 2.
-        hello_available: false,
+        hello_available: crate::hello::available(&state),
         demo: false,
     })
 }
@@ -148,9 +147,11 @@ pub async fn vault_unlock(app: AppHandle, password: Secret, secret_key: Option<S
     blocking(move || vault::unlock(&app, &password, pw(&secret_key))).await?
 }
 
+/// The Hello prompt shows over the window that asked (main or Quick Access).
 #[tauri::command]
-pub async fn vault_unlock_hello() -> CofferResult<VaultStatus> {
-    Err(CofferError::new(ErrorCode::HelloUnavailable, "Windows Hello unlock is not in this version yet."))
+pub async fn vault_unlock_hello(app: AppHandle, window: Window) -> CofferResult<VaultStatus> {
+    let hwnd = window.hwnd().map(|h| h.0 as isize).map_err(|e| CofferError::new(ErrorCode::HelloUnavailable, format!("Windows Hello could not start: {e}")))?;
+    blocking(move || vault::unlock_hello(&app, hwnd)).await?
 }
 
 #[tauri::command]
@@ -206,10 +207,10 @@ pub async fn vault_open_older(app: AppHandle) -> CofferResult<VaultStatus> {
     blocking(move || vault::open_older(&app)).await?
 }
 
+/// Turning Hello on needs the master password; off drops the held key.
 #[tauri::command]
-pub async fn hello_set(enabled: bool, password: Option<Secret>) -> CofferResult<VaultStatus> {
-    let _ = (enabled, password);
-    Err(CofferError::new(ErrorCode::HelloUnavailable, "Windows Hello unlock is not in this version yet."))
+pub async fn hello_set(app: AppHandle, enabled: bool, password: Option<Secret>) -> CofferResult<VaultStatus> {
+    blocking(move || crate::hello::set(&app, enabled, pw(&password))).await?
 }
 
 #[tauri::command]
@@ -385,7 +386,7 @@ pub async fn totp_from_image(source: TotpSource) -> CofferResult<Option<TotpImag
 
 #[tauri::command]
 pub async fn ssh_generate() -> CofferResult<SshKeyPair> {
-    later()
+    blocking(crate::ssh::generate).await?
 }
 
 // ---------- generator ----------
@@ -575,14 +576,9 @@ pub async fn backups_list(app: AppHandle) -> CofferResult<Vec<BackupEntry>> {
 
 #[tauri::command]
 /// `password`: the master password, needed when the restore would weaken
-/// re-prompt on an item (contract 208fbdd). The core checks it once
-/// `restore_backup(bytes, password)` lands; until then it is not used.
+/// re-prompt on an item (`repromptRequired` without it).
 pub async fn backup_restore(app: AppHandle, index: u32, password: Option<Secret>) -> CofferResult<VaultStatus> {
-    blocking(move || {
-        let _ = &password;
-        vault::backup_restore(&app, index)
-    })
-    .await?
+    blocking(move || vault::backup_restore(&app, index, pw(&password))).await?
 }
 
 // ---------- settings ----------
@@ -672,10 +668,17 @@ pub async fn main_hide(app: AppHandle) -> CofferResult<()> {
     Ok(())
 }
 
+/// Ctrl+Enter in Quick Access (SPEC 10): type the item into the window that
+/// was in front before Quick Access opened.
 #[tauri::command]
-pub async fn autotype(id: String, password: Option<Secret>) -> CofferResult<()> {
-    let _ = (id, password);
-    later()
+pub async fn autotype(app: AppHandle, window: Window, id: String, password: Option<Secret>) -> CofferResult<()> {
+    let link = link_app(&app, &window);
+    blocking(move || {
+        crate::autotype::run(&app, &id, pw(&password))?;
+        record_use(&app, &id, link);
+        Ok(())
+    })
+    .await?
 }
 
 /// Lock (drops keys, clears Coffer's clipboard copy) and exit. The UI asks

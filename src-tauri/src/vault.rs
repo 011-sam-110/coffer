@@ -261,10 +261,15 @@ fn list_backups(dir: &Path) -> Vec<(PathBuf, OffsetDateTime)> {
     out
 }
 
-/// Delete backup files (after a re-key: they open with the old vault key).
-fn delete_files(paths: &[PathBuf]) {
+/// Delete the backups listed before a re-key (they open with the old vault
+/// key), except a file the re-key's own save rewrote: a backup name has
+/// whole seconds, so a save in the same second reuses the name.
+fn delete_old_backups(paths: &[PathBuf], started: SystemTime) {
     for p in paths {
-        let _ = std::fs::remove_file(p);
+        let rewritten = std::fs::metadata(p).and_then(|m| m.modified()).is_ok_and(|t| t >= started);
+        if !rewritten {
+            let _ = std::fs::remove_file(p);
+        }
     }
 }
 
@@ -318,7 +323,7 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
         vault_name: None,
         key_id: None,
         needs_secret_key: false,
-        hello_available: false,
+        hello_available: crate::hello::available(&state),
         hello_enabled,
         hello_ready: false,
         item_count: None,
@@ -328,8 +333,7 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
         st.vault_path = Some(s.path.to_string_lossy().into_owned());
         st.vault_name = Some(stem_of(&s.path));
         st.key_id = Some(s.vault.key_id().to_string());
-        // Active items, as the UI counts them (not archived, not in Trash).
-        st.item_count = Some(s.vault.items_list().iter().filter(|i| i.state == ItemState::Active).count() as u32);
+        st.item_count = Some(s.vault.active_item_count() as u32);
         return Ok(st);
     }
     let Some(path) = vault_path(&state) else { return Ok(st) };
@@ -342,6 +346,7 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
             if let Ok(h) = coffer_core::vault_file::read_header(&bytes) {
                 let stored = device_key(&state, &h.vault_id)?;
                 st.needs_secret_key = stored.is_none_or(|k| k.key_id() != h.key_id);
+                st.hello_ready = !st.needs_secret_key && crate::hello::ready(&state, &h.vault_id, &h.key_id);
                 st.key_id = Some(h.key_id);
             }
         }
@@ -451,9 +456,10 @@ pub fn create(app: &AppHandle, name: &str, password: &str, use_picked_folder: bo
         vault_id,
         key_id: key.key_id().to_string(),
         secret_key: key.to_text(),
-        created_at: crate::clock::now_iso(),
+        created_at: vault.created_at().unwrap_or_else(crate::clock::now_iso),
         computer_name: crate::paths::computer_name(),
     };
+    crate::hello::password_proven(&state);
     open_session(app, vault, path);
     crate::log!("vault: created (generation {generation})");
     Ok(kit)
@@ -505,7 +511,11 @@ pub fn unlock(app: &AppHandle, password: &str, typed_key: Option<&str>) -> Coffe
     };
     let seen = highest_seen(&state, &header.vault_id)?;
     let typed = (!from_device).then(|| key.clone());
-    match Vault::unlock(&bytes, password, &key, seen) {
+    let outcome = Vault::unlock(&bytes, password, &key, seen);
+    if outcome.is_ok() {
+        crate::hello::password_proven(&state);
+    }
+    match outcome {
         Ok(UnlockOutcome::Ready(vault)) => finish_unlock(app, vault, path, typed),
         Ok(UnlockOutcome::Older(older)) => {
             let err = older.error();
@@ -518,6 +528,64 @@ pub fn unlock(app: &AppHandle, password: &str, typed_key: Option<&str>) -> Coffe
         )),
         Err(e) => Err(e.into()),
     }
+}
+
+/// `vault_unlock_hello` (SPEC 3.8): the held vault key, after Windows Hello
+/// says "Verified" over `hwnd` (the window that asked).
+pub fn unlock_hello(app: &AppHandle, hwnd: isize) -> CofferResult<VaultStatus> {
+    unlock_hello_with(app, || crate::hello::verify(hwnd))
+}
+
+/// `unlock_hello` with the prompt as a parameter (the self-test passes a
+/// stand-in: an unattended run cannot answer a real Hello prompt).
+pub fn unlock_hello_with(app: &AppHandle, verify: impl FnOnce() -> CofferResult<()>) -> CofferResult<VaultStatus> {
+    let state = app.state::<AppState>();
+    if state.is_unlocked() {
+        return status(app);
+    }
+    let path = vault_path(&state).ok_or_else(|| CofferError::new(ErrorCode::VaultMissing, "There is no vault on this PC yet."))?;
+    let bytes = std::fs::read(&path).map_err(|_| CofferError::new(ErrorCode::VaultMissing, format!("Coffer cannot find your vault at {}.", path.display())))?;
+    let header = coffer_core::vault_file::read_header(&bytes)?;
+    if !state.settings.rd().settings.hello_enabled {
+        return Err(CofferError::new(ErrorCode::HelloUnavailable, "Windows Hello unlock is off. Turn it on in Settings > Security."));
+    }
+    // Fail before the prompt when no key is held (restart, keyChanged, days).
+    drop(crate::hello::held_key(&state, &header.vault_id, &header.key_id)?);
+    if !crate::hello::refresh_available(&state) {
+        return Err(CofferError::new(ErrorCode::HelloUnavailable, "Windows Hello is not available now. Use your master password."));
+    }
+    let key = device_key(&state, &header.vault_id)?
+        .filter(|k| k.key_id() == header.key_id)
+        .ok_or_else(|| CofferError::new(ErrorCode::NeedsSecretKey, "Enter the Secret Key from your Emergency Kit."))?;
+    verify()?;
+    if state.is_unlocked() {
+        // Unlocked with the password while the prompt was up.
+        return status(app);
+    }
+    let vk = crate::hello::held_key(&state, &header.vault_id, &header.key_id)?;
+    let seen = highest_seen(&state, &header.vault_id)?;
+    match Vault::unlock_with_vault_key(&bytes, &vk, &key, seen) {
+        Ok(UnlockOutcome::Ready(vault)) => {
+            crate::log!("hello: unlocked");
+            finish_unlock(app, vault, path, None)
+        }
+        Ok(UnlockOutcome::Older(older)) => {
+            let err = older.error();
+            *state.older.lck() = Some(OlderHold { older, path, typed_key: None });
+            Err(err.into())
+        }
+        Err(CoreError::BadCredentials) => {
+            // The file has another vault key now (a re-key here or on another PC).
+            crate::hello::forget(&state);
+            Err(CofferError::new(ErrorCode::HelloFailed, "The vault key changed, so Windows Hello cannot open it. Use your master password."))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Check the master password against the open vault (`hello_set`).
+pub fn verify_master(app: &AppHandle, password: &str) -> CofferResult<()> {
+    with_session(app, |s| s.vault.verify_password(password).map_err(unlocked_err))
 }
 
 /// `vault_open_older`: the user confirmed opening the older file.
@@ -539,6 +607,8 @@ fn finish_unlock(app: &AppHandle, mut vault: Vault, path: PathBuf, typed_key: Op
         remember_vault(&state, &path, Some(&vault_id))?;
     }
     let purged = vault.purge_expired_trash();
+    // Nothing is held for Hello while the vault is open; the next lock takes the key again.
+    crate::hello::forget(&state);
     open_session(app, vault, path);
     if purged > 0 {
         if let Err(e) = with_session(app, |s| save(app, s)) {
@@ -806,7 +876,7 @@ pub fn backups_list(app: &AppHandle) -> CofferResult<Vec<BackupEntry>> {
             Ok(bytes) => (bytes.len() as u64, coffer_core::vault_file::read_header(&bytes).map(|h| h.generation).unwrap_or(0)),
             Err(_) => (0, 0),
         };
-        out.push(BackupEntry { index: i as u32, saved_at: coffer_core::time_util::fmt(*t), size, generation });
+        out.push(BackupEntry { index: i as u32, saved_at: coffer_core::time_util::fmt(*t).unwrap_or_default(), size, generation });
     }
     *state.backups_listed.lck() = files.into_iter().map(|(p, _)| p).collect();
     Ok(out)
@@ -815,7 +885,9 @@ pub fn backups_list(app: &AppHandle) -> CofferResult<Vec<BackupEntry>> {
 /// Restore (SPEC 3.5). Unlocked: take the backup's records into the open
 /// vault and save over the file the user was shown. Locked or missing: put
 /// the backup file in place and take its generation as the highest seen.
-pub fn backup_restore(app: &AppHandle, index: u32) -> CofferResult<VaultStatus> {
+/// `password`: the master password, when the restore would weaken re-prompt
+/// on an item (the core answers `repromptRequired` without it).
+pub fn backup_restore(app: &AppHandle, index: u32, password: Option<&str>) -> CofferResult<VaultStatus> {
     let state = app.state::<AppState>();
     let path = state.backups_listed.lck().get(index as usize).cloned().ok_or_else(|| CofferError::new(ErrorCode::NotFound, "List the backups again."))?;
     let bytes = std::fs::read(&path).map_err(|e| io_err("read that backup", e))?;
@@ -827,7 +899,7 @@ pub fn backup_restore(app: &AppHandle, index: u32) -> CofferResult<VaultStatus> 
     let target = vault_path(&state).ok_or_else(|| CofferError::invalid("There is no vault on this PC yet."))?;
     if state.is_unlocked() {
         with_session(app, |s| {
-            s.vault.restore_backup(&bytes)?;
+            s.vault.restore_backup(&bytes, password).map_err(unlocked_err)?;
             if s.shown.is_none() && s.block.is_some() {
                 s.shown = Some(disk_base(&s.path));
             }
@@ -850,46 +922,112 @@ pub fn backup_restore(app: &AppHandle, index: u32) -> CofferResult<VaultStatus> 
 
 // ---------- password, key, kit ----------
 
+/// A password change, re-key or key rotation is all or nothing. When its
+/// save fails (the file changed on disk, or a write error), the open vault
+/// goes back to the file on disk, opened again with the current password:
+/// no conflict copy holds the changed keys, and the user is told plainly.
+/// Returns the error to show and whether the vault must be locked (the
+/// file could not be opened again).
+fn undo_key_change(app: &AppHandle, s: &mut Session, password: &str, what: &str, e: CofferError) -> (CofferError, bool) {
+    let state = app.state::<AppState>();
+    let why = if e.code == ErrorCode::Conflict { "the vault file changed on another computer while Coffer saved" } else { "Coffer could not save the vault file" };
+    let back = (|| -> CofferResult<Vault> {
+        let bytes = std::fs::read(&s.path).map_err(|e| io_err("read the vault file", e))?;
+        let key = device_key(&state, &s.vault_id)?.ok_or_else(|| CofferError::new(ErrorCode::NeedsSecretKey, "Enter the Secret Key from your Emergency Kit."))?;
+        let seen = highest_seen(&state, &s.vault_id)?;
+        match Vault::unlock(&bytes, password, &key, seen)? {
+            UnlockOutcome::Ready(v) => Ok(v),
+            UnlockOutcome::Older(o) => Err(o.error().into()),
+        }
+    })();
+    match back {
+        Ok(v) => {
+            s.vault = v;
+            observe(&state, &s.vault_id, s.vault.generation());
+            s.block = None;
+            s.shown = None;
+            s.loaded_at = crate::clock::now_iso();
+            note_own_write(&state, &s.path);
+            let _ = app.emit(events::VAULT_RELOADED, Empty {});
+            crate::log!("vault: {what} not saved ({:?}); reloaded the file on disk", e.code);
+            (CofferError::new(e.code, format!("Your {what} was not saved: {why}. Nothing changed. Try again.")), false)
+        }
+        Err(again) => {
+            crate::log!("vault: {what} not saved ({:?}) and the file did not open again ({:?}); locking", e.code, again.code);
+            (CofferError::new(e.code, format!("Your {what} was not saved: {why}. Nothing changed. Coffer locked the vault: unlock it with your current password.")), true)
+        }
+    }
+}
+
 pub fn change_password(app: &AppHandle, current: &str, next: &str, rekey: bool) -> CofferResult<()> {
     let state = app.state::<AppState>();
-    with_session(app, |s| {
+    let mut lock_after = false;
+    let result = with_session(app, |s| {
         if let Some(b) = s.block {
             return Err(blocked(b));
         }
         let old_backups: Vec<PathBuf> = list_backups(&backups_dir(&state, &s.vault_id)).into_iter().map(|(p, _)| p).collect();
+        let started = SystemTime::now();
         s.vault.change_password(current, next, rekey, &stem_of(&s.path)).map_err(unlocked_err)?;
-        save(app, s)?;
+        if let Err(e) = save(app, s) {
+            let (err, lock) = undo_key_change(app, s, current, "master password change", e);
+            lock_after = lock;
+            return Err(err);
+        }
+        crate::hello::password_proven(&state);
         if rekey {
             // They open with the old vault key (SPEC 3.3).
-            delete_files(&old_backups);
+            delete_old_backups(&old_backups, started);
         }
         Ok(())
-    })
+    });
+    if lock_after {
+        crate::lock::lock(app, LockReason::Manual);
+    }
+    result
 }
 
 /// Tier 2: a new Secret Key, a new vault key, every record re-encrypted.
+/// This PC stores the new Secret Key only after the file holds the new keys.
 pub fn rotate_secret_key(app: &AppHandle, password: &str) -> CofferResult<EmergencyKit> {
     let state = app.state::<AppState>();
-    with_session(app, |s| {
+    let mut lock_after = false;
+    let result = with_session(app, |s| {
         if let Some(b) = s.block {
             return Err(blocked(b));
         }
         let old_backups: Vec<PathBuf> = list_backups(&backups_dir(&state, &s.vault_id)).into_iter().map(|(p, _)| p).collect();
+        let started = SystemTime::now();
         let key = s.vault.rotate_secret_key(password).map_err(unlocked_err)?;
-        store_device_key(&state, &s.vault_id, &key)?;
-        save(app, s)?;
-        delete_files(&old_backups);
+        if let Err(e) = save(app, s) {
+            let (err, lock) = undo_key_change(app, s, password, "new Secret Key", e);
+            lock_after = lock;
+            return Err(err);
+        }
+        if let Err(e) = store_device_key(&state, &s.vault_id, &key) {
+            // The kit below has the key; the next unlock asks for it.
+            crate::log!("vault: the new Secret Key is saved in the vault but not on this PC: {e}");
+        }
+        delete_old_backups(&old_backups, started);
         Ok(kit_for(s, &key))
-    })
+    });
+    if lock_after {
+        crate::lock::lock(app, LockReason::Manual);
+    }
+    result
 }
 
 fn kit_for(s: &Session, key: &SecretKey) -> EmergencyKit {
-    let created = std::fs::metadata(&s.path)
-        .and_then(|m| m.created())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| crate::clock::iso_from_unix(d.as_secs() as i64))
-        .unwrap_or_else(crate::clock::now_iso);
+    // Vaults made before the core kept `created_at` fall back to the file's
+    // creation time.
+    let created = s.vault.created_at().unwrap_or_else(|| {
+        std::fs::metadata(&s.path)
+            .and_then(|m| m.created())
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| crate::clock::iso_from_unix(d.as_secs() as i64))
+            .unwrap_or_else(crate::clock::now_iso)
+    });
     EmergencyKit {
         vault_name: stem_of(&s.path),
         vault_path: s.path.to_string_lossy().into_owned(),

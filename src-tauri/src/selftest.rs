@@ -403,7 +403,7 @@ fn vault_round_trip(app: &AppHandle) {
     let blocked = crate::vault::mutate(app, |v| v.item_save(&login("Blocked", "x@example.com", "Selftest-pass-three-3"), None));
     c.check("an older file pauses saves (vault://olderOnDisk)", older && blocked.is_err(), code_of(&blocked));
     let listed = crate::vault::backups_list(app).unwrap_or_default();
-    let restored = crate::vault::backup_restore(app, 0);
+    let restored = crate::vault::backup_restore(app, 0, None);
     let unblocked = crate::vault::with_session(app, |s| Ok(s.block.is_none())).unwrap_or(false);
     c.check(
         "restoring the newest backup (unlocked) saves and unpauses",
@@ -472,7 +472,272 @@ fn vault_round_trip(app: &AppHandle) {
         format!("{} / {}", code_of(&bad_kit), code_of(&kit2)),
     );
 
+    // ---------- Windows Hello gating (SPEC 3.8) ----------
+    // An unattended run cannot answer a Hello prompt: `unlock_hello_with`
+    // gets a stand-in for it. Everything around the prompt is real.
+    hello_checks(app, &mut c, PW, &key);
+
+    // ---------- auto-type (SPEC 10) ----------
+    autotype_checks(app, &mut c);
+
     std::thread::sleep(Duration::from_millis(2500));
     crate::log!("selftest vault: events {:?}", got.lock().unwrap());
     crate::log!("selftest vault: {} checks, {} failed", c.total, c.failed);
+}
+
+fn hello_checks(app: &AppHandle, c: &mut Checks, pw: &str, key: &coffer_core::SecretKey) {
+    use crate::error::ErrorCode;
+    let state = app.state::<AppState>();
+    let status = || crate::vault::status(app).ok();
+    let ready = || status().map(|s| s.hello_ready).unwrap_or(false);
+    let verified = || -> crate::error::CofferResult<()> { Ok(()) };
+    let cancelled = || -> crate::error::CofferResult<()> { Err(crate::error::CofferError::new(ErrorCode::HelloFailed, "Windows Hello was cancelled. Use your master password.")) };
+
+    let st = status();
+    let available = st.as_ref().is_some_and(|s| s.hello_available);
+    c.check("hello: available on this PC, off by default", available && st.as_ref().is_some_and(|s| !s.hello_enabled && !s.hello_ready), format!("{st:?}"));
+
+    let wrong = crate::hello::set(app, true, Some("not the password"));
+    let none = crate::hello::set(app, true, None);
+    c.check("hello_set(true) needs the master password", matches!(&wrong, Err(e) if e.code == ErrorCode::BadCredentials) && none.is_err(), format!("{} / {}", code_of(&wrong), code_of(&none)));
+    let on = crate::hello::set(app, true, Some(pw));
+    let saved = std::fs::read_to_string(state.settings_path()).unwrap_or_default().contains("\"helloEnabled\": true");
+    c.check("hello_set(true) with the password: on and saved", matches!(&on, Ok(s) if s.hello_enabled) && saved, code_of(&on));
+
+    let items = item_count(app);
+    crate::lock::lock(app, LockReason::Manual);
+    c.check("a manual lock keeps the key: helloReady", ready(), format!("{:?}", status()));
+    let r = crate::vault::unlock_hello_with(app, cancelled);
+    c.check("a cancelled prompt does not unlock and keeps the key", matches!(&r, Err(e) if e.code == ErrorCode::HelloFailed) && !state.is_unlocked() && ready(), code_of(&r));
+    let r = crate::vault::unlock_hello_with(app, verified);
+    c.check("Verified opens the vault with the held key", r.is_ok() && state.is_unlocked() && item_count(app) == items, format!("{} items {:?}", code_of(&r), item_count(app)));
+
+    // keyChanged drops the key, and no prompt is shown then.
+    crate::lock::lock(app, LockReason::KeyChanged);
+    let mut asked = false;
+    let r = crate::vault::unlock_hello_with(app, || {
+        asked = true;
+        Ok(())
+    });
+    c.check(
+        "a keyChanged lock drops the key; no prompt",
+        !ready() && matches!(&r, Err(e) if e.code == ErrorCode::HelloUnavailable && e.message == crate::hello::NOT_READY) && !asked,
+        code_of(&r),
+    );
+
+    // Turning Hello off drops the key.
+    let _ = crate::vault::unlock(app, pw, None);
+    crate::lock::lock(app, LockReason::Manual);
+    let was_ready = ready();
+    let off = crate::hello::set(app, false, None);
+    c.check("hello_set(false) drops the key", was_ready && off.is_ok() && !ready(), code_of(&off));
+
+    // After requirePasswordDays without a password unlock, the key is not kept.
+    let _ = crate::vault::unlock(app, pw, None);
+    let _ = crate::hello::set(app, true, Some(pw));
+    crate::hello::age_password_proof(&state, std::time::Duration::from_secs(15 * 24 * 3600));
+    crate::lock::lock(app, LockReason::Idle);
+    let r = crate::vault::unlock_hello_with(app, verified);
+    c.check("after 14 days without the password: no key, the password is needed", !ready() && matches!(&r, Err(e) if e.code == ErrorCode::HelloUnavailable), code_of(&r));
+
+    // A re-key on another PC: the held key no longer opens the file.
+    let _ = crate::vault::unlock(app, pw, None);
+    crate::lock::lock(app, LockReason::Manual);
+    let path = status().and_then(|s| s.vault_path).map(PathBuf::from).unwrap_or_default();
+    let rekeyed = (|| -> Result<(), String> {
+        use coffer_core::session::UnlockOutcome;
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let seen = coffer_core::vault_file::read_header(&bytes).map_err(|e| e.to_string())?.generation;
+        let Ok(UnlockOutcome::Ready(mut v)) = coffer_core::Vault::unlock(&bytes, pw, key, seen) else { return Err("open".into()) };
+        v.change_password(pw, pw, true, "Selftest").map_err(|e| e.to_string())?;
+        std::fs::write(&path, v.to_bytes(seen)).map_err(|e| e.to_string())
+    })();
+    let was_ready = ready();
+    let r = crate::vault::unlock_hello_with(app, verified);
+    c.check(
+        "a re-key elsewhere: Hello says the key changed and drops it",
+        rekeyed.is_ok() && was_ready && matches!(&r, Err(e) if e.code == ErrorCode::HelloFailed) && !ready() && !state.is_unlocked(),
+        format!("{rekeyed:?} / {}", code_of(&r)),
+    );
+    let r = crate::vault::unlock(app, pw, None);
+    c.check("then the master password opens it", r.is_ok(), code_of(&r));
+
+    // The real prompt, started and cancelled by the test. Only on request,
+    // with a person at the PC: the dialog stays until someone presses Cancel.
+    if std::env::var_os("COFFER_SELFTEST_HELLO_PROMPT").is_some() {
+        let hwnd = app.get_webview_window(shell::MAIN).and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0);
+        if let Some(w) = app.get_webview_window(shell::MAIN) {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        std::thread::sleep(Duration::from_millis(800));
+        let outcome = crate::win::hello::prompt_then_cancel(hwnd, Duration::from_secs(3));
+        crate::log!("selftest vault: info real Hello prompt: {outcome}");
+    }
+    let _ = crate::hello::set(app, false, None);
+}
+
+// ---------- auto-type against a window this test starts ----------
+
+/// A WinForms window with one multi-line text box, in its own powershell.exe
+/// (a real separate process; this test owns its PID and closes it).
+const TARGET_SCRIPT: &str = "Add-Type -AssemblyName System.Windows.Forms; \
+$f = New-Object System.Windows.Forms.Form; $f.Text = 'Coffer autotype target'; $f.Width = 520; $f.Height = 260; \
+$t = New-Object System.Windows.Forms.TextBox; $t.Multiline = $true; $t.AcceptsTab = $true; $t.AcceptsReturn = $true; $t.Dock = 'Fill'; \
+$f.Controls.Add($t); $f.Add_Shown({ $f.Activate(); [void]$t.Focus() }); [System.Windows.Forms.Application]::Run($f)";
+
+fn find_target(pid: u32) -> Option<(isize, isize)> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows, EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible};
+    struct Found {
+        pid: u32,
+        form: isize,
+        edit: isize,
+    }
+    unsafe extern "system" fn top(h: HWND, l: LPARAM) -> BOOL {
+        let f = unsafe { &mut *(l.0 as *mut Found) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        let mut buf = [0u16; 128];
+        let n = unsafe { GetWindowTextW(h, &mut buf) } as usize;
+        if pid == f.pid && unsafe { IsWindowVisible(h) }.as_bool() && String::from_utf16_lossy(&buf[..n]) == "Coffer autotype target" {
+            f.form = h.0 as isize;
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+    unsafe extern "system" fn child(h: HWND, l: LPARAM) -> BOOL {
+        let f = unsafe { &mut *(l.0 as *mut Found) };
+        let mut buf = [0u16; 128];
+        let n = unsafe { GetClassNameW(h, &mut buf) } as usize;
+        if String::from_utf16_lossy(&buf[..n]).to_ascii_uppercase().contains(".EDIT.") {
+            f.edit = h.0 as isize;
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+    let mut found = Found { pid, form: 0, edit: 0 };
+    unsafe {
+        let _ = EnumWindows(Some(top), LPARAM(&mut found as *mut Found as isize));
+        if found.form != 0 {
+            let _ = EnumChildWindows(Some(HWND(found.form as *mut _)), Some(child), LPARAM(&mut found as *mut Found as isize));
+        }
+    }
+    (found.form != 0 && found.edit != 0).then_some((found.form, found.edit))
+}
+
+fn window_text(h: isize) -> String {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_GETTEXT, WM_GETTEXTLENGTH};
+    unsafe {
+        let len = SendMessageW(HWND(h as *mut _), WM_GETTEXTLENGTH, None, None).0 as usize;
+        let mut buf = vec![0u16; len + 1];
+        let got = SendMessageW(HWND(h as *mut _), WM_GETTEXT, Some(WPARAM(buf.len())), Some(LPARAM(buf.as_mut_ptr() as isize))).0 as usize;
+        String::from_utf16_lossy(&buf[..got.min(len)])
+    }
+}
+
+fn set_window_text(h: isize, text: &str) {
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_SETTEXT};
+    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe { SendMessageW(HWND(h as *mut _), WM_SETTEXT, None, Some(LPARAM(wide.as_ptr() as isize))) };
+}
+
+fn close_window(h: isize) {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+    unsafe {
+        let _ = PostMessageW(Some(HWND(h as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
+    }
+}
+
+/// Make `hwnd` the window auto-type types into, as if the user had been in it.
+fn set_target(app: &AppHandle, hwnd: isize) {
+    *app.state::<AppState>().foreground.lck() = Some(crate::state::ForegroundInfo { hwnd, title: "Coffer autotype target".into(), process: Some("powershell.exe".into()) });
+}
+
+fn autotype_checks(app: &AppHandle, c: &mut Checks) {
+    use crate::error::ErrorCode;
+    let user = "type@example.com";
+    let pass = "Typed-pass-Ünï-€-42";
+    let item = crate::vault::mutate(app, |v| v.item_save(&login("Typed login", user, pass), None));
+    let Ok(item) = item else {
+        c.check("autotype: item for the test", false, code_of(&item));
+        return;
+    };
+    let custom: coffer_core::model::ItemInput = serde_json::from_value(serde_json::json!({
+        "type": "login",
+        "title": "Typed custom",
+        "fields": [
+            {"label": "Username", "kind": "text", "value": user, "builtin": "username"},
+            {"label": "Password", "kind": "concealed", "value": pass, "builtin": "password"},
+            {"label": "Door code", "kind": "text", "value": "4711"}
+        ],
+        "autotypeSequence": "{USERNAME}{TAB}{DELAY 150}{FIELD:door code}:x{ENTER}"
+    }))
+    .expect("custom item");
+    let custom = crate::vault::mutate(app, |v| v.item_save(&custom, None));
+
+    let mut child = match std::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", TARGET_SCRIPT]).spawn() {
+        Ok(ch) => ch,
+        Err(e) => {
+            c.check("autotype: start the target window", false, e);
+            return;
+        }
+    };
+    let pid = child.id();
+    let found = wait_until(Duration::from_secs(20), || find_target(pid).is_some());
+    let Some((form, edit)) = found.then(|| find_target(pid)).flatten() else {
+        c.check("autotype: the target window opened", false, format!("pid {pid}"));
+        let _ = child.kill();
+        return;
+    };
+    crate::log!("selftest vault: info autotype target pid {pid}");
+    let level = crate::win::autotype::integrity_of(pid);
+    c.check("autotype: the target runs at our level (not elevated)", level.is_some() && !crate::win::autotype::runs_higher(pid), format!("{level:?} vs ours {:?}", crate::win::autotype::own_integrity()));
+
+    // Quick Access opens from the real hotkey (that input lets Coffer move
+    // the foreground), as in use; the user had been in the target window.
+    let hotkey_ok = matches!(*app.state::<AppState>().hotkeys.lck(), crate::contract::HotkeyStatus { quick: crate::contract::HotkeyState::Ok, .. });
+    let mut run = |id: &str, label: &str, expect: String| {
+        set_window_text(edit, "");
+        if hotkey_ok {
+            press_quick_hotkey();
+            std::thread::sleep(Duration::from_millis(900));
+        }
+        set_target(app, form);
+        let fg_before = crate::win::autotype::foreground();
+        let r = crate::autotype::run(app, id, None);
+        std::thread::sleep(Duration::from_millis(400));
+        let text = window_text(edit);
+        match &r {
+            Err(e) if e.message.contains("could not bring that window to the front") => {
+                crate::log!("selftest vault: NOT RUN {label}: Windows did not let Coffer bring the target to the front (foreground was {fg_before:#x})");
+            }
+            _ => c.check(label, r.is_ok() && text == expect, format!("{}; typed {} chars, expected {}", code_of(&r), text.chars().count(), expect.chars().count())),
+        }
+        if r.is_ok() && text != expect {
+            crate::log!("selftest vault: info typed text matches={}", text == expect);
+        }
+    };
+    run(&item.id, "autotype: default sequence typed into the window (WM_GETTEXT)", format!("{user}\t{pass}\r\n"));
+    if let Ok(custom) = &custom {
+        run(&custom.id, "autotype: custom sequence with DELAY, FIELD and text", format!("{user}\t4711:x\r\n"));
+    }
+
+    // Close the target without saving anything, then type at nothing.
+    set_window_text(edit, "");
+    close_window(form);
+    let closed = wait_until(Duration::from_secs(5), || matches!(child.try_wait(), Ok(Some(_))));
+    if !closed {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    c.check("autotype: target closed (own PID only)", closed, format!("pid {pid}"));
+    set_target(app, form);
+    let gone = crate::autotype::run(app, &item.id, None);
+    c.check("autotype: a closed target is refused", matches!(&gone, Err(e) if e.code == ErrorCode::Invalid && e.message.contains("gone")), code_of(&gone));
+    crate::shell::hide_quick(app);
 }

@@ -70,6 +70,9 @@ pub fn lock(app: &AppHandle, reason: LockReason) {
     let session = state.session.lck().take();
     state.unlocked.store(false, std::sync::atomic::Ordering::SeqCst);
     let was_unlocked = session.is_some();
+    // Hello on: keep the vault key, encrypted in memory (SPEC 3.8). A lock
+    // while locked (keyChanged, quit) drops a key held earlier.
+    crate::hello::on_lock(&state, session.as_ref(), reason);
     drop(session);
     drop(state.older.lck().take());
     // A waiting import preview holds decrypted items.
