@@ -1154,6 +1154,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     autotype: () => {
       throw fail("invalid", "Not available in this version.");
     },
+    main_hide: () => undefined,
     app_quit: () => undefined,
   };
 

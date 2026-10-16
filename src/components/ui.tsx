@@ -1,6 +1,7 @@
 // Primitive controls. One shape language: 4 px corners, 1 px borders, filled
 // controls, one crimson fill per screen (variant "primary").
-import { clsx } from "clsx";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 import {
   forwardRef,
@@ -14,16 +15,17 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 
-export const cx = clsx;
+/** Join classes; later Tailwind classes win over earlier ones (w-32 over w-full). */
+export const cx = (...v: ClassValue[]) => twMerge(clsx(v));
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "quiet";
 type Size = "sm" | "md" | "lg";
 
 const VARIANT: Record<Variant, string> = {
-  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold",
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground",
   secondary: "bg-secondary text-secondary-foreground hover:bg-secondary-hover",
   ghost: "text-foreground hover:bg-muted",
-  danger: "bg-destructive text-destructive-foreground hover:bg-destructive-hover font-semibold",
+  danger: "bg-destructive text-destructive-foreground hover:bg-destructive-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground",
   quiet: "text-muted-foreground hover:text-foreground hover:bg-muted",
 };
 const SIZE: Record<Size, string> = {
@@ -51,7 +53,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       aria-busy={loading || undefined}
       className={cx(
         "inline-flex shrink-0 cursor-pointer items-center justify-center whitespace-nowrap rounded-sm font-medium transition-colors duration-150 select-none",
-        "active:translate-y-px disabled:pointer-events-none disabled:opacity-50",
+        "active:translate-y-px disabled:pointer-events-none disabled:opacity-60",
         VARIANT[variant],
         SIZE[size],
         className,
@@ -157,13 +159,13 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
   const [caps, setCaps] = useState(false);
   return (
     <div className={className}>
-      <div className="control flex items-center gap-1 pr-1 focus-within:border-ring focus-within:outline-2 focus-within:outline-ring" aria-invalid={invalid || undefined}>
+      <div className="control flex items-center gap-1 pr-1" aria-invalid={invalid || undefined}>
         <input
           ref={ref}
           {...inputDefaults}
           type={shown ? "text" : "password"}
           aria-invalid={invalid || undefined}
-          className="h-[1.875rem] min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
+          className="h-[1.875rem] min-w-0 flex-1 bg-transparent font-mono text-sm outline-none placeholder:font-sans"
           onKeyDown={(e) => {
             const c = capsFrom(e);
             if (c !== null) setCaps(c);
@@ -213,14 +215,14 @@ export function Switch({
       onClick={() => onChange(!checked)}
       className={cx(
         "relative inline-flex h-[18px] w-8 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "border-primary bg-primary" : "border-input-hover bg-muted",
+        checked ? "border-foreground bg-foreground" : "border-input-hover bg-muted",
       )}
     >
       <span
         aria-hidden
         className={cx(
           "block size-3 rounded-full transition-transform duration-150",
-          checked ? "translate-x-[15px] bg-primary-foreground" : "translate-x-[2px] bg-muted-foreground",
+          checked ? "translate-x-[15px] bg-background" : "translate-x-[2px] bg-muted-foreground",
         )}
       />
     </button>

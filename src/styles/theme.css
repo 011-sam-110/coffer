@@ -89,6 +89,8 @@
   /* derived: hover steps for the secondary and destructive fills. */
   --secondary-hover: oklch(0.36 0 0);
   --destructive-hover: oklch(0.53 0.17 25.94);
+  /* derived: the ring token at 45 % for the halo around a focused text field. */
+  --ring-halo: oklch(0.584 0.235 20.651 / 0.45);
   /* derived: a control border on hover, one step above --input. */
   --input-hover: oklch(0.4 0 0);
   /* derived: scrim behind dialogs. */
@@ -300,9 +302,11 @@
   .control:hover {
     border-color: var(--input-hover);
   }
+  /* A focused field: ring-coloured border plus a soft ring halo (a solid crimson box reads as an error). */
   .control:focus-visible,
-  .control:focus-within:has(:focus-visible) {
-    outline: 2px solid var(--ring);
+  .control:focus-within:has(:focus-visible),
+  .control:focus-within {
+    outline: 2px solid var(--ring-halo);
     outline-offset: 0;
     border-color: var(--ring);
   }

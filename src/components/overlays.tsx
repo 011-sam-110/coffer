@@ -50,6 +50,14 @@ export function Dialog({
     if (open && !d.open) {
       d.showModal();
       onOpenChange?.(true);
+      // Focus what the dialog is for: a marked control, else its first field, else the first footer button.
+      requestAnimationFrame(() => {
+        const t =
+          d.querySelector<HTMLElement>("[data-autofocus]") ??
+          d.querySelector<HTMLElement>("[data-dialog-body] input:not([type=hidden]):not([disabled]), [data-dialog-body] textarea, [data-dialog-body] select") ??
+          d.querySelector<HTMLElement>("[data-dialog-footer] button");
+        t?.focus();
+      });
     } else if (!open && d.open) {
       d.close();
       onOpenChange?.(false);
@@ -94,8 +102,16 @@ export function Dialog({
             </IconButton>
           )}
         </div>
-        {children && <div className="min-h-0 overflow-y-auto px-5 py-2">{children}</div>}
-        {footer && <div className="flex items-center justify-end gap-2 px-5 pt-3 pb-4">{footer}</div>}
+        {children && (
+          <div data-dialog-body className="min-h-0 overflow-y-auto px-5 py-2">
+            {children}
+          </div>
+        )}
+        {footer && (
+          <div data-dialog-footer className="flex items-center justify-end gap-2 px-5 pt-3 pb-4">
+            {footer}
+          </div>
+        )}
       </motion.div>
     </dialog>
   );
@@ -133,8 +149,10 @@ export function ConfirmDialog({
       footer={
         <>
           {extra}
-          <Button onClick={onCancel}>{cancelLabel}</Button>
-          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} autoFocus>
+          <Button onClick={onCancel} data-autofocus={danger ? true : undefined}>
+            {cancelLabel}
+          </Button>
+          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} data-autofocus={danger ? undefined : true}>
             {confirmLabel}
           </Button>
         </>

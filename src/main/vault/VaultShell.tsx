@@ -15,7 +15,7 @@ import { BackupList } from "../screens/Locked";
 import { Dialog } from "../../components/overlays";
 import { ItemDetail } from "./ItemDetail";
 import { ItemEditor } from "./ItemEditor";
-import { ItemList, NewItemMenu } from "./ItemList";
+import { ItemList } from "./ItemList";
 import { inTextField, KeysContext, type KeyAction, type KeyHandlers, type Nav } from "./nav";
 import { Sidebar } from "./Sidebar";
 
@@ -170,13 +170,14 @@ function EmptyDetail({ go }: { go: (p: Partial<Nav>) => void }) {
   if (!itemsLoaded) return null;
   if (items.length === 0)
     return (
-      <div className="flex h-full flex-col items-start justify-center gap-4 px-12">
-        <h2 className="text-lg font-semibold">Start your vault</h2>
-        <p className="max-w-[48ch] text-sm text-muted-foreground">Add a login by hand, or bring everything over from 1Password, Bitwarden, Dashlane or a browser export. Imports keep a tag, so you can undo them.</p>
-        <div className="flex gap-2">
-          <NewItemMenu onPick={(t) => go({ editing: "new", newType: t, itemId: null })} />
-          <Button onClick={() => go({ view: "import" })}>Import</Button>
-        </div>
+      <div className="flex h-full flex-col items-start justify-center gap-2 px-12">
+        <h2 className="text-md font-semibold">Start with what you use every day</h2>
+        <p className="max-w-[52ch] text-sm text-muted-foreground">
+          Add your email, bank and work logins first. Moving from another password manager? Import keeps a tag on everything it adds, so one click undoes it.
+        </p>
+        <Button size="sm" variant="ghost" className="-ml-2.5 mt-2" onClick={() => go({ view: "import" })}>
+          Import from 1Password, Bitwarden, Dashlane or a browser
+        </Button>
       </div>
     );
   return (
@@ -202,10 +203,13 @@ export function VaultShell({
   nav,
   go,
   onShowShortcuts,
+  notice,
 }: {
   nav: Nav;
   go: (patch: Partial<Nav>) => void;
   onShowShortcuts: () => void;
+  /** A window-level notice shown above the panes (lock dropped an edit). */
+  notice?: ReactNode;
 }) {
   const { lock, items, itemsLoaded } = useStore();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -276,6 +280,7 @@ export function VaultShell({
       <div className="flex h-full">
         <Sidebar nav={nav} go={go} onLock={() => lock()} />
         <div className="flex min-w-0 flex-1 flex-col">
+          {notice && <div className="shrink-0 border-b border-border px-4 py-2.5">{notice}</div>}
           <Banners />
           <div className="flex min-h-0 flex-1">
             {showList && <ItemList nav={nav} go={go} searchRef={searchRef} />}

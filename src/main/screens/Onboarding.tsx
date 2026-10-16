@@ -19,7 +19,7 @@ export function Welcome({ onCreate, onOpen }: { onCreate: () => void; onOpen: ()
         Coffer keeps them in one encrypted file on your own disk. No account, no server. Open it from the tray or with a shortcut from any app.
       </StepTitle>
       <div className="flex flex-col gap-2">
-        <Button variant="primary" size="lg" className="justify-start" onClick={onCreate} autoFocus>
+        <Button variant="primary" size="lg" className="justify-start" onClick={onCreate}>
           Create a new vault
         </Button>
         <Button size="lg" className="justify-start" icon={<FolderOpen className="size-4" />} onClick={onOpen}>
@@ -137,7 +137,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
         Coffer cannot reset a master password. Pick one you will remember; a few unrelated words work well.
       </StepTitle>
       <form
-        className="flex flex-col gap-5"
+        className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           create();
@@ -226,7 +226,7 @@ export function KitSheet({ kit }: { kit: EmergencyKit }) {
       </dl>
       <div className="mt-6">
         <p className="mb-2 text-xs font-medium text-muted-foreground">Secret Key</p>
-        <p className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-xl font-medium tracking-[0.06em]" data-selectable aria-label={`Secret Key ${kit.secretKey}`}>
+        <p className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[1.375rem] leading-8 font-medium tracking-[0.04em]" data-selectable aria-label={`Secret Key ${kit.secretKey}`}>
           {groups.map((g, i) => (
             <span key={i} className={i === 0 ? "text-muted-foreground" : undefined}>
               {g}
@@ -245,7 +245,7 @@ export function KitSheet({ kit }: { kit: EmergencyKit }) {
 
 function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
   return (
-    <ScreenFrame width={600}>
+    <ScreenFrame width={660}>
       <div className="no-print">
         <StepTitle step={stepLabel("kit")} title="Save your Emergency Kit">
           Your vault opens with your master password plus this Secret Key. This PC keeps the key; a new PC needs the kit.

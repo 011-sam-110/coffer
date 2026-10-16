@@ -45,6 +45,13 @@ function Shell() {
 
   const go = useCallback((patch: Partial<Nav>) => setNav((n) => ({ ...n, ...patch })), []);
 
+  // First close with "hide to tray": Rust keeps the window open and asks for this notice (SPEC 9).
+  const closeToTray = useCallback(() => {
+    setCloseNotice(false);
+    updateSettings({ closeNoticeShown: true });
+    call("main_hide").catch(() => undefined);
+  }, [updateSettings]);
+
   // Demo-only screen states, for screenshots (?screen=, ?dialog=, ?item=, ?edit=).
   useEffect(() => {
     if (!info?.demo || demoApplied.current) return;
@@ -89,6 +96,7 @@ function Shell() {
       setNav((n) => ({ ...n, editing: null }));
     });
     const b = on("edit://discarded", (p) => setLostEdit(p.title));
+    const d = on("main://closeNotice", () => setCloseNotice(true));
     const c = on("app://quitRequested", () => {
       if (editInfo.dirty) setQuitAsk(true);
       else call("app_quit").catch(() => undefined);
@@ -97,6 +105,7 @@ function Shell() {
       a();
       b();
       c();
+      d();
     };
   }, []);
 
@@ -117,7 +126,29 @@ function Shell() {
   else if (outcome?.kind === "older") screen = <OlderFile message={outcome.message} onDone={() => setOutcome(null)} />;
   else if (status.state === "missing") screen = <Missing onCreate={() => setSetup("create")} />;
   else if (status.state === "locked") screen = <Unlock onOutcome={setOutcome} onOpenOther={() => setSetup("open")} />;
-  else screen = <VaultShell nav={nav} go={go} onShowShortcuts={() => setShortcuts(true)} />;
+  else
+    screen = (
+      <VaultShell
+        nav={nav}
+        go={go}
+        onShowShortcuts={() => setShortcuts(true)}
+        notice={
+          lostEdit ? (
+            <Notice
+              tone="warning"
+              role="alert"
+              actions={
+                <Button size="sm" onClick={() => setLostEdit(null)}>
+                  OK
+                </Button>
+              }
+            >
+              Unsaved changes to {lostEdit} were lost when Coffer locked. Generated passwords are in Generator history.
+            </Notice>
+          ) : null
+        }
+      />
+    );
 
   const inVault = status.state === "unlocked" && !setup && !outcome;
 
@@ -125,22 +156,6 @@ function Shell() {
     <>
       {screen}
       {info.demo && !inVault && <DemoBadge className="fixed right-4 bottom-4 z-40" />}
-      {inVault && lostEdit && (
-        <div className="fixed top-3 left-1/2 z-40 w-[min(560px,calc(100%-32px))] -translate-x-1/2">
-          <Notice
-            tone="warning"
-            role="alert"
-            className="shadow-pop"
-            actions={
-              <Button size="sm" onClick={() => setLostEdit(null)}>
-                OK
-              </Button>
-            }
-          >
-            Unsaved changes to {lostEdit} were lost when Coffer locked. Generated passwords are in Generator history.
-          </Notice>
-        </div>
-      )}
       <Dialog open={shortcuts} onClose={() => setShortcuts(false)} title="Keyboard shortcuts" width={560}>
         <div className="flex flex-col gap-6 pb-4">
           <ShortcutTable title="In the Coffer window" rows={MAIN_SHORTCUTS} />
@@ -149,10 +164,7 @@ function Shell() {
       </Dialog>
       <Dialog
         open={closeNotice}
-        onClose={() => {
-          setCloseNotice(false);
-          updateSettings({ closeNoticeShown: true });
-        }}
+        onClose={closeToTray}
         title="Coffer is still running"
         description="Coffer is still running in the tray. Drag its icon from ^ to the taskbar to keep it in view."
         width={400}
@@ -160,10 +172,7 @@ function Shell() {
           <Button
             variant="primary"
             autoFocus
-            onClick={() => {
-              setCloseNotice(false);
-              updateSettings({ closeNoticeShown: true });
-            }}
+            onClick={closeToTray}
           >
             OK
           </Button>

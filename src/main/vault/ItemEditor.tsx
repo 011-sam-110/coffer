@@ -82,7 +82,7 @@ function SecretInput({
 
   return (
     <div className="flex items-center gap-1.5">
-      <div className="control flex flex-1 items-center gap-1 pr-1 focus-within:border-ring focus-within:outline-2 focus-within:outline-ring" aria-invalid={invalid || undefined}>
+      <div className="control flex flex-1 items-center gap-1 pr-1" aria-invalid={invalid || undefined}>
         <input
           id={id}
           type={visible ? "text" : "password"}
@@ -199,7 +199,7 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
           id={id}
           mono
           value={field.value ?? ""}
-          placeholder={field.value === null && field.hasStored ? "Set up. Paste a new link or key to replace it." : "otpauth://... or the setup key"}
+          placeholder={field.value === null && field.hasStored ? "Set up. Paste to replace it." : "otpauth://... or the setup key"}
           invalid={invalid}
           onChange={(e) => onChange(e.target.value === "" && field.hasStored ? null : e.target.value)}
         />
@@ -234,7 +234,7 @@ function TagEditor({ tags, onChange, suggestions }: { tags: string[]; onChange: 
   };
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="control flex min-h-8 flex-wrap items-center gap-1.5 py-1 focus-within:border-ring focus-within:outline-2 focus-within:outline-ring">
+      <div className="control flex min-h-8 flex-wrap items-center gap-1.5 py-1">
         {tags.map((t) => (
           <span key={t} className="inline-flex h-6 items-center gap-1 rounded-sm bg-secondary pr-0.5 pl-2 text-xs">
             {t}
@@ -495,7 +495,7 @@ export function ItemEditor({
             ref={titleRef}
             aria-label="Title"
             value={form.title}
-            placeholder={`${def.label} title`}
+            placeholder="Title"
             autoComplete="off"
             spellCheck={false}
             aria-invalid={!!errors.title || undefined}

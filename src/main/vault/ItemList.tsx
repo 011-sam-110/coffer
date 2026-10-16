@@ -57,14 +57,14 @@ function flagLabel(i: ItemSummary): string | null {
   return null;
 }
 
-export function NewItemMenu({ onPick, variant = "primary" }: { onPick: (t: ItemType) => void; variant?: "primary" | "secondary" }) {
+export function NewItemMenu({ onPick, variant = "primary", label = "New" }: { onPick: (t: ItemType) => void; variant?: "primary" | "secondary"; label?: string }) {
   return (
     <Menu
       label="New item"
       items={ITEM_TYPE_ORDER.map((t) => ({ label: ITEM_TYPES[t].label, onSelect: () => onPick(t) }))}
       trigger={(p) => (
         <Button variant={variant} size="md" icon={<Plus className="size-4" />} {...p} title="New item (Ctrl+N)">
-          New
+          {label}
         </Button>
       )}
     />
@@ -198,7 +198,7 @@ export function ItemList({
     <section aria-label={title} className="flex h-full w-[340px] shrink-0 flex-col border-r border-border">
       <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 pt-3 pb-2">
         <div className="flex items-center gap-2">
-          <div className="control flex h-8 flex-1 items-center gap-2 focus-within:border-ring focus-within:outline-2 focus-within:outline-ring">
+          <div className="control flex h-8 flex-1 items-center gap-2">
             <Search aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <input
               ref={searchRef}
@@ -237,7 +237,7 @@ export function ItemList({
         </div>
         {bulk ? (
           <div className="flex h-7 items-center gap-1" role="toolbar" aria-label="Selected items">
-            <span className="mr-auto text-xs font-medium">{selected.size} selected</span>
+            <span className="mr-auto text-xs font-medium whitespace-nowrap">{selected.size} selected</span>
             {inTrash || inArchive ? (
               <Button size="sm" variant="ghost" icon={<ArchiveRestore className="size-3.5" />} onClick={() => runBulk("restore")}>
                 Restore
@@ -311,7 +311,7 @@ export function ItemList({
                     onKeyDown={onRowKey}
                     className={cx(
                       "flex h-[52px] w-full cursor-pointer items-center gap-3 rounded-sm pr-2 pl-2 text-left transition-colors duration-100",
-                      isSel ? "bg-accent" : checked ? "bg-muted" : "hover:bg-muted",
+                      isSel ? "bg-sidebar-accent" : checked ? "bg-muted" : "hover:bg-muted",
                     )}
                   >
                     <span className="relative">
@@ -455,7 +455,7 @@ function EmptyList({
         title="Your vault is empty"
         actions={
           <>
-            <NewItemMenu onPick={(t) => go({ editing: "new", newType: t, itemId: null })} />
+            <NewItemMenu variant="secondary" label="New item" onPick={(t) => go({ editing: "new", newType: t, itemId: null })} />
             <Button icon={<Download className="size-4" />} onClick={() => go({ view: "import" })}>
               Import
             </Button>

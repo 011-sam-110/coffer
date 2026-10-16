@@ -5,7 +5,7 @@ import { Button, cx } from "../../components/ui";
 export function Brand({ className }: { className?: string }) {
   return (
     <div className={cx("flex items-center gap-2 select-none", className)}>
-      <span className="inline-flex size-7 items-center justify-center rounded-sm bg-primary text-primary-foreground">
+      <span className="inline-flex size-7 items-center justify-center rounded-sm border border-border bg-card text-foreground">
         <Vault aria-hidden className="size-4" strokeWidth={2.25} />
       </span>
       <span className="text-md font-semibold tracking-normal">Coffer</span>
@@ -33,7 +33,7 @@ export function ScreenFrame({
         <Brand />
         {aside}
       </header>
-      <main className="flex flex-1 justify-center px-6 pt-[7vh] pb-16">
+      <main className="flex flex-1 justify-center px-6 pt-[4vh] pb-16">
         <div className="w-full" style={{ maxWidth: width }}>
           {onBack && (
             <Button variant="quiet" size="sm" className="-ml-2.5 mb-4" icon={<ChevronLeft className="size-4" />} onClick={onBack}>
