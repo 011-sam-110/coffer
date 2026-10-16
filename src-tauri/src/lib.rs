@@ -7,6 +7,7 @@ compile_error!("Coffer's app shell builds on Windows only (coffer-core is portab
 #[macro_use]
 mod logging;
 mod autostart;
+mod autotype;
 mod clipboard;
 mod clock;
 // Used by build.rs and the contract tests.

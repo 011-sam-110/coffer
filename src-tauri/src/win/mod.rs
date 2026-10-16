@@ -1,6 +1,7 @@
 //! Windows-only code (SPEC 12): DPAPI, clipboard, foreground tracking, lock
 //! signals, monitors, capture affinity and WebView2 settings.
 
+pub mod autotype;
 pub mod capture;
 pub mod clipboard;
 pub mod dpapi;

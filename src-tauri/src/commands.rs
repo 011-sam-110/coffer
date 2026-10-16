@@ -668,10 +668,17 @@ pub async fn main_hide(app: AppHandle) -> CofferResult<()> {
     Ok(())
 }
 
+/// Ctrl+Enter in Quick Access (SPEC 10): type the item into the window that
+/// was in front before Quick Access opened.
 #[tauri::command]
-pub async fn autotype(id: String, password: Option<Secret>) -> CofferResult<()> {
-    let _ = (id, password);
-    later()
+pub async fn autotype(app: AppHandle, window: Window, id: String, password: Option<Secret>) -> CofferResult<()> {
+    let link = link_app(&app, &window);
+    blocking(move || {
+        crate::autotype::run(&app, &id, pw(&password))?;
+        record_use(&app, &id, link);
+        Ok(())
+    })
+    .await?
 }
 
 /// Lock (drops keys, clears Coffer's clipboard copy) and exit. The UI asks

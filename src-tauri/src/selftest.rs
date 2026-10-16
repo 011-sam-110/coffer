@@ -477,6 +477,9 @@ fn vault_round_trip(app: &AppHandle) {
     // gets a stand-in for it. Everything around the prompt is real.
     hello_checks(app, &mut c, PW, &key);
 
+    // ---------- auto-type (SPEC 10) ----------
+    autotype_checks(app, &mut c);
+
     std::thread::sleep(Duration::from_millis(2500));
     crate::log!("selftest vault: events {:?}", got.lock().unwrap());
     crate::log!("selftest vault: {} checks, {} failed", c.total, c.failed);
@@ -572,4 +575,169 @@ fn hello_checks(app: &AppHandle, c: &mut Checks, pw: &str, key: &coffer_core::Se
         crate::log!("selftest vault: info real Hello prompt: {outcome}");
     }
     let _ = crate::hello::set(app, false, None);
+}
+
+// ---------- auto-type against a window this test starts ----------
+
+/// A WinForms window with one multi-line text box, in its own powershell.exe
+/// (a real separate process; this test owns its PID and closes it).
+const TARGET_SCRIPT: &str = "Add-Type -AssemblyName System.Windows.Forms; \
+$f = New-Object System.Windows.Forms.Form; $f.Text = 'Coffer autotype target'; $f.Width = 520; $f.Height = 260; \
+$t = New-Object System.Windows.Forms.TextBox; $t.Multiline = $true; $t.AcceptsTab = $true; $t.AcceptsReturn = $true; $t.Dock = 'Fill'; \
+$f.Controls.Add($t); $f.Add_Shown({ $f.Activate(); [void]$t.Focus() }); [System.Windows.Forms.Application]::Run($f)";
+
+fn find_target(pid: u32) -> Option<(isize, isize)> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows, EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible};
+    struct Found {
+        pid: u32,
+        form: isize,
+        edit: isize,
+    }
+    unsafe extern "system" fn top(h: HWND, l: LPARAM) -> BOOL {
+        let f = unsafe { &mut *(l.0 as *mut Found) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        let mut buf = [0u16; 128];
+        let n = unsafe { GetWindowTextW(h, &mut buf) } as usize;
+        if pid == f.pid && unsafe { IsWindowVisible(h) }.as_bool() && String::from_utf16_lossy(&buf[..n]) == "Coffer autotype target" {
+            f.form = h.0 as isize;
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+    unsafe extern "system" fn child(h: HWND, l: LPARAM) -> BOOL {
+        let f = unsafe { &mut *(l.0 as *mut Found) };
+        let mut buf = [0u16; 128];
+        let n = unsafe { GetClassNameW(h, &mut buf) } as usize;
+        if String::from_utf16_lossy(&buf[..n]).to_ascii_uppercase().contains(".EDIT.") {
+            f.edit = h.0 as isize;
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+    let mut found = Found { pid, form: 0, edit: 0 };
+    unsafe {
+        let _ = EnumWindows(Some(top), LPARAM(&mut found as *mut Found as isize));
+        if found.form != 0 {
+            let _ = EnumChildWindows(Some(HWND(found.form as *mut _)), Some(child), LPARAM(&mut found as *mut Found as isize));
+        }
+    }
+    (found.form != 0 && found.edit != 0).then_some((found.form, found.edit))
+}
+
+fn window_text(h: isize) -> String {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_GETTEXT, WM_GETTEXTLENGTH};
+    unsafe {
+        let len = SendMessageW(HWND(h as *mut _), WM_GETTEXTLENGTH, None, None).0 as usize;
+        let mut buf = vec![0u16; len + 1];
+        let got = SendMessageW(HWND(h as *mut _), WM_GETTEXT, Some(WPARAM(buf.len())), Some(LPARAM(buf.as_mut_ptr() as isize))).0 as usize;
+        String::from_utf16_lossy(&buf[..got.min(len)])
+    }
+}
+
+fn set_window_text(h: isize, text: &str) {
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_SETTEXT};
+    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe { SendMessageW(HWND(h as *mut _), WM_SETTEXT, None, Some(LPARAM(wide.as_ptr() as isize))) };
+}
+
+fn close_window(h: isize) {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE};
+    unsafe {
+        let _ = PostMessageW(Some(HWND(h as *mut _)), WM_CLOSE, WPARAM(0), LPARAM(0));
+    }
+}
+
+/// Make `hwnd` the window auto-type types into, as if the user had been in it.
+fn set_target(app: &AppHandle, hwnd: isize) {
+    *app.state::<AppState>().foreground.lck() = Some(crate::state::ForegroundInfo { hwnd, title: "Coffer autotype target".into(), process: Some("powershell.exe".into()) });
+}
+
+fn autotype_checks(app: &AppHandle, c: &mut Checks) {
+    use crate::error::ErrorCode;
+    let user = "type@example.com";
+    let pass = "Typed-pass-Ünï-€-42";
+    let item = crate::vault::mutate(app, |v| v.item_save(&login("Typed login", user, pass), None));
+    let Ok(item) = item else {
+        c.check("autotype: item for the test", false, code_of(&item));
+        return;
+    };
+    let custom: coffer_core::model::ItemInput = serde_json::from_value(serde_json::json!({
+        "type": "login",
+        "title": "Typed custom",
+        "fields": [
+            {"label": "Username", "kind": "text", "value": user, "builtin": "username"},
+            {"label": "Password", "kind": "concealed", "value": pass, "builtin": "password"},
+            {"label": "Door code", "kind": "text", "value": "4711"}
+        ],
+        "autotypeSequence": "{USERNAME}{TAB}{DELAY 150}{FIELD:door code}:x{ENTER}"
+    }))
+    .expect("custom item");
+    let custom = crate::vault::mutate(app, |v| v.item_save(&custom, None));
+
+    let mut child = match std::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", TARGET_SCRIPT]).spawn() {
+        Ok(ch) => ch,
+        Err(e) => {
+            c.check("autotype: start the target window", false, e);
+            return;
+        }
+    };
+    let pid = child.id();
+    let found = wait_until(Duration::from_secs(20), || find_target(pid).is_some());
+    let Some((form, edit)) = found.then(|| find_target(pid)).flatten() else {
+        c.check("autotype: the target window opened", false, format!("pid {pid}"));
+        let _ = child.kill();
+        return;
+    };
+    crate::log!("selftest vault: info autotype target pid {pid}");
+    let level = crate::win::autotype::integrity_of(pid);
+    c.check("autotype: the target runs at our level (not elevated)", level.is_some() && !crate::win::autotype::runs_higher(pid), format!("{level:?} vs ours {:?}", crate::win::autotype::own_integrity()));
+
+    // Quick Access opens from the real hotkey (that input lets Coffer move
+    // the foreground), as in use; the user had been in the target window.
+    let hotkey_ok = matches!(*app.state::<AppState>().hotkeys.lck(), crate::contract::HotkeyStatus { quick: crate::contract::HotkeyState::Ok, .. });
+    let mut run = |id: &str, label: &str, expect: String| {
+        set_window_text(edit, "");
+        if hotkey_ok {
+            press_quick_hotkey();
+            std::thread::sleep(Duration::from_millis(900));
+        }
+        set_target(app, form);
+        let fg_before = crate::win::autotype::foreground();
+        let r = crate::autotype::run(app, id, None);
+        std::thread::sleep(Duration::from_millis(400));
+        let text = window_text(edit);
+        match &r {
+            Err(e) if e.message.contains("could not bring that window to the front") => {
+                crate::log!("selftest vault: NOT RUN {label}: Windows did not let Coffer bring the target to the front (foreground was {fg_before:#x})");
+            }
+            _ => c.check(label, r.is_ok() && text == expect, format!("{}; typed {} chars, expected {}", code_of(&r), text.chars().count(), expect.chars().count())),
+        }
+        if r.is_ok() && text != expect {
+            crate::log!("selftest vault: info typed text matches={}", text == expect);
+        }
+    };
+    run(&item.id, "autotype: default sequence typed into the window (WM_GETTEXT)", format!("{user}\t{pass}\r\n"));
+    if let Ok(custom) = &custom {
+        run(&custom.id, "autotype: custom sequence with DELAY, FIELD and text", format!("{user}\t4711:x\r\n"));
+    }
+
+    // Close the target without saving anything, then type at nothing.
+    set_window_text(edit, "");
+    close_window(form);
+    let closed = wait_until(Duration::from_secs(5), || matches!(child.try_wait(), Ok(Some(_))));
+    if !closed {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    c.check("autotype: target closed (own PID only)", closed, format!("pid {pid}"));
+    set_target(app, form);
+    let gone = crate::autotype::run(app, &item.id, None);
+    c.check("autotype: a closed target is refused", matches!(&gone, Err(e) if e.code == ErrorCode::Invalid && e.message.contains("gone")), code_of(&gone));
+    crate::shell::hide_quick(app);
 }
