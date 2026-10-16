@@ -299,7 +299,7 @@ export function KitStep({ kit, onNext, step = stepLabel("kit"), title = "Save yo
               Print or save the kit first.
             </p>
           )}
-          <Button size="lg" variant={printed ? "primary" : "secondary"} disabled={!printed} aria-describedby={printed ? undefined : "kit-why"} onClick={onNext}>
+          <Button size="lg" variant="primary" disabled={!printed} aria-describedby={printed ? undefined : "kit-why"} onClick={onNext}>
             Continue
           </Button>
         </div>

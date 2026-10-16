@@ -23,7 +23,8 @@ type Size = "sm" | "md" | "lg";
 
 const VARIANT: Record<Variant, string> = {
   // A crimson ring on a crimson fill is hard to see: filled buttons take a light ring.
-  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground focus-visible:outline-foreground",
+  // Disabled stays crimson at 35%: the main action is still where it will be.
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold disabled:opacity-35 focus-visible:outline-foreground",
   secondary: "bg-secondary text-secondary-foreground hover:bg-secondary-hover",
   ghost: "text-foreground hover:bg-muted",
   danger: "bg-destructive text-destructive-foreground hover:bg-destructive-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground focus-visible:outline-foreground",
