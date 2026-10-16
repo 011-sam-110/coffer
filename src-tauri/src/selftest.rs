@@ -725,7 +725,7 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
     // Quick Access opens from the real hotkey (that input lets Coffer move
     // the foreground), as in use; the user had been in the target window.
     let hotkey_ok = matches!(*app.state::<AppState>().hotkeys.lck(), crate::contract::HotkeyStatus { quick: crate::contract::HotkeyState::Ok, .. });
-    let mut run = |id: &str, label: &str, expect: String| {
+    let mut run = |id: &str, label: &str, expect: String, only: Option<crate::contract::AutotypeOnly>| {
         set_window_text(edit, "");
         // The user clicks into the target, then presses the hotkey: the
         // foreground tracker stores the target, as in use.
@@ -738,7 +738,7 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
         let stored = app.state::<AppState>().foreground.lck().as_ref().map(|f| f.hwnd);
         crate::log!("selftest vault: info clicked={clicked}; stored target is the form: {}", stored == Some(form));
         let fg_before = crate::win::autotype::foreground();
-        let r = crate::autotype::run(app, id, None);
+        let r = crate::autotype::run(app, id, None, only);
         std::thread::sleep(Duration::from_millis(400));
         let text = window_text(edit);
         match &r {
@@ -751,9 +751,10 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
             crate::log!("selftest vault: info typed text matches={}", text == expect);
         }
     };
-    run(&item.id, "autotype: default sequence typed into the window (WM_GETTEXT)", format!("{user}\t{pass}\r\n"));
+    run(&item.id, "autotype: default sequence typed into the window (WM_GETTEXT)", format!("{user}\t{pass}\r\n"), None);
     if let Ok(custom) = &custom {
-        run(&custom.id, "autotype: custom sequence with DELAY, FIELD and text", format!("{user}\t4711:x\r\n"));
+        run(&custom.id, "autotype: custom sequence with DELAY, FIELD and text", format!("{user}\t4711:x\r\n"), None);
+        run(&custom.id, "autotype: only = password types the password alone", pass.to_string(), Some(crate::contract::AutotypeOnly::Password));
     }
 
     // Close the target without saving anything, then type at nothing.
@@ -766,7 +767,7 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
     }
     c.check("autotype: target closed (own PID only)", closed, format!("pid {pid}"));
     set_target(app, form);
-    let gone = crate::autotype::run(app, &item.id, None);
+    let gone = crate::autotype::run(app, &item.id, None, None);
     c.check("autotype: a closed target is refused", matches!(&gone, Err(e) if e.code == ErrorCode::Invalid && e.message.contains("gone")), code_of(&gone));
     crate::shell::hide_quick(app);
 }

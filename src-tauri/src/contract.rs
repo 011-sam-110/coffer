@@ -77,6 +77,14 @@ pub struct TotpImage {
     pub uri: Zeroizing<String>,
 }
 
+/// `autotype` `only`: "password" types the password alone (no sequence,
+/// no Tab, no Enter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutotypeOnly {
+    Password,
+}
+
 /// `totp_from_image` source: a file (Rust opens the dialog) or the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

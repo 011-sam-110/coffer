@@ -12,6 +12,7 @@ use coffer_core::{CoreError, Vault};
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
+use crate::contract::AutotypeOnly;
 use crate::error::{CofferError, CofferResult, ErrorCode};
 use crate::state::{AppState, LockExt};
 use crate::win::autotype as win;
@@ -99,10 +100,18 @@ fn value(v: &mut Vault, id: &str, field_ref: &str, what: &str, password: Option<
     }
 }
 
-fn resolve(v: &mut Vault, id: &str, password: Option<&str>) -> CofferResult<Vec<Step>> {
+/// What to type: the item's sequence (or the default), or with
+/// `only = password` the password alone (no Tab, no Enter).
+fn tokens_for(only: Option<AutotypeOnly>, sequence: Option<&str>) -> Result<Vec<Token>, String> {
+    if only == Some(AutotypeOnly::Password) {
+        return Ok(vec![Token::Password]);
+    }
+    parse(sequence.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_SEQUENCE))
+}
+
+fn resolve(v: &mut Vault, id: &str, password: Option<&str>, only: Option<AutotypeOnly>) -> CofferResult<Vec<Step>> {
     let view = v.item_get(id)?;
-    let seq = view.autotype_sequence.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_SEQUENCE);
-    let tokens = parse(seq).map_err(CofferError::invalid)?;
+    let tokens = tokens_for(only, view.autotype_sequence.as_deref()).map_err(CofferError::invalid)?;
     let mut steps = Vec::with_capacity(tokens.len());
     for t in tokens {
         steps.push(match t {
@@ -127,7 +136,7 @@ fn resolve(v: &mut Vault, id: &str, password: Option<&str>) -> CofferResult<Vec<
 }
 
 /// `autotype({ id, password })`.
-pub fn run(app: &AppHandle, id: &str, password: Option<&str>) -> CofferResult<()> {
+pub fn run(app: &AppHandle, id: &str, password: Option<&str>, only: Option<AutotypeOnly>) -> CofferResult<()> {
     let state = app.state::<AppState>();
     if !state.is_unlocked() {
         return Err(CofferError::locked());
@@ -137,7 +146,7 @@ pub fn run(app: &AppHandle, id: &str, password: Option<&str>) -> CofferResult<()
     if win::runs_higher(win::window_pid(target)) {
         return Err(CofferError::invalid("Coffer cannot type into an app running as administrator."));
     }
-    let steps = crate::vault::with_session(app, |s| resolve(&mut s.vault, id, password))?;
+    let steps = crate::vault::with_session(app, |s| resolve(&mut s.vault, id, password, only))?;
 
     // From here Quick Access is hidden; a failure shows it again with the reason.
     let fail = |message: &str| {
@@ -202,6 +211,26 @@ mod tests {
                 Token::Text(" done".into()),
             ]
         );
+    }
+
+    #[test]
+    fn only_password_types_the_password_alone() {
+        let seq = Some("{USERNAME}{TAB}{PASSWORD}{ENTER}");
+        assert_eq!(tokens_for(Some(AutotypeOnly::Password), seq).unwrap(), vec![Token::Password]);
+        assert_eq!(tokens_for(None, seq).unwrap().len(), 4);
+        assert_eq!(tokens_for(None, None).unwrap(), parse(DEFAULT_SEQUENCE).unwrap());
+        // The one Text step becomes Unicode key events only: a down and an up
+        // per UTF-16 unit, no virtual key (so no Tab and no Enter).
+        let password = "pÜ€x";
+        let events = win::text_inputs(password);
+        assert_eq!(events.len(), password.encode_utf16().count() * 2);
+        for (i, (e, unit)) in events.iter().zip(password.encode_utf16().flat_map(|u| [u, u])).enumerate() {
+            let ki = unsafe { e.Anonymous.ki };
+            assert_eq!(ki.wVk.0, 0, "event {i}: no virtual key");
+            assert_eq!(ki.wScan, unit, "event {i}");
+            assert!(ki.dwFlags.contains(windows::Win32::UI::Input::KeyboardAndMouse::KEYEVENTF_UNICODE));
+            assert_eq!(ki.dwFlags.contains(windows::Win32::UI::Input::KeyboardAndMouse::KEYEVENTF_KEYUP), i % 2 == 1);
+        }
     }
 
     #[test]
