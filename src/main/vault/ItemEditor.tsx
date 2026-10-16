@@ -2,6 +2,7 @@
 // Secret fields stay null (unchanged) until the user shows, types or generates.
 import { Eye, EyeOff, LoaderCircle, Plus, Trash2, WandSparkles, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { AutotypeSequenceField } from "../../components/AutotypeActions";
 import { Generator } from "../../components/Generator";
 import { Monogram } from "../../components/bits";
 import { ConfirmDialog, Menu, useReprompt, useToast } from "../../components/overlays";
@@ -652,6 +653,7 @@ export function ItemEditor({
               <p className="px-1 text-xs text-muted-foreground">Quick Access shows this item first when one of these apps is in front.</p>
             </section>
           )}
+          {form.type === "login" && <AutotypeSequenceField id={`${uid}-autotype`} value={form.autotypeSequence} error={errors.autotype} onChange={(v) => patch({ autotypeSequence: v })} />}
 
           <section className="flex flex-col gap-2.5 rounded-sm border border-border px-4 py-3">
             <Checkbox label="Favourite" checked={form.favorite} onChange={(v) => patch({ favorite: v })} />

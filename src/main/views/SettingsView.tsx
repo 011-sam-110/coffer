@@ -39,6 +39,8 @@ export const QUICK_SHORTCUTS: Array<[string, string]> = [
   ["Ctrl+T", "Copy the one-time code"],
   ["Right", "All actions (caret at the end of the search)"],
   ["Ctrl+O", "Open in Coffer"],
+  ["Ctrl+Enter", "Type username and password into the app you came from"],
+  ["Ctrl+Shift+Enter", "Type the password alone into that app"],
   ["Esc", "Clear the search; again to close"],
 ];
 

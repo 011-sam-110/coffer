@@ -16,6 +16,8 @@ describe("quickKey", () => {
     expect(k("P", { ctrlKey: true })).toBe("copyPassword");
     expect(k("t", { ctrlKey: true })).toBe("copyTotp");
     expect(k("o", { ctrlKey: true })).toBe("openInCoffer");
+    expect(k("Enter", { ctrlKey: true })).toBe("autotype");
+    expect(k("Enter", { ctrlKey: true, shiftKey: true })).toBe("autotypePassword");
     expect(k("Escape")).toBe("escape");
   });
   it("opens the action list with Right arrow only when the caret is at the end", () => {

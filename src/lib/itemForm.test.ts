@@ -83,6 +83,11 @@ describe("validation", () => {
     expect(validateForm(newItemForm("note")).title).toBe("Give this item a title.");
     expect(validateForm(newItemForm("note", "Recipe")).title).toBeUndefined();
   });
+  it("checks the auto-type sequence", () => {
+    const f = newItemForm("login", "Bank");
+    expect(validateForm({ ...f, autotypeSequence: "{USERNAME}{TAB}{PASSWORD}" }).autotype).toBeUndefined();
+    expect(validateForm({ ...f, autotypeSequence: "{USER}" }).autotype).toBe("Coffer does not know the auto-type token {USER}.");
+  });
   it("checks values by kind and allows empty values", () => {
     expect(validateValue("email", "")).toBeNull();
     expect(validateValue("email", "alex@example")).toMatch(/email/);

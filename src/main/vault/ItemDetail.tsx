@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   History,
+  Keyboard,
   KeyRound,
   Pencil,
   Star,
@@ -17,6 +18,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { autotypeChoices, typedIntoText, useAutotype } from "../../components/AutotypeActions";
 import { Markdown } from "../../components/Markdown";
 import { Monogram, PasswordChars, SecretText, TotpCode } from "../../components/bits";
 import { ConfirmDialog, Menu, useCopy, useReprompt, useToast } from "../../components/overlays";
@@ -154,6 +156,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
   const { toast, error } = useToast();
   const { withReprompt } = useReprompt();
   const copy = useCopy();
+  const autotype = useAutotype();
 
   useEffect(() => {
     setRevealed({});
@@ -284,6 +287,13 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
             { label: "Move to Trash", icon: <Trash2 />, shortcut: "Delete", danger: true, onSelect: () => setState("trashed") },
           ]
         : [
+            ...autotypeChoices(item).map((c) => ({
+              label: c.label,
+              icon: <Keyboard />,
+              onSelect: async () => {
+                if (await autotype(item, c.only)) toast(await typedIntoText(c.only));
+              },
+            })),
             { label: "Archive", icon: <Archive />, onSelect: () => setState("archived") },
             { label: "Move to Trash", icon: <Trash2 />, shortcut: "Delete", danger: true, onSelect: () => setState("trashed") },
           ];
