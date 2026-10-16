@@ -285,7 +285,7 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
   - Locked: password field (Caps Lock warning, show toggle, "Unlocking..." during the KDF) and the Hello button. Locked with `needsSecretKey`: "Open Coffer to finish setup". `noVault` or `missing`: one line and [Open Coffer].
   - Action list (Right arrow): copy each field of the item (by role or field id), auto-type (tier 2), Open site, Open in Coffer.
   - **Suggestions**: active items only, at most 5. Score 3: the item's `apps` holds the process name. Score 2: `usage.json` links the process and the item (a copy or auto-type from Quick Access adds the link; at most 10 per process; never for browsers). Score 1, browsers only (chrome, msedge, firefox, brave, opera, vivaldi): a URL host label of 4 or more characters other than `www`, or the item title, is a whole word of the window title. Ties: `lastUsedAt`, then title. A "use" (for `lastUsedAt` and Recently used) = copy, reveal, auto-type or open site.
-  - Unlocked: search field focused. Before typing: "Suggested for <app>" (hidden when empty), Favourites, Recently used. Search covers title, username, URL host and tags; rank: title prefix, word prefix, substring, then recent use. Archived and trashed matches show as one row "n more in Archive or Trash".
+  - Unlocked: search field focused. Before typing: "Suggested for <app>" (hidden when empty), Recently used, Favourites (recent first: design review round 1). A "Continue" row for an item used in the last minutes may come first; like every row it says which field Enter copies. Search covers title, username, URL host and tags; rank: title prefix, word prefix, substring, then recent use. Archived and trashed matches show as one row "n more in Archive or Trash".
   - Keys: Up/Down move; Enter copies (table in section 4); Ctrl+U username; Ctrl+P password; Ctrl+T one-time code; Right arrow (caret at end of text) opens the action list; Ctrl+Enter auto-type (tier 2); Ctrl+O open in Coffer; Esc clears the text, a second Esc closes.
   - First 3 opens show a hint line: "Enter copies the password · Ctrl+U username · → more".
 - **Main window**: three panes (sidebar, list, detail), minimum 900 x 600. Close hides it to the tray; the first time, a notice says "Coffer is still running in the tray. Drag its icon from ^ to the taskbar to keep it in view." Setting "Close button: hide to tray / quit".
@@ -308,12 +308,12 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
 4. **Unlock** (main window and Quick Access). After 3 failures: "Coffer cannot reset a master password. Check Caps Lock and your keyboard layout."
 5. **Missing vault** and **tampered vault** screens (section 3.4).
 6. **Quick Access** popup.
-7. **Main window**: sidebar (All items, Favourites, each item type with a count, Tags, Health, Archive, Trash; footer: Generator, Import, Settings, Lock), list (search, sort by title / updated / last used, type filter, bulk select: tag, archive, trash), detail (view; edit inline; tabs or sections for password history and, tier 2, revisions).
+7. **Main window**: sidebar (All items, Favourites, Health, Archive, Trash, Tags, then a collapsed Types group that lists the types that have items, with a count; footer: Generator, Import, Settings, Lock), list (search, sort by title / updated / last used, type filter, bulk select: tag, archive, trash), detail (view; edit inline; tabs or sections for password history and, tier 2, revisions).
 8. **Generator** panel (main window and a compact form in Quick Access).
 9. **Health** dashboard.
 10. **Import** wizard; **Export** dialog; **Backups** list.
 11. **Settings**: General, Security (auto-lock, clipboard, capture, Hello, Show Secret Key, Change master password), Vault (location, backups, import, export), Shortcuts, About (version, licences, EFF word list credit, "how Coffer protects your data").
-12. **Empty states**: no items ("Your vault is empty" [New item] [Import]); no search result ("No items match '<q>'" [Create login "<q>"]); no health issues (section 7); no suggestion (section hidden); empty trash; empty archive.
+12. **Empty states**: no items (one start block in the detail pane: "Your vault is empty" with New item and Import; design review round 1); no search result ("No items match '<q>'" [Create login "<q>"]); no health issues (section 7); no suggestion (section hidden); empty trash; empty archive.
 
 ## 12. Architecture
 - **Tauri 2** desktop app. Rust backend; React + TypeScript UI in WebView2; Vite; pnpm.
