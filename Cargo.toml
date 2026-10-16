@@ -16,6 +16,13 @@ opt-level = 3
 panic = "abort"
 strip = true
 
+# Disk on the build machine is tight: no debug info for dependencies, line tables only for ours.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # Argon2 is slow without optimisation; keep tests and dev unlocks usable.
 [profile.dev.package.argon2]
 opt-level = 3
