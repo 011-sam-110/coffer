@@ -10,6 +10,8 @@
                                                  bring it to the front, press the hotkey
   python e2e/win.py ctrl-wheel PID NOTCHES       Ctrl + mouse wheel over the visible
                                                  Quick Access of process PID (a zoom gesture)
+  python e2e/win.py quick-visible PID SECONDS    wait up to SECONDS until the Quick Access
+                                                 window of PID is visible; print {"visible"}
 
 fill-dialog sends window messages to that one dialog: it never types into
 whatever window has the keyboard focus. hotkey is safe only while Coffer has
@@ -243,6 +245,35 @@ def _visible_window(pid, title):
     return found[0] if found else None
 
 
+def _windows_of(pid):
+    """Titled top-level windows of `pid`, for a failure message."""
+    found = []
+
+    def cb(hwnd, _):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and _text(hwnd):
+            found.append({"title": _text(hwnd), "visible": bool(user32.IsWindowVisible(hwnd))})
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(cb), 0)
+    return found
+
+
+def quick_visible(pid, seconds):
+    """Windows' own answer: is the Quick Access window shown? (The page's
+    visibilityState and hasFocus keep their old values after a hide.)"""
+    end = time.time() + seconds
+    while True:
+        if _visible_window(pid, "Coffer Quick Access"):
+            print(json.dumps({"visible": True}))
+            return
+        if time.time() > end:
+            print(json.dumps({"visible": False, "windows": _windows_of(pid)}))
+            return
+        time.sleep(0.05)
+
+
 def _bring_front(hwnd):
     """Bring a window to the front the way Coffer does (join the input of the
     window in front). No Alt tap: in Chrome, Alt moves the keyboard focus to
@@ -290,7 +321,7 @@ def ctrl_wheel(pid, notches):
     _per_monitor_aware()
     hwnd = _visible_window(pid, "Coffer Quick Access")
     if not hwnd:
-        print(json.dumps({"ok": False, "error": "no visible Quick Access"}))
+        print(json.dumps({"ok": False, "error": "no visible Quick Access", "windows": _windows_of(pid)}))
         return
     r = wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(r))
@@ -322,6 +353,8 @@ if __name__ == "__main__":
         front_hotkey(sys.argv[2])
     elif cmd == "ctrl-wheel":
         ctrl_wheel(int(sys.argv[2]), int(sys.argv[3]))
+    elif cmd == "quick-visible":
+        quick_visible(int(sys.argv[2]), float(sys.argv[3]))
     elif cmd == "focus-at":
         focus_at(int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4]))
     elif cmd == "hotkey":
