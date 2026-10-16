@@ -2,7 +2,7 @@
 // controls, one crimson fill per screen (variant "primary").
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import { Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { CircleAlert, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import {
   forwardRef,
   useId,
@@ -22,10 +22,11 @@ type Variant = "primary" | "secondary" | "ghost" | "danger" | "quiet";
 type Size = "sm" | "md" | "lg";
 
 const VARIANT: Record<Variant, string> = {
-  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground",
+  // A crimson ring on a crimson fill is hard to see: filled buttons take a light ring.
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground focus-visible:outline-foreground",
   secondary: "bg-secondary text-secondary-foreground hover:bg-secondary-hover",
   ghost: "text-foreground hover:bg-muted",
-  danger: "bg-destructive text-destructive-foreground hover:bg-destructive-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground",
+  danger: "bg-destructive text-destructive-foreground hover:bg-destructive-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground focus-visible:outline-foreground",
   quiet: "text-muted-foreground hover:text-foreground hover:bg-muted",
 };
 const SIZE: Record<Size, string> = {
@@ -178,6 +179,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
           }}
           {...rest}
         />
+        {invalid && <CircleAlert aria-hidden className="size-4 shrink-0 text-danger-text" />}
         <IconButton size="sm" label={shown ? `Hide ${revealLabel}` : `Show ${revealLabel}`} onClick={() => setShown((s) => !s)} aria-pressed={shown}>
           {shown ? <EyeOff /> : <Eye />}
         </IconButton>
@@ -251,7 +253,7 @@ export function Checkbox({
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-[3px] size-3.5 shrink-0 cursor-pointer accent-primary"
+        className="mt-[3px] size-3.5 shrink-0 cursor-pointer accent-foreground"
       />
       <div>
         <label htmlFor={id} className="cursor-pointer text-sm">
@@ -333,9 +335,9 @@ export function Chip({ children, className, title }: { children: ReactNode; clas
 export function SectionHeading({ children, action, id }: { children: ReactNode; action?: ReactNode; id?: string }) {
   return (
     <div className="flex items-center justify-between gap-2 pt-1">
-      <h3 id={id} className="text-xs font-semibold text-muted-foreground">
+      <h2 id={id} className="text-xs font-semibold text-muted-foreground">
         {children}
-      </h3>
+      </h2>
       {action}
     </div>
   );

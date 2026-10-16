@@ -38,7 +38,7 @@ function Row({
         aria-current={active ? "page" : undefined}
         className={cx(
           "flex h-7 w-full cursor-pointer items-center gap-2.5 rounded-sm pr-2 text-left text-sm transition-colors duration-100",
-          active ? "bg-sidebar-accent text-sidebar-foreground" : "text-sidebar-foreground/80 hover:bg-muted hover:text-sidebar-foreground",
+          active ? "row-selected text-sidebar-foreground" : "text-sidebar-foreground/80 hover:bg-muted hover:text-sidebar-foreground",
           "[&_svg]:size-4 [&_svg]:shrink-0",
         )}
         style={{ paddingLeft: 8 + depth * 14 + (toggle ? 14 : 0) }}

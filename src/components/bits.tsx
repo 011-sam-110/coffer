@@ -14,7 +14,7 @@ import {
   Wifi,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { ItemType, TotpCode as TotpCodeT } from "../lib/contract";
 import { charRuns, groupCode, monogramHue, monogramLetters } from "../lib/format";
 import { call } from "../lib/ipc";
@@ -234,6 +234,26 @@ export function TotpCode({
       </span>
       <CountdownRing remaining={remaining} period={code.period} />
       <span className="sr-only">{remaining} seconds left</span>
+    </span>
+  );
+}
+
+/** A Windows path that wraps only after a backslash, never inside a folder name. */
+export function PathText({ path, className }: { path: string; className?: string }) {
+  const parts = path.split("\\");
+  return (
+    <span className={className} data-selectable>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <>
+              {"\\"}
+              <wbr />
+            </>
+          )}
+        </Fragment>
+      ))}
     </span>
   );
 }

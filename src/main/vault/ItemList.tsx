@@ -1,6 +1,6 @@
 // The item list: search, sort, type filter, bulk select (tag, archive, trash),
 // and the empty states of SPEC 11 item 12.
-import { Archive, ArchiveRestore, Download, Plus, Search, Star, Tag, Trash2, TriangleAlert, X } from "lucide-react";
+import { Archive, ArchiveRestore, Plus, Search, ShieldAlert, Star, Tag, Trash2, TriangleAlert, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Monogram } from "../../components/bits";
 import { ConfirmDialog, Dialog, Menu, useToast } from "../../components/overlays";
@@ -80,7 +80,7 @@ export function ItemList({
   go: (patch: Partial<Nav>) => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
 }) {
-  const { items, itemsLoaded } = useStore();
+  const { items, itemsLoaded, banner } = useStore();
   const { toast, error } = useToast();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("title");
@@ -233,7 +233,13 @@ export function ItemList({
               <span className="kbd">Ctrl+F</span>
             )}
           </div>
-          {!inTrash && !inArchive && <NewItemMenu onPick={(t) => go({ editing: "new", newType: t, newTitle: "", itemId: null })} />}
+          {!inTrash && !inArchive && (
+            <NewItemMenu
+              // One crimson action at a time: Save while editing, the banner's action while a banner is up.
+              variant={nav.editing || (banner && banner.kind !== "reloaded") ? "secondary" : "primary"}
+              onPick={(t) => go({ editing: "new", newType: t, newTitle: "", itemId: null })}
+            />
+          )}
         </div>
         {bulk ? (
           <div className="flex h-7 items-center gap-1" role="toolbar" aria-label="Selected items">
@@ -306,12 +312,14 @@ export function ItemList({
                     role="option"
                     data-id={i.id}
                     aria-selected={isSel}
+                    aria-checked={bulk ? checked : undefined}
                     tabIndex={isSel || (!nav.itemId && i === shown[0]) ? 0 : -1}
                     onClick={(e) => clickRow(e, i.id)}
                     onKeyDown={onRowKey}
                     className={cx(
                       "flex h-[52px] w-full cursor-pointer items-center gap-3 rounded-sm pr-2 pl-2 text-left transition-colors duration-100",
-                      isSel ? "bg-sidebar-accent" : checked ? "bg-muted" : "hover:bg-muted",
+                      "focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-foreground/60",
+                      isSel ? "row-selected" : checked ? "bg-muted" : "hover:bg-muted",
                     )}
                   >
                     <span className="relative">
@@ -324,15 +332,26 @@ export function ItemList({
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
                     </span>
-                    {flag && <TriangleAlert aria-label={flag} className="size-3.5 shrink-0 text-gold" />}
+                    {flag && (
+                      <span title={flag} className="shrink-0">
+                        {i.flags.breached ? (
+                          <ShieldAlert aria-label={flag} className="size-3.5 text-danger-text" />
+                        ) : (
+                          <TriangleAlert aria-label={flag} className="size-3.5 text-muted-foreground" />
+                        )}
+                      </span>
+                    )}
                   </button>
+                  {/* Mouse aid only: keyboard users press Space on the row, and the row reports aria-checked. */}
                   <input
                     type="checkbox"
+                    aria-hidden
+                    tabIndex={-1}
                     aria-label={`Select ${i.title}`}
                     checked={checked}
                     onChange={() => toggle(i.id)}
                     className={cx(
-                      "absolute top-1/2 left-[22px] size-3.5 -translate-y-1/2 cursor-pointer accent-primary",
+                      "absolute top-1/2 left-[22px] size-3.5 -translate-y-1/2 cursor-pointer accent-foreground",
                       bulk || checked ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
                     )}
                   />
@@ -451,19 +470,7 @@ function EmptyList({
     );
   if (vaultEmpty && filter.kind === "all")
     return (
-      <EmptyBlock
-        title="Your vault is empty"
-        actions={
-          <>
-            <NewItemMenu variant="secondary" label="New item" onPick={(t) => go({ editing: "new", newType: t, itemId: null })} />
-            <Button icon={<Download className="size-4" />} onClick={() => go({ view: "import" })}>
-              Import
-            </Button>
-          </>
-        }
-      >
-        Add your first login, or import from 1Password, Bitwarden, Dashlane or a browser.
-      </EmptyBlock>
+      <EmptyBlock title="Your vault is empty">Items you add or import show here.</EmptyBlock>
     );
   switch (filter.kind) {
     case "trash":

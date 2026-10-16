@@ -501,7 +501,7 @@ export function ItemEditor({
             aria-invalid={!!errors.title || undefined}
             onChange={(e) => patch({ title: e.target.value })}
             className={cx(
-              "-mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 text-lg font-semibold hover:border-input",
+              "field-focus -mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 text-lg font-semibold hover:border-input",
               errors.title && "border-danger-text",
             )}
           />
@@ -558,8 +558,14 @@ export function ItemEditor({
 
           {custom.length > 0 && (
             <section className="flex flex-col gap-1.5">
-              <h3 className="px-1 text-xs font-medium text-muted-foreground">{builtins.length ? "More fields" : "Fields"}</h3>
-              <div className="divide-y divide-border rounded-sm border border-border bg-card">{custom.map((f) => renderRow(f, true))}</div>
+              <h2 className="px-1 text-xs font-medium text-muted-foreground">{builtins.length ? "More fields" : "Fields"}</h2>
+              <div className="rounded-sm border border-border bg-card">
+                <div aria-hidden className="grid grid-cols-[160px_1fr_auto] gap-3 border-b border-border px-4 pt-2 pb-1.5 text-2xs text-muted-foreground">
+                  <span>Name and section</span>
+                  <span>Value</span>
+                </div>
+                <div className="divide-y divide-border">{custom.map((f) => renderRow(f, true))}</div>
+              </div>
             </section>
           )}
           <div>
@@ -584,7 +590,7 @@ export function ItemEditor({
 
           {def.hasUrls && (
             <section className="flex flex-col gap-1.5">
-              <h3 className="px-1 text-xs font-medium text-muted-foreground">Websites</h3>
+              <h2 className="px-1 text-xs font-medium text-muted-foreground">Websites</h2>
               <div className="flex flex-col gap-2">
                 {form.urls.map((u, i) => (
                   <div key={i} className="flex flex-col gap-1" data-err={errors[`url:${i}`] ? `url:${i}` : undefined}>
@@ -621,7 +627,7 @@ export function ItemEditor({
           </section>
 
           <section className="flex flex-col gap-1.5">
-            <h3 className="px-1 text-xs font-medium text-muted-foreground">Tags</h3>
+            <h2 className="px-1 text-xs font-medium text-muted-foreground">Tags</h2>
             <TagEditor tags={form.tags} onChange={(t) => patch({ tags: t })} suggestions={allTags} />
           </section>
 

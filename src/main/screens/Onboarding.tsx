@@ -14,7 +14,7 @@ import { ScreenFrame, StepTitle } from "./Frame";
 
 export function Welcome({ onCreate, onOpen }: { onCreate: () => void; onOpen: () => void }) {
   return (
-    <ScreenFrame width={440}>
+    <ScreenFrame center width={440}>
       <StepTitle title="Keep your passwords on this PC">
         Coffer keeps them in one encrypted file on your own disk. No account, no server. Open it from the tray or with a shortcut from any app.
       </StepTitle>
@@ -102,6 +102,19 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
   const mismatch = confirmTouched && confirm !== pw ? "The two passwords are not the same." : null;
   const strongEnough = (strength?.score ?? 0) >= 3;
   const canCreate = name.trim() !== "" && strongEnough && confirm === pw && !!folder?.writable;
+  // Say why Create is not available yet, next to the button.
+  const blocker =
+    name.trim() === ""
+      ? "Enter a vault name."
+      : !pw
+        ? "Enter a master password."
+        : !strongEnough
+          ? 'The master password needs at least "Good".'
+          : confirm !== pw
+            ? "Type the master password again below."
+            : !folder?.writable
+              ? "Choose a folder Coffer can write to."
+              : null;
 
   const pick = async () => {
     try {
@@ -186,12 +199,17 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
           </p>
         )}
         <div className="flex items-center gap-2">
-          <Button type="submit" variant="primary" loading={busy} disabled={!canCreate}>
+          <Button type="submit" variant="primary" loading={busy} disabled={!canCreate} aria-describedby={blocker ? `${ids.name}-why` : undefined}>
             {busy ? "Creating..." : "Create vault"}
           </Button>
           <Button variant="quiet" onClick={onCancel}>
             Cancel
           </Button>
+          {blocker && !busy && (
+            <p id={`${ids.name}-why`} className="ml-1 text-xs text-muted-foreground">
+              {blocker}
+            </p>
+          )}
         </div>
       </form>
     </ScreenFrame>
@@ -256,14 +274,15 @@ function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
         <Notice tone="warning" icon={<CloudAlert />} className="mt-4">
           Keep the kit off the cloud folder that holds your vault: together they leave only your password between an attacker and your data.
         </Notice>
-        <div className="mt-5 flex items-center gap-2">
-          <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>
-            Save as PDF
-          </Button>
-          <Button variant="primary" onClick={onNext}>
-            I saved it
-          </Button>
-        </div>
+      </div>
+      {/* Sticky, so the step's actions stay in view at 720 px. */}
+      <div className="no-print sticky bottom-0 z-10 -mx-6 mt-5 flex items-center gap-2 border-t border-border bg-background px-6 py-3">
+        <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>
+          Save as PDF
+        </Button>
+        <Button variant="primary" onClick={onNext}>
+          I saved it
+        </Button>
       </div>
     </ScreenFrame>
   );
@@ -279,7 +298,7 @@ function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => 
     else setErr("That does not match. Look at the end of the Secret Key on your kit.");
   };
   return (
-    <ScreenFrame onBack={onBack} backLabel="Back to the kit">
+    <ScreenFrame center onBack={onBack} backLabel="Back to the kit">
       <StepTitle step={stepLabel("confirm")} title="Check your kit">
         Type the last 4 symbols of the Secret Key, from the saved kit.
       </StepTitle>
@@ -305,10 +324,11 @@ function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => 
             className="w-32 text-lg tracking-[0.2em] uppercase"
           />
         </FormRow>
-        <div>
+        <div className="flex items-center gap-3">
           <Button type="submit" variant="primary" disabled={v.trim().length !== 4}>
             Confirm
           </Button>
+          {v.trim().length !== 4 && <p className="text-xs text-muted-foreground">Type all 4 symbols.</p>}
         </div>
       </form>
     </ScreenFrame>
@@ -321,8 +341,8 @@ function Prefs({ onNext }: { onNext: () => void }) {
   const [hotkey, setHotkey] = useState(settings?.hotkeyQuick ?? "Ctrl+Shift+Space");
   const [busy, setBusy] = useState(false);
   return (
-    <ScreenFrame>
-      <StepTitle step={stepLabel("prefs")} title="Two choices">
+    <ScreenFrame center>
+      <StepTitle step={stepLabel("prefs")} title="Start-up and shortcut">
         You can change both later in Settings.
       </StepTitle>
       <div className="flex flex-col gap-5">
@@ -386,7 +406,7 @@ function TryHotkey({ onDone }: { onDone: () => void }) {
     if (seen) doneRef.current?.focus();
   }, [seen]);
   return (
-    <ScreenFrame>
+    <ScreenFrame center>
       <StepTitle step={stepLabel("hotkey")} title={seen ? "It works" : "Try it now"} />
       {seen ? (
         <div className="flex flex-col gap-5">
@@ -423,7 +443,7 @@ export function OpenVault({ onCancel }: { onCancel: () => void }) {
   const { setStatus } = useStore();
   const { error } = useToast();
   return (
-    <ScreenFrame onBack={onCancel}>
+    <ScreenFrame center onBack={onCancel}>
       <StepTitle title="Open an existing vault">
         Choose the vault file (it ends in .coffer). Then type your master password and the Secret Key from your Emergency Kit.
       </StepTitle>

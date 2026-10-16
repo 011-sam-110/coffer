@@ -3,6 +3,7 @@
 import {
   Archive,
   ArchiveRestore,
+  Check,
   Copy,
   Ellipsis,
   ExternalLink,
@@ -88,11 +89,24 @@ function FieldRow({
             {shown ? <EyeOff /> : <Eye />}
           </IconButton>
         )}
-        <IconButton size="sm" label={`Copy ${field.label.toLowerCase()}`} onClick={() => copy(item.id, field.id)}>
-          <Copy />
-        </IconButton>
+        <CopyButton label={`Copy ${field.label.toLowerCase()}`} onCopy={() => copy(item.id, field.id)} />
       </div>
     </div>
+  );
+}
+
+/** A copy icon that turns into a check for 1.5 s after a copy, so the click confirms where it happened. */
+function CopyButton({ label, onCopy }: { label: string; onCopy: () => Promise<boolean> }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    const t = window.setTimeout(() => setDone(false), 1500);
+    return () => window.clearTimeout(t);
+  }, [done]);
+  return (
+    <IconButton size="sm" label={label} active={done} onClick={() => onCopy().then((ok) => ok && setDone(true))}>
+      {done ? <Check /> : <Copy />}
+    </IconButton>
   );
 }
 
@@ -101,7 +115,7 @@ function Group({ title, children, action }: { title?: string; children: ReactNod
     <section className="flex flex-col gap-1.5">
       {(title || action) && (
         <div className="flex items-center justify-between px-1">
-          {title && <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>}
+          {title && <h2 className="text-xs font-medium text-muted-foreground">{title}</h2>}
           {action}
         </div>
       )}
@@ -389,18 +403,21 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
                     >
                       <ExternalLink />
                     </IconButton>
-                    <IconButton
-                      size="sm"
+                    <CopyButton
                       label="Copy address"
-                      onClick={() =>
+                      onCopy={() =>
                         navigator.clipboard
                           .writeText(u.url)
-                          .then(() => toast("Address copied."))
-                          .catch(() => toast("Coffer could not copy the address."))
+                          .then(() => {
+                            toast("Address copied.");
+                            return true;
+                          })
+                          .catch(() => {
+                            toast("Coffer could not copy the address.");
+                            return false;
+                          })
                       }
-                    >
-                      <Copy />
-                    </IconButton>
+                    />
                   </div>
                 </div>
               ))}
@@ -417,7 +434,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
 
           {item.tags.length > 0 && (
             <section className="flex flex-col gap-1.5">
-              <h3 className="px-1 text-xs font-medium text-muted-foreground">Tags</h3>
+              <h2 className="px-1 text-xs font-medium text-muted-foreground">Tags</h2>
               <div className="flex flex-wrap gap-1.5">
                 {item.tags.map((t) => (
                   <button
@@ -482,9 +499,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
                             >
                               {v !== undefined ? <EyeOff /> : <Eye />}
                             </IconButton>
-                            <IconButton size="sm" label="Copy old password" onClick={() => copy(item.id, `history:${h.id}`)}>
-                              <Copy />
-                            </IconButton>
+                            <CopyButton label="Copy old password" onCopy={() => copy(item.id, `history:${h.id}`)} />
                           </div>
                         </div>
                       );

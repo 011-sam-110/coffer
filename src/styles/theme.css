@@ -91,6 +91,9 @@
   --destructive-hover: oklch(0.53 0.17 25.94);
   /* derived: the ring token at 45 % for the halo around a focused text field. */
   --ring-halo: oklch(0.584 0.235 20.651 / 0.45);
+  /* derived: a focused text field. A crimson field reads as an error, so fields use a light neutral edge and halo. */
+  --focus-field: oklch(0.72 0 0);
+  --focus-halo: oklch(0.985 0 0 / 0.16);
   /* derived: a control border on hover, one step above --input. */
   --input-hover: oklch(0.4 0 0);
   /* derived: scrim behind dialogs. */
@@ -302,16 +305,19 @@
   .control:hover {
     border-color: var(--input-hover);
   }
-  /* A focused field: ring-coloured border plus a soft ring halo (a solid crimson box reads as an error). */
+  /* A focused field: a light neutral edge plus a soft halo. Crimson stays for actions and errors. */
   .control:focus-visible,
   .control:focus-within:has(:focus-visible),
   .control:focus-within {
-    outline: 2px solid var(--ring-halo);
+    outline: 2px solid var(--focus-halo);
     outline-offset: 0;
-    border-color: var(--ring);
+    border-color: var(--focus-field);
   }
-  .control[aria-invalid="true"] {
+  /* An invalid field: a red edge and a faint red fill, focused or not. */
+  .control[aria-invalid="true"],
+  .control[aria-invalid="true"]:focus-within {
     border-color: var(--danger-text);
+    background-color: color-mix(in oklch, var(--danger-text) 9%, var(--muted));
   }
   .control:disabled,
   .control[aria-disabled="true"] {
@@ -338,6 +344,31 @@
   select.control option {
     background: var(--popover);
     color: var(--popover-foreground);
+  }
+
+  /* A borderless field (the item title): the same neutral edge and halo as .control. */
+  .field-focus:focus-visible {
+    outline: 2px solid var(--focus-halo);
+    outline-offset: 0;
+    border-color: var(--focus-field);
+  }
+
+  /* The selected row of a list or a nav: a neutral fill plus a short crimson pill
+     on the left (the Windows 11 list indicator). A crimson fill read as an error. */
+  .row-selected {
+    position: relative;
+    background-color: var(--secondary);
+  }
+  .row-selected::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 16px;
+    margin-top: -8px;
+    border-radius: 2px;
+    background: var(--primary);
   }
 
   .kbd {

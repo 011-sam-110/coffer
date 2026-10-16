@@ -86,13 +86,14 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
     return wrap(
       <>
         <p className="text-sm text-muted-foreground">Coffer reads the export file, shows what it found, and adds everything in one step that you can undo.</p>
-        <ul className="divide-y divide-border rounded-sm border border-border bg-card text-sm">
-          {SOURCES.map((s) => (
-            <li key={s} className="px-4 py-2">
-              {s}
-            </li>
-          ))}
-        </ul>
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">Coffer reads these exports</p>
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-sm marker:text-muted-foreground">
+            {SOURCES.map((s) => (
+              <li key={s}>{s}</li>
+            ))}
+          </ul>
+        </div>
         <p className="text-xs text-muted-foreground">Encrypted Bitwarden JSON: export from Bitwarden as JSON (not encrypted), import it, then delete that file.</p>
         <div className="flex gap-2">
           <Button variant="primary" icon={<FileUp className="size-4" />} onClick={() => run("pick")}>

@@ -88,7 +88,7 @@ export function SettingsView({ tab, onTab, go }: { tab: SettingsTab; onTab: (t: 
                 onClick={() => onTab(t.id)}
                 className={cx(
                   "flex h-7 w-full cursor-pointer items-center rounded-sm px-2 text-left text-sm",
-                  tab === t.id ? "bg-sidebar-accent" : "text-foreground/80 hover:bg-muted hover:text-foreground",
+                  tab === t.id ? "row-selected" : "text-foreground/80 hover:bg-muted hover:text-foreground",
                 )}
               >
                 {t.label}
@@ -593,10 +593,16 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
         <fieldset className="flex flex-col gap-1">
           <legend className="mb-1.5 text-xs font-medium text-muted-foreground">Format</legend>
           {EXPORTS.map((x) => (
-            <label key={x.kind} className={cx("flex cursor-pointer items-start gap-2.5 rounded-sm px-2 py-2", kind === x.kind ? "bg-muted" : "hover:bg-muted/60")}>
-              <input type="radio" name={`${id}-kind`} checked={kind === x.kind} onChange={() => setKind(x.kind)} className="mt-[3px] accent-primary" />
+            <label
+              key={x.kind}
+              className={cx("flex cursor-pointer items-start gap-2.5 rounded-sm px-2 py-2", kind === x.kind ? (x.plain ? "bg-accent/40" : "bg-muted") : "hover:bg-muted/60")}
+            >
+              <input type="radio" name={`${id}-kind`} checked={kind === x.kind} onChange={() => setKind(x.kind)} className="mt-[3px] accent-foreground" />
               <span>
-                <span className="block text-sm">{x.label}</span>
+                <span className="flex items-center gap-2 text-sm">
+                  {x.label}
+                  {x.plain && <span className="text-2xs font-semibold text-danger-text">Plain text</span>}
+                </span>
                 <span className="block text-xs text-muted-foreground">{x.detail}</span>
               </span>
             </label>

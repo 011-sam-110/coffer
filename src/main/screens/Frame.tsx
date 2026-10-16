@@ -1,12 +1,13 @@
-import { ChevronLeft, Vault } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button, cx } from "../../components/ui";
 
 export function Brand({ className }: { className?: string }) {
   return (
     <div className={cx("flex items-center gap-2 select-none", className)}>
-      <span className="inline-flex size-7 items-center justify-center rounded-sm border border-border bg-card text-foreground">
-        <Vault aria-hidden className="size-4" strokeWidth={2.25} />
+      {/* Coffer's own monogram tile, in the same language as the item tiles. */}
+      <span aria-hidden className="inline-flex size-7 items-center justify-center rounded-sm border border-border bg-card text-sm font-bold text-foreground">
+        C
       </span>
       <span className="text-md font-semibold tracking-normal">Coffer</span>
     </div>
@@ -20,12 +21,15 @@ export function ScreenFrame({
   onBack,
   backLabel = "Back",
   aside,
+  center = false,
 }: {
   children: ReactNode;
   width?: number;
   onBack?: () => void;
   backLabel?: string;
   aside?: ReactNode;
+  /** Centre short screens (lock, welcome) vertically; long forms start at the top. */
+  center?: boolean;
 }) {
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-background">
@@ -33,7 +37,7 @@ export function ScreenFrame({
         <Brand />
         {aside}
       </header>
-      <main className="flex flex-1 justify-center px-6 pt-[4vh] pb-16">
+      <main className={cx("flex flex-1 justify-center px-6", center ? "items-center pb-[12vh]" : "pt-[4vh] pb-16")}>
         <div className="w-full" style={{ maxWidth: width }}>
           {onBack && (
             <Button variant="quiet" size="sm" className="-ml-2.5 mb-4" icon={<ChevronLeft className="size-4" />} onClick={onBack}>

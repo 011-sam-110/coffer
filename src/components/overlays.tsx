@@ -55,7 +55,8 @@ export function Dialog({
         const t =
           d.querySelector<HTMLElement>("[data-autofocus]") ??
           d.querySelector<HTMLElement>("[data-dialog-body] input:not([type=hidden]):not([disabled]), [data-dialog-body] textarea, [data-dialog-body] select") ??
-          d.querySelector<HTMLElement>("[data-dialog-footer] button");
+          d.querySelector<HTMLElement>("[data-dialog-footer] button") ??
+          d.querySelector<HTMLElement>("[data-dialog-title]");
         t?.focus();
       });
     } else if (!open && d.open) {
@@ -87,7 +88,7 @@ export function Dialog({
       >
         <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-2">
           <div>
-            <h2 id={titleId} className="text-md font-semibold">
+            <h2 id={titleId} data-dialog-title tabIndex={-1} className="text-md font-semibold focus:outline-none">
               {title}
             </h2>
             {description && (

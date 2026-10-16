@@ -2,7 +2,7 @@
 // Search-first; Enter copies the item's main secret; Right arrow lists every
 // action; the window closes after a copy.
 import { MotionConfig } from "motion/react";
-import { ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, Lock, Search, Star, Vault, WandSparkles, X } from "lucide-react";
+import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, Lock, Search, Star, WandSparkles, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
@@ -74,7 +74,11 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
         className="flex flex-col gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!pw || busy) return;
+          if (!pw) {
+            ref.current?.focus();
+            return;
+          }
+          if (busy) return;
           setBusy(true);
           setErr(null);
           try {
@@ -101,7 +105,7 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
           </p>
         )}
         {fails >= 3 && <p className="text-xs text-gold">Coffer cannot reset a master password. Check Caps Lock and your keyboard layout.</p>}
-        <Button type="submit" variant="primary" loading={busy} disabled={!pw}>
+        <Button type="submit" variant="primary" loading={busy}>
           {busy ? "Unlocking..." : "Unlock"}
         </Button>
       </form>
@@ -112,7 +116,7 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
 function OpenCofferOnly({ text }: { text: string }) {
   return (
     <div className="flex flex-1 flex-col items-start justify-center gap-4 px-8">
-      <Vault aria-hidden className="size-6 text-muted-foreground" />
+      <AppWindow aria-hidden className="size-6 text-muted-foreground" />
       <p className="text-base">{text}</p>
       <Button
         variant="primary"
@@ -148,7 +152,7 @@ function ItemRow({
         onClick={onClick}
         className={cx(
           "flex h-11 cursor-pointer items-center gap-2.5 rounded-sm pr-1 pl-2 transition-colors duration-75",
-          selected ? "bg-accent" : "hover:bg-muted",
+          selected ? "row-selected" : "hover:bg-muted",
         )}
       >
         <Monogram title={i.title} size={28} />
@@ -375,7 +379,7 @@ function Quick() {
         },
       }),
     );
-    list.push({ label: "Open in Coffer", hint: "Ctrl+O", icon: <Vault />, run: () => openInCoffer(item) });
+    list.push({ label: "Open in Coffer", hint: "Ctrl+O", icon: <AppWindow />, run: () => openInCoffer(item) });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, detail]);
@@ -498,7 +502,7 @@ function Quick() {
                       onMouseEnter={() => setActSel(i)}
                       className={cx(
                         "flex h-9 cursor-pointer items-center gap-2.5 rounded-sm px-2.5 text-sm [&_svg]:size-4 [&_svg]:text-muted-foreground",
-                        i === actSel ? "bg-accent" : "hover:bg-muted",
+                        i === actSel ? "row-selected" : "hover:bg-muted",
                       )}
                     >
                       {a.icon}
@@ -540,7 +544,7 @@ function Quick() {
         </div>
 
         {hint && mode.kind === "list" && (
-          <p className="shrink-0 border-t border-border px-4 py-1.5 text-2xs text-muted-foreground" role="note">
+          <p className="shrink-0 border-t border-border px-4 py-1.5 text-xs text-muted-foreground" role="note">
             Enter copies the password · Ctrl+U username · → more
           </p>
         )}
@@ -556,7 +560,7 @@ function Quick() {
             Generator
           </Button>
         )}
-        <Button size="sm" variant="quiet" icon={<Vault className="size-3.5" />} onClick={() => openInCoffer(current && mode.kind !== "generator" ? current : null)}>
+        <Button size="sm" variant="quiet" icon={<AppWindow className="size-3.5" />} onClick={() => openInCoffer(current && mode.kind !== "generator" ? current : null)}>
           Open Coffer
         </Button>
         <span className="flex-1" />

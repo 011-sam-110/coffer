@@ -30,7 +30,12 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
   }, []);
 
   const submit = async () => {
-    if (!pw || busy || skChar) return;
+    // An empty field is not an error: put the cursor where the input is missing.
+    if (!pw) {
+      pwRef.current?.focus();
+      return;
+    }
+    if (busy || skChar) return;
     setBusy(true);
     setError(null);
     try {
@@ -68,7 +73,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
             : null;
 
   return (
-    <ScreenFrame width={380} aside={<Button variant="quiet" size="sm" onClick={onOpenOther}>Open another vault</Button>}>
+    <ScreenFrame center width={380} aside={<Button variant="quiet" size="sm" onClick={onOpenOther}>Open another vault</Button>}>
       <div className="mb-7 flex items-center gap-3">
         <span className="inline-flex size-10 items-center justify-center rounded-sm border border-border bg-card">
           <Lock aria-hidden className="size-5 text-muted-foreground" />
@@ -123,7 +128,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
             Coffer cannot reset a master password. Check Caps Lock and your keyboard layout.
           </Notice>
         )}
-        <Button type="submit" variant="primary" size="lg" loading={busy} disabled={!pw || (needsKey && (!sk || !!skChar))}>
+        <Button type="submit" variant="primary" size="lg" loading={busy} disabled={needsKey && (!sk || !!skChar)}>
           {busy ? "Unlocking..." : "Unlock"}
         </Button>
         {info?.demo && <p className="text-xs text-muted-foreground">Demo backend: the master password is "demo".</p>}
@@ -206,7 +211,7 @@ export function Missing({ onCreate }: { onCreate: () => void }) {
   const [showBackups, setShowBackups] = useState(false);
   const { error } = useToast();
   return (
-    <ScreenFrame width={480}>
+    <ScreenFrame center width={480}>
       <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-border bg-card">
         <SearchX aria-hidden className="size-5 text-muted-foreground" />
       </div>
@@ -250,7 +255,7 @@ export function Tampered({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const { error } = useToast();
   return (
-    <ScreenFrame width={480}>
+    <ScreenFrame center width={480}>
       <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-destructive bg-accent/40">
         <FileWarning aria-hidden className="size-5 text-danger-text" />
       </div>
@@ -301,14 +306,14 @@ export function OlderFile({ message, onDone }: { message: string; onDone: () => 
   const [busy, setBusy] = useState(false);
   const { error } = useToast();
   return (
-    <ScreenFrame width={480}>
+    <ScreenFrame center width={480}>
       <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-gold/50 bg-card">
         <History aria-hidden className="size-5 text-gold" />
       </div>
-      <StepTitle title="This file is older than the one this PC last saw">{message}</StepTitle>
-      <p className="mb-6 text-sm text-muted-foreground">
+      <StepTitle title="This file is older than the one this PC last saw">
         A sync tool may have put back an old copy. Items you added or changed since then are not in it. Open it only if you expected an older copy.
-      </p>
+      </StepTitle>
+      <p className="mb-6 text-xs text-muted-foreground">{message}</p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={onDone}>Cancel</Button>
         <Button

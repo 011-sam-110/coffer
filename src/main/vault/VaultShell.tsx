@@ -3,6 +3,7 @@
 import { CloudAlert, FileWarning, History, Keyboard, SearchX } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useToast } from "../../components/overlays";
+import { PathText } from "../../components/bits";
 import { Button, Keys, Notice } from "../../components/ui";
 import { formatDateTime } from "../../lib/format";
 import { call } from "../../lib/ipc";
@@ -55,7 +56,7 @@ function Banners() {
           </>
         }
       >
-        The vault file is gone from <span className="break-all">{banner.path}</span>. Your items are still open.
+        The vault file is gone from <PathText path={banner.path} />. Your items are still open.
       </Notice>
     );
   else if (banner.kind === "diskDamaged")
@@ -101,7 +102,7 @@ function Banners() {
           </>
         }
       >
-        The vault file on disk is older than the last version this PC saw (generation {banner.seenGeneration}, file {banner.fileGeneration}). Coffer stopped saving until you choose.
+        An older copy of the vault file replaced the newer one, for example from a sync tool. The vault file on disk is older than the last version this PC saw (generation {banner.seenGeneration}, file {banner.fileGeneration}). Coffer stopped saving until you choose.
       </Notice>
     );
   else if (banner.kind === "conflict")
@@ -121,7 +122,7 @@ function Banners() {
           </>
         }
       >
-        This vault changed on another computer. Your changes since {formatDateTime(banner.since)} are in <span className="break-all">{banner.path}</span>.
+        This vault changed on another computer. Your changes since {formatDateTime(banner.since)} are in <PathText path={banner.path} />.
       </Notice>
     );
   else if (banner.kind === "reloaded")
@@ -175,9 +176,14 @@ function EmptyDetail({ go }: { go: (p: Partial<Nav>) => void }) {
         <p className="max-w-[52ch] text-sm text-muted-foreground">
           Add your email, bank and work logins first. Moving from another password manager? Import keeps a tag on everything it adds, so one click undoes it.
         </p>
-        <Button size="sm" variant="ghost" className="-ml-2.5 mt-2" onClick={() => go({ view: "import" })}>
-          Import from 1Password, Bitwarden, Dashlane or a browser
-        </Button>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => go({ editing: "new", newType: "login", newTitle: "", itemId: null })}>
+            New login
+          </Button>
+          <Button size="sm" onClick={() => go({ view: "import" })}>
+            Import from 1Password, Bitwarden, Dashlane or a browser
+          </Button>
+        </div>
       </div>
     );
   return (

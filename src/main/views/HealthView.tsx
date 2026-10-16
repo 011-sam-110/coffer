@@ -194,7 +194,7 @@ export function HealthView({ go }: { go: (p: Partial<Nav>) => void }) {
           </div>
         </header>
         {report.breachCheck !== "off" && (
-          <p className="-mt-3 text-xs text-muted-foreground">
+          <p className="-mt-3 max-w-[90ch] text-xs text-muted-foreground">
             A breach check sends the first 5 characters of each password's SHA-1 hash to Have I Been Pwned, never the password, and compares the rest on this PC.
           </p>
         )}
