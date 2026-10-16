@@ -4,6 +4,8 @@ import { Eye, EyeOff, LoaderCircle, Plus, Trash2, WandSparkles, X } from "lucide
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AutotypeSequenceField } from "../../components/AutotypeActions";
 import { Generator } from "../../components/Generator";
+import { QrScanButtons } from "../../components/QrScanButtons";
+import { SshGenerateButton } from "../../components/SshGenerateButton";
 import { Monogram } from "../../components/bits";
 import { ConfirmDialog, Menu, useReprompt, useToast } from "../../components/overlays";
 import { Button, Checkbox, cx, IconButton, Input, KeyBadge, Notice, Select, Spinner, Textarea } from "../../components/ui";
@@ -199,6 +201,7 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
         )}
       </div>
       {info && <p className="text-xs text-muted-foreground">{info}</p>}
+      <QrScanButtons onUri={(uri) => onChange(uri)} />
     </div>
   );
 }
@@ -550,6 +553,7 @@ export function ItemEditor({
             </Notice>
           )}
 
+          {form.type === "sshKey" && <SshGenerateButton form={form} setForm={setForm} />}
           <div className="divide-y divide-border rounded-sm border border-border bg-card">
             {builtins.map((f) => renderRow(f, false))}
             {def.hasUrls &&
