@@ -21,10 +21,9 @@ import { inTextField, KeysContext, type KeyAction, type KeyHandlers, type Nav } 
 import { Sidebar } from "./Sidebar";
 
 function Banners() {
-  const { banner, setBanner, setStatus } = useStore();
+  const { banner, setBanner, setStatus, setConflictDialog } = useStore();
   const { error, toast } = useToast();
   const [restore, setRestore] = useState(false);
-  const [importConflict, setImportConflict] = useState(false);
   if (!banner) return null;
   const saveAgain = async (saveAs: boolean) => {
     try {
@@ -113,11 +112,12 @@ function Banners() {
         icon={<CloudAlert />}
         actions={
           <>
-            <Button size="sm" onClick={() => setImportConflict(true)}>
+            {/* The safe path is the main one; "Later" leaves a notice in the sidebar until the import. */}
+            <Button size="sm" variant="primary" onClick={() => setConflictDialog(true)}>
               Import my changes
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setBanner(null)}>
-              Dismiss
+              Later
             </Button>
           </>
         }
@@ -152,17 +152,28 @@ function Banners() {
           />
         </div>
       </Dialog>
-      {importConflict && (
-        <Dialog open onClose={() => setImportConflict(false)} title="Import my changes" width={640}>
-          <div className="pb-4">
-            <ImportWizard source="conflict" embedded onClose={() => {
-              setImportConflict(false);
-              setBanner(null);
-            }} />
-          </div>
-        </Dialog>
-      )}
     </div>
+  );
+}
+
+/** "Import my changes" from a conflict file; done only after the import, so the sidebar notice stays until then. */
+function ConflictImport() {
+  const { conflictDialog, setConflictDialog, setPendingConflict, banner, setBanner } = useStore();
+  if (!conflictDialog) return null;
+  return (
+    <Dialog open onClose={() => setConflictDialog(false)} title="Import my changes" width={640}>
+      <div className="pb-4">
+        <ImportWizard
+          source="conflict"
+          embedded
+          onImported={() => {
+            setPendingConflict(null);
+            if (banner?.kind === "conflict") setBanner(null);
+          }}
+          onClose={() => setConflictDialog(false)}
+        />
+      </div>
+    </Dialog>
   );
 }
 
@@ -293,6 +304,7 @@ export function VaultShell({
         <div className="flex min-w-0 flex-1 flex-col">
           {notice && <div className="shrink-0 border-b border-border px-4 py-2.5">{notice}</div>}
           <Banners />
+          <ConflictImport />
           <div className="flex min-h-0 flex-1">
             {showList && <ItemList nav={nav} go={go} searchRef={searchRef} />}
             <main className="min-w-0 flex-1 bg-background" aria-live="off">

@@ -318,10 +318,32 @@ export function Tampered({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function OlderFile({ message, onDone }: { message: string; onDone: () => void }) {
+// The safe path is the main one: the newest backup. Opening the older file is the risky choice.
+// (`message` holds Rust's generation numbers; the screen shows the newest backup's date instead.)
+export function OlderFile({ onDone }: { message: string; onDone: () => void }) {
   const { setStatus } = useStore();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"backup" | "older" | null>(null);
+  const [newest, setNewest] = useState<BackupEntry | null | undefined>(undefined);
   const { error } = useToast();
+  const { withReprompt } = useReprompt();
+  useEffect(() => {
+    call("backups_list")
+      .then((l) => setNewest(l[0] ?? null))
+      .catch(() => setNewest(null));
+  }, []);
+  const openNewest = async () => {
+    if (!newest) return;
+    setBusy("backup");
+    try {
+      const s = await withReprompt((password) => call("backup_restore", { index: newest.index, password }), "Restoring this backup turns off the master password question on some items. Enter your master password to go on.");
+      setStatus(s);
+      onDone();
+    } catch (e) {
+      if (!(isCofferError(e) && e.message === "Cancelled.")) error(e);
+    } finally {
+      setBusy(null);
+    }
+  };
   return (
     <ScreenFrame center width={480}>
       <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-gold/50 bg-card">
@@ -330,25 +352,33 @@ export function OlderFile({ message, onDone }: { message: string; onDone: () => 
       <StepTitle title="This file is older than the one this PC last saw">
         A sync tool may have put back an old copy. Items you added or changed since then are not in it. Open it only if you expected an older copy.
       </StepTitle>
-      <p className="mb-6 text-xs text-muted-foreground">{message}</p>
+      {newest && <p className="mb-6 text-sm text-muted-foreground">The newest backup on this PC was saved {formatDateTime(newest.savedAt)}.</p>}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={onDone}>Cancel</Button>
+        {newest && (
+          <Button variant="primary" size="lg" loading={busy === "backup"} disabled={busy !== null} onClick={openNewest}>
+            Open the newest backup
+          </Button>
+        )}
         <Button
-          variant="primary"
-          loading={busy}
+          size="lg"
+          loading={busy === "older"}
+          disabled={busy !== null}
           onClick={async () => {
-            setBusy(true);
+            setBusy("older");
             try {
               setStatus(await call("vault_open_older"));
               onDone();
             } catch (e) {
               error(e);
             } finally {
-              setBusy(false);
+              setBusy(null);
             }
           }}
         >
-          Open the older file
+          Open the older file anyway
+        </Button>
+        <Button size="lg" variant="ghost" onClick={onDone}>
+          Cancel
         </Button>
       </div>
     </ScreenFrame>

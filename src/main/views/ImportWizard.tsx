@@ -25,7 +25,7 @@ const ENCRYPTED_EXPORT_FORMATS = ["coffer-cofferx"];
 
 type Stage = "intro" | "loading" | "password" | "preview" | "importing" | "result";
 
-export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "conflict"; onClose: () => void; embedded?: boolean }) {
+export function ImportWizard({ source, onClose, embedded, onImported }: { source: "pick" | "conflict"; onClose: () => void; embedded?: boolean; onImported?: () => void }) {
   const [stage, setStage] = useState<Stage>(source === "conflict" ? "loading" : "intro");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -67,6 +67,7 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
     try {
       setResult(await call("import_commit", { previewId: preview.previewId }));
       setStage("result");
+      onImported?.();
     } catch (e) {
       setStage("preview");
       error(e);
