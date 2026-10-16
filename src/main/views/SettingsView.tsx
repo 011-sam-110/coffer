@@ -3,6 +3,7 @@ import { FolderInput, KeyRound, Printer, Upload } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
+import { RotateSecretKey } from "../../components/RotateSecretKey";
 import { Dialog, useToast } from "../../components/overlays";
 import { Button, Checkbox, cx, FormRow, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
 import type { EmergencyKit, ExportKind, Settings } from "../../lib/contract";
@@ -39,6 +40,8 @@ export const QUICK_SHORTCUTS: Array<[string, string]> = [
   ["Ctrl+T", "Copy the one-time code"],
   ["Right", "All actions (caret at the end of the search)"],
   ["Ctrl+O", "Open in Coffer"],
+  ["Ctrl+Enter", "Type username and password into the app you came from"],
+  ["Ctrl+Shift+Enter", "Type the password alone into that app"],
   ["Esc", "Clear the search; again to close"],
 ];
 
@@ -146,6 +149,8 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
   const [pwOpen, setPwOpen] = useState(false);
   const [hello, setHello] = useState<boolean | null>(null);
   const ids = { lock: useId(), clip: useId(), days: useId() };
+  // vault_status is fresh; app_info only says what Coffer saw at start.
+  const helloAvailable = status?.helloAvailable ?? info?.helloAvailable ?? false;
   return (
     <>
       <Section title="Locking">
@@ -173,23 +178,23 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
         <Row
           title="Windows Hello"
           description={
-            info?.helloAvailable ? (
+            helloAvailable ? (
               <>
                 Unlock with your face, fingerprint or PIN after one master-password unlock. With Windows Hello on, a program running as you can open the vault without your master password.
               </>
             ) : (
-              "Windows Hello is not set up on this PC."
+              "Windows Hello is not set up on this PC. Set it up in Windows Settings > Accounts > Sign-in options."
             )
           }
         >
           <Switch
             label="Windows Hello"
             checked={status?.helloEnabled ?? false}
-            disabled={!info?.helloAvailable}
+            disabled={!helloAvailable && !status?.helloEnabled}
             onChange={(v) => setHello(v)}
           />
         </Row>
-        {info?.helloAvailable && (
+        {helloAvailable && (
           <Row title="Ask for the master password every" htmlFor={ids.days} description="Windows Hello stops working after this many days without a master-password unlock.">
             <Select id={ids.days} value={String(settings.requirePasswordDays)} onChange={(e) => set({ requirePasswordDays: Number(e.target.value) })} className="w-28">
               {[7, 14, 30].map((d) => (
@@ -247,6 +252,9 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
         </Row>
         <Row title="Change master password">
           <Button onClick={() => setPwOpen(true)}>Change master password</Button>
+        </Row>
+        <Row title="Rotate Secret Key" description="Makes a new Secret Key and a new Emergency Kit. Use it when someone may have seen your kit.">
+          <RotateSecretKey />
         </Row>
       </Section>
       <ShowKitDialog open={kitOpen} onClose={() => setKitOpen(false)} />

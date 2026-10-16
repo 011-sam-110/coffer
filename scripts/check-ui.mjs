@@ -91,6 +91,36 @@ const STATES = [
   ["m40-banner-missing", "/?missingOpen=1", MAIN],
   ["m41-bulk-select", "/", MAIN, [{ click: "[role=listbox] li:nth-child(2) input[type=checkbox]", force: true }, { click: "[role=listbox] li:nth-child(3) input[type=checkbox]", force: true }]],
   ["m42-copy-toast", "/?item=GitHub", MAIN, [{ press: "Control+p", target: "body" }, { wait: 500 }]],
+  // Tier 2: Windows Hello (SPEC 3.8).
+  ["t01-unlock-hello", "/?state=locked&hello=ready", MAIN],
+  ["t02-unlock-hello-wait", "/?state=locked&hello=ready", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 400 }]],
+  ["t03-unlock-hello-cancel", "/?state=locked&hello=ready&helloResult=cancel", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 2200 }]],
+  ["t04-unlock-hello-not-ready", "/?state=locked&hello=on", MAIN],
+  // Tier 2: auto-type (SPEC 10).
+  ["t08-detail-menu-autotype", "/?item=GitHub", MAIN, [{ click: "header [aria-label='More actions']" }, { wait: 300 }]],
+  // The main window cannot auto-type (a Quick Access command); its menu says how instead.
+  ["t09-detail-autotype-help", "/?item=GitHub", MAIN, [{ click: "header [aria-label='More actions']" }, { click: "text=Auto-type in Quick Access" }, { wait: 500 }]],
+  ["t11-edit-autotype", "/?item=GitHub&edit=1", MAIN, [{ click: "text=Advanced" }, { fill: "input[placeholder='{USERNAME}{TAB}{PASSWORD}{ENTER}']", text: "{USERNAME}{TAB}{PASS}" }]],
+  // Tier 2: revisions.
+  ["t12-revisions", "/?item=GitHub", MAIN, [{ click: "button:has-text('revisions')" }, { wait: 400 }]],
+  ["t13-revision-confirm", "/?item=GitHub", MAIN, [{ click: "button:has-text('revisions')" }, { wait: 400 }, { click: "main button:has-text('Restore') >> nth=0" }, { wait: 300 }]],
+  ["t14-revision-restored", "/?item=GitHub", MAIN, [{ click: "button:has-text('revisions')" }, { wait: 400 }, { click: "button:has-text('Restore') >> nth=0" }, { wait: 300 }, { click: "dialog button:has-text('Restore')" }, { wait: 700 }]],
+  // Tier 2: rotate Secret Key.
+  ["t15-rotate-ask", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }]],
+  ["t16-rotate-wrong", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }, { fill: "dialog input[type=password]", text: "nope" }, { press: "Enter" }, { wait: 1200 }]],
+  ["t17-rotate-kit", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }, { fill: "dialog input[type=password]", text: "demo" }, { press: "Enter" }, { wait: 2600 }]],
+  ["t18-rotate-confirm", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }, { fill: "dialog input[type=password]", text: "demo" }, { press: "Enter" }, { wait: 2600 }, { click: "text=Print kit" }, { click: "button:has-text('Continue')" }]],
+  // Tier 2: SSH key and QR code in the editor.
+  ["t19-new-ssh", "/?new=sshKey", MAIN],
+  ["t20-new-ssh-generated", "/?new=sshKey", MAIN, [{ click: "text=Generate key" }, { wait: 500 }]],
+  ["t21-ssh-replace", "/?new=sshKey", MAIN, [{ click: "text=Generate key" }, { wait: 500 }, { click: "text=Generate key" }, { wait: 300 }]],
+  ["t22-qr-scanned", "/?new=login", MAIN, [{ click: "text=Scan QR code on screen" }, { wait: 800 }]],
+  ["t23-qr-none", "/?new=login&qr=none", MAIN, [{ click: "text=Scan QR code on screen" }, { wait: 800 }]],
+  ["t24-qr-google", "/?new=login&qr=google", MAIN, [{ click: "text=Choose QR image..." }, { wait: 800 }]],
+  ["t25-qr-not-image", "/?new=login&qr=notImage", MAIN, [{ click: "text=Choose QR image..." }, { wait: 800 }]],
+  ["t07-unlock-hello-ok", "/?state=locked&hello=ready", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 2600 }]],
+  ["t05-settings-hello-none", "/?view=settings&tab=security&hello=none", MAIN],
+  ["t06-settings-hello-on", "/?view=settings&tab=security&hello=ready", MAIN],
   ["q01-quick", "/quick.html", QUICK],
   ["q02-quick-search", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }]],
   ["q03-quick-actions", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }, { press: "ArrowRight", target: "input[role=combobox]" }, { wait: 400 }]],
@@ -99,6 +129,12 @@ const STATES = [
   ["q06-quick-locked", "/quick.html?state=locked", QUICK],
   ["q07-quick-needs-key", "/quick.html?state=locked&needsKey=1", QUICK],
   ["q08-quick-no-vault", "/quick.html?state=noVault", QUICK],
+  ["q10-quick-hello", "/quick.html?state=locked&hello=ready", QUICK],
+  ["q11-quick-hello-wait", "/quick.html?state=locked&hello=ready", QUICK, [{ click: "text=Unlock with Windows Hello" }, { wait: 400 }]],
+  ["q12-quick-hello-failed", "/quick.html?state=locked&hello=ready&helloResult=failed", QUICK, [{ click: "text=Unlock with Windows Hello" }, { wait: 2200 }]],
+  ["q13-quick-actions-autotype", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "ArrowRight", target: "input[role=combobox]" }, { wait: 400 }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }]],
+  ["q14-quick-autotype-admin", "/quick.html?autotype=admin", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "Control+Enter", target: "input[role=combobox]" }, { wait: 600 }]],
+  ["q15-quick-autotype-gone", "/quick.html?autotype=gone", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "Control+Shift+Enter", target: "input[role=combobox]" }, { wait: 600 }]],
   ["q09-quick-copied", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }, { press: "Enter", target: "input[role=combobox]" }, { wait: 700 }]],
 ];
 
@@ -115,7 +151,7 @@ for (const [name, path, viewport, steps = []] of STATES) {
     if (m.type() === "error") errors.push(m.text());
   });
   page.on("pageerror", (e) => errors.push(String(e)));
-  const r = { name, errors, overflow: false, unfocused: [], focusChecked: 0, stepErrors: [], clipped: [], truncated: [] };
+  const r = { name, errors, overflow: false, unfocused: [], focusChecked: 0, stepErrors: [], clipped: [], truncated: [], actionTrunc: [] };
   try {
     await page.goto(BASE + path, { waitUntil: "networkidle" });
     await page.waitForTimeout(900);
@@ -182,10 +218,16 @@ for (const [name, path, viewport, steps = []] of STATES) {
         const need = ctx.measureText(el.placeholder).width;
         if (el.tagName === "INPUT" && need > room + 1) clipped.push(`placeholder "${el.placeholder.slice(0, 30)}" (${Math.ceil(need)}>${Math.floor(room)} wide)`);
       }
-      return { clipped: clipped.slice(0, 6), truncated };
+      // Quick Access action labels never truncate, not even with an ellipsis.
+      const actionTrunc = [];
+      for (const el of document.querySelectorAll("[role=listbox][aria-label^='Actions for'] [role=option] span")) {
+        if (ownText(el) && el.scrollWidth > el.clientWidth + 1) actionTrunc.push(el.textContent.trim().slice(0, 40));
+      }
+      return { clipped: clipped.slice(0, 6), truncated, actionTrunc };
     });
     r.clipped = fit.clipped;
     r.truncated = fit.truncated;
+    r.actionTrunc = fit.actionTrunc;
 
     // Tab through the first focusable elements; each must show a ring (outline on it or a near ancestor).
     if (!name.includes("copied")) {
@@ -227,6 +269,7 @@ for (const r of results) {
   if (r.unfocused.length) issues.push(`no focus ring: ${r.unfocused.join(", ")}`);
   if (r.stepErrors.length) issues.push(`step failed: ${r.stepErrors.join(" | ").slice(0, 200)}`);
   if (r.clipped.length) issues.push(`clipped text: ${r.clipped.join(", ")}`);
+  if (r.actionTrunc.length) issues.push(`action label truncated: ${r.actionTrunc.join(", ")}`);
   if (issues.length) bad++;
   console.log(`${issues.length ? "FAIL" : "ok  "} ${r.name.padEnd(26)} focus checked ${String(r.focusChecked).padStart(2)}${issues.length ? "  " + issues.join("; ") : ""}`);
 }

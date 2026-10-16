@@ -642,12 +642,8 @@ describe("settings, shell and tier 2", () => {
     expect(await call(b, "folder_pick")).toMatchObject({ path: "C:\\Users\\alex\\OneDrive\\Coffer", synced: true, provider: "OneDrive" });
   });
 
-  it("refuses tier-2 commands honestly and unknown commands", async () => {
+  it("refuses unknown commands", async () => {
     const b = mk();
-    for (const name of ["autotype", "totp_from_image", "ssh_generate", "vault_unlock_hello", "secret_key_rotate"]) {
-      expect(await err(b, name, { id: "x", password: null, source: "screen" })).toEqual({ code: "invalid", message: "Not available in this version." });
-    }
-    expect((await err(b, "hello_set", { enabled: true, password: "demo" })).code).toBe("helloUnavailable");
     expect((await err(b, "no_such_command")).code).toBe("invalid");
   });
 
@@ -701,5 +697,101 @@ describe("generator_options", () => {
   it("needs an unlocked vault", async () => {
     const b = mk({ startState: "locked" });
     expect((await err(b, "generator_options")).code).toBe("locked");
+  });
+});
+
+describe("tier 2: Windows Hello", () => {
+  it("is off by default; hello_set needs the master password, then a lock keeps the key", async () => {
+    const b = mk();
+    expect(await call<VaultStatus>(b, "vault_status")).toMatchObject({ helloAvailable: true, helloEnabled: false, helloReady: false });
+    expect((await err(b, "hello_set", { enabled: true, password: null })).code).toBe("invalid");
+    expect((await err(b, "hello_set", { enabled: true, password: "nope" })).code).toBe("badCredentials");
+    expect(await call<VaultStatus>(b, "hello_set", { enabled: true, password: "demo" })).toMatchObject({ helloEnabled: true });
+    expect((await call<Settings>(b, "settings_get")).helloEnabled).toBe(true);
+    await call(b, "vault_lock");
+    expect(await call<VaultStatus>(b, "vault_status")).toMatchObject({ state: "locked", helloReady: true });
+    expect(await call<VaultStatus>(b, "vault_unlock_hello")).toMatchObject({ state: "unlocked" });
+  });
+  it("cannot be turned on where Hello is not set up", async () => {
+    const b = mk({ hello: "none" });
+    expect((await call<AppInfo>(b, "app_info")).helloAvailable).toBe(false);
+    expect((await err(b, "hello_set", { enabled: true, password: "demo" })).code).toBe("helloUnavailable");
+  });
+  it("needs one master-password unlock after a restart", async () => {
+    const b = mk({ hello: "on", startState: "locked" });
+    expect(await call<VaultStatus>(b, "vault_status")).toMatchObject({ helloEnabled: true, helloReady: false });
+    expect(await err(b, "vault_unlock_hello")).toEqual({ code: "helloUnavailable", message: "Windows Hello works after one master-password unlock." });
+    await call(b, "vault_unlock", { password: "demo", secretKey: null });
+    await call(b, "vault_lock");
+    expect((await call<VaultStatus>(b, "vault_status")).helloReady).toBe(true);
+  });
+  it("reports a cancelled prompt and a changed key, and keyChanged drops the key", async () => {
+    const c = mk({ hello: "ready", startState: "locked", helloResult: "cancel" });
+    expect((await err(c, "vault_unlock_hello")).code).toBe("helloFailed");
+    expect((await call<VaultStatus>(c, "vault_unlock_hello")).state).toBe("unlocked");
+    const k = mk({ hello: "ready", startState: "locked", helloResult: "keyChanged" });
+    expect((await err(k, "vault_unlock_hello")).code).toBe("helloFailed");
+    expect((await call<VaultStatus>(k, "vault_status")).helloReady).toBe(false);
+    const u = mk({ hello: "ready", startState: "unlocked" });
+    await call(u, "demo_simulate", { what: "keyChanged" });
+    expect((await call<VaultStatus>(u, "vault_status")).helloReady).toBe(false);
+  });
+});
+
+describe("tier 2: auto-type", () => {
+  const mkq = (o: Partial<DemoBackendOptions> = {}): Backend => mk({ page: "quick", ...o });
+  it("is a Quick Access command: the main window gets the ACL refusal", async () => {
+    const b = mk();
+    expect(await err(b, "autotype", { id: (await ids(b))("GitHub"), password: null })).toBe("Command autotype not allowed by ACL");
+  });
+  it("types the sequence or the password alone, and says why it refuses", async () => {
+    const b = mkq();
+    const id = (await ids(b))("GitHub");
+    await expect(call(b, "autotype", { id, password: null })).resolves.toBeUndefined();
+    await expect(call(b, "autotype", { id, password: null, only: "password" })).resolves.toBeUndefined();
+    expect(await err(mkq({ autotype: "admin" }), "autotype", { id, password: null })).toEqual({ code: "invalid", message: "Coffer cannot type into an app running as administrator." });
+    expect((await err(mkq({ autotype: "gone" }), "autotype", { id, password: null })).message).toMatch(/gone/);
+  });
+  it("asks for the master password on a re-prompt item and types its own sequence", async () => {
+    const b = mkq();
+    const v = await call<ItemView>(b, "item_get", { id: (await ids(b))("GitHub") });
+    await call(b, "item_save", { item: { ...toInput(v), reprompt: true, autotypeSequence: "{PASSWORD}{ENTER}" }, password: null });
+    expect((await err(b, "autotype", { id: v.id, password: null })).code).toBe("repromptRequired");
+    expect((await err(b, "autotype", { id: v.id, password: "nope" })).code).toBe("badCredentials");
+    await expect(call(b, "autotype", { id: v.id, password: "demo" })).resolves.toBeUndefined();
+    await call(b, "item_save", { item: { ...toInput(await call<ItemView>(b, "item_get", { id: v.id })), autotypeSequence: "{USER}" }, password: "demo" });
+    expect(await err(b, "autotype", { id: v.id, password: "demo" })).toEqual({ code: "invalid", message: "Coffer does not know the auto-type token {USER}." });
+  });
+  it("refuses an item without the value", async () => {
+    const b = mkq();
+    const note = (await call<ItemSummary[]>(b, "items_list")).find((i) => i.type === "note")!.id;
+    expect((await err(b, "autotype", { id: note, password: null })).code).toBe("notFound");
+  });
+});
+
+describe("tier 2: Secret Key, SSH key, QR code", () => {
+  it("rotates the Secret Key: a new kit, old backups gone", async () => {
+    const b = mk();
+    const before = await call<VaultStatus>(b, "vault_status");
+    expect((await err(b, "secret_key_rotate", { password: "nope" })).code).toBe("badCredentials");
+    const kit = await call<EmergencyKit>(b, "secret_key_rotate", { password: "demo" });
+    expect(kit.keyId).not.toBe(before.keyId);
+    expect(kit.secretKey).not.toBe(DEMO_SECRET_KEY);
+    expect((await call<VaultStatus>(b, "vault_status")).keyId).toBe(kit.keyId);
+    expect((await call<BackupEntry[]>(b, "backups_list")).length).toBe(1);
+  });
+  it("generates an SSH key pair in the real shape", async () => {
+    const k = await call<{ privateKey: string; publicKey: string; fingerprint: string }>(mk(), "ssh_generate");
+    expect(k.privateKey).toMatch(/^-----BEGIN OPENSSH PRIVATE KEY-----\n[\s\S]+\n-----END OPENSSH PRIVATE KEY-----\n$/);
+    expect(k.publicKey).toMatch(/^ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI[A-Za-z0-9+/]+=*$/);
+    expect(k.fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
+  });
+  it("reads a QR code, or says why not", async () => {
+    expect(await call(mk(), "totp_from_image", { source: "screen" })).toEqual({ uri: expect.stringMatching(/^otpauth:\/\/totp\//) });
+    expect(await call(mk({ cancelDialogs: true }), "totp_from_image", { source: "file" })).toBeNull();
+    expect(await err(mk({ qr: "none" }), "totp_from_image", { source: "screen" })).toEqual({ code: "notFound", message: "Coffer found no QR code on the screen." });
+    expect((await err(mk({ qr: "google" }), "totp_from_image", { source: "file" })).code).toBe("unsupportedFormat");
+    expect((await err(mk({ qr: "notImage" }), "totp_from_image", { source: "file" })).code).toBe("unsupportedFormat");
+    expect((await err(mk({ qr: "other" }), "totp_from_image", { source: "file" })).code).toBe("invalid");
   });
 });

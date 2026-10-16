@@ -11,6 +11,8 @@ export type QuickKey =
   | "copyTotp"
   | "actions"
   | "openInCoffer"
+  | "autotype"
+  | "autotypePassword"
   | "escape"
   | "back";
 
@@ -33,9 +35,11 @@ export function quickKey(e: KeyInput): QuickKey | null {
     if (k === "p") return "copyPassword";
     if (k === "t") return "copyTotp";
     if (k === "o") return "openInCoffer";
+    if (k === "Enter") return "autotype";
     return null;
   }
-  if (e.ctrlKey) return null;
+  // Tier 2 auto-type: Ctrl+Shift+Enter types the password alone.
+  if (e.ctrlKey) return k === "Enter" ? "autotypePassword" : null;
   switch (k) {
     case "ArrowUp":
       return "up";

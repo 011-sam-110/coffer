@@ -4,6 +4,7 @@
 // user types, reveals or generates a new value, so an edit that does not touch
 // a password never needs it in the UI (SPEC 3.6).
 import type { FieldKind, ItemInput, ItemType, ItemUrl, ItemView } from "./contract";
+import { parseAutotype } from "./autotype";
 import { SECRET_KINDS } from "./contract";
 import { ITEM_TYPES } from "./itemTypes";
 
@@ -234,6 +235,12 @@ export function validateForm(form: ItemForm): FormErrors {
   form.urls.forEach((u, i) => {
     if (u.url.trim() && !validUrl(u.url)) errors[`url:${i}`] = "Enter a web address that starts with http:// or https://.";
   });
+  // Tier 2: an auto-type sequence Rust could not parse would fail only when typing.
+  const seq = form.autotypeSequence?.trim();
+  if (seq) {
+    const p = parseAutotype(seq);
+    if (!p.ok) errors.autotype = p.message;
+  }
   return errors;
 }
 

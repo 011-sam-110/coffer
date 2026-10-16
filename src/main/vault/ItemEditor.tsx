@@ -2,7 +2,10 @@
 // Secret fields stay null (unchanged) until the user shows, types or generates.
 import { CalendarDays, Eye, EyeOff, LoaderCircle, Plus, WandSparkles, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { AutotypeSequenceField } from "../../components/AutotypeActions";
 import { Generator } from "../../components/Generator";
+import { QrScanButtons } from "../../components/QrScanButtons";
+import { SshGenerateButton } from "../../components/SshGenerateButton";
 import { Monogram } from "../../components/bits";
 import { ConfirmDialog, Menu, useReprompt, useToast } from "../../components/overlays";
 import { Button, Checkbox, cx, ErrorText, IconButton, Input, KeyBadge, Notice, Select, Spinner, Textarea } from "../../components/ui";
@@ -241,6 +244,7 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
         )}
       </div>
       {info && <p className="text-xs text-muted-foreground">{info}</p>}
+      <QrScanButtons onUri={(uri) => onChange(uri)} />
     </div>
   );
 }
@@ -592,6 +596,7 @@ export function ItemEditor({
 
           <div className="divide-y divide-border rounded-sm border border-border bg-card">
             {builtins.map((f) => renderRow(f, false))}
+            {form.type === "sshKey" && <SshGenerateButton form={form} setForm={setForm} />}
             {def.hasUrls &&
               form.urls.map((u, i) => (
                 <div key={`url-${i}`} className="flex flex-col gap-1 px-4 py-3" data-err={errors[`url:${i}`] ? `url:${i}` : undefined}>
@@ -696,6 +701,7 @@ export function ItemEditor({
               <p className="px-1 text-xs text-muted-foreground">Quick Access shows this item first when one of these apps is in front.</p>
             </section>
           )}
+          {form.type === "login" && <AutotypeSequenceField id={`${uid}-autotype`} value={form.autotypeSequence} error={errors.autotype} onChange={(v) => patch({ autotypeSequence: v })} />}
 
           <section className="flex flex-col gap-2.5 rounded-sm border border-border px-4 py-3">
             <Checkbox label="Favourite" checked={form.favorite} onChange={(v) => patch({ favorite: v })} />

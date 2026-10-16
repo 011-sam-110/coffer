@@ -2,10 +2,12 @@
 // Search-first; Enter copies the item's main secret; Right arrow lists every
 // action; the window closes after a copy.
 import { MotionConfig } from "motion/react";
-import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, FolderPlus, KeyRound, Lock, Search, SearchX, Star, WandSparkles, X } from "lucide-react";
+import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, FolderPlus, Keyboard, KeyRound, Lock, Search, SearchX, Star, WandSparkles, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
+import { HelloUnlock } from "../components/HelloUnlock";
+import { autotypeChoices, useAutotype, type AutotypeOnly } from "../components/AutotypeActions";
 import { RepromptProvider, ToastProvider, useReprompt, useToast } from "../components/overlays";
 import { Button, cx, ErrorText, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
 import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, TotpCode, VaultStatus } from "../lib/contract";
@@ -112,6 +114,7 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
           {busy ? "Unlocking..." : "Unlock"}
         </Button>
       </form>
+      <HelloUnlock className="mt-3" status={status} onUnlocked={onUnlocked} onStatus={onUnlocked} onWaiting={(w) => call("quick_set_modal", { modal: w }).catch(() => undefined)} autoStartOnShow />
     </div>
   );
 }
@@ -245,6 +248,7 @@ function Quick() {
   const listRef = useRef<HTMLUListElement>(null);
   const { toast, error, expectCopy } = useToast();
   const { withReprompt } = useReprompt();
+  const autotype = useAutotype();
 
   const loadItems = useCallback(() => {
     call("items_list")
@@ -418,6 +422,14 @@ function Quick() {
     }
   };
 
+  /** Ctrl+Enter / Ctrl+Shift+Enter: Rust hides Quick Access and types into the window that was in front. */
+  const typeItem = async (item: ItemSummary, only: AutotypeOnly) => {
+    if (await autotype(item, only)) {
+      remember(item, null);
+      hide();
+    }
+  };
+
   const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? cont.label : enterWords(item.type));
 
   const openActions = async (item: ItemSummary) => {
@@ -444,7 +456,8 @@ function Quick() {
     for (const f of fields) {
       const isTotp = f.kind === "totp";
       list.push({
-        label: `Copy ${f.label.toLowerCase()}`,
+        // Labels never truncate at 400 px: the code row says "Copy code" beside its digits.
+        label: isTotp ? "Copy code" : `Copy ${f.label.toLowerCase()}`,
         hint: f.builtin ? shortcut[f.builtin] : undefined,
         detail: isTotp && actCode ? groupCode(actCode.code) : undefined,
         ring: isTotp && actCode ? { remaining: actCode.remaining, period: actCode.period } : undefined,
@@ -452,6 +465,8 @@ function Quick() {
         run: () => copyField(item, f.id, f.builtin ?? null, isTotp),
       });
     }
+    // SPEC 9 order: copy each field, auto-type, open site, open in Coffer.
+    for (const c of autotypeChoices(detail)) list.push({ label: c.label, hint: c.shortcut, icon: <Keyboard />, run: () => typeItem(item, c.only) });
     (detail?.urls ?? []).forEach((u, i) =>
       list.push({
         label: `Open ${(() => {
@@ -516,6 +531,7 @@ function Quick() {
       else if (k === "enter") actions[actSel]?.run();
       else if (k === "escape" || k === "back") setMode({ kind: "list" });
       else if (k === "openInCoffer") openInCoffer(mode.item);
+      else if (k === "autotype" || k === "autotypePassword") typeItem(mode.item, k === "autotypePassword" ? "password" : null);
       else if (k === "copyUsername" || k === "copyPassword" || k === "copyTotp")
         copyRole(mode.item, k === "copyUsername" ? "username" : k === "copyPassword" ? "password" : "totp");
       return;
@@ -535,6 +551,7 @@ function Quick() {
     else if (k === "copyTotp") copyRole(current, "totp");
     else if (k === "actions") openActions(current);
     else if (k === "openInCoffer") openInCoffer(current);
+    else if (k === "autotype" || k === "autotypePassword") typeItem(current, k === "autotypePassword" ? "password" : null);
   };
 
   if (!status || !info) return <Frame>{null}</Frame>;
@@ -639,7 +656,8 @@ function Quick() {
                           )}
                         </span>
                       )}
-                      {i === actSel && <Kbd>↵</Kbd>}
+                      {/* Enter is shown by the selection; a row with its own key chip shows only that. */}
+                      {i === actSel && !a.hint && <Kbd>↵</Kbd>}
                       {a.hint && <Kbd>{a.hint}</Kbd>}
                     </div>
                   </li>

@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   History,
+  Keyboard,
   KeyRound,
   Pencil,
   Star,
@@ -17,7 +18,9 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { autotypeHint } from "../../components/AutotypeActions";
 import { Markdown } from "../../components/Markdown";
+import { RevisionsSection } from "../../components/RevisionsSection";
 import { Monogram, PasswordChars, SecretText, TotpCode } from "../../components/bits";
 import { ConfirmDialog, Menu, useCopy, useReprompt, useToast } from "../../components/overlays";
 import { Button, cx, IconButton, KeyBadge, Notice, Spinner } from "../../components/ui";
@@ -153,7 +156,7 @@ const FLAG_TEXT: Array<[keyof ItemView["flags"], string]> = [
 ];
 
 export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial<Nav>) => void }) {
-  const { changeTick } = useStore();
+  const { changeTick, settings } = useStore();
   const [item, setItem] = useState<ItemView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
@@ -282,6 +285,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
     }
   };
 
+  const typeHint = autotypeHint(item, settings?.hotkeyQuick);
   const menuItems =
     item.state === "trashed"
       ? [
@@ -294,6 +298,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
             { label: "Move to Trash", icon: <Trash2 />, shortcut: "Delete", danger: true, onSelect: () => setState("trashed") },
           ]
         : [
+            ...(typeHint ? [{ label: typeHint.label, shortcut: typeHint.shortcut, icon: <Keyboard />, onSelect: () => toast(typeHint.help, { ms: 8000 }) }] : []),
             { label: "Archive", icon: <Archive />, onSelect: () => setState("archived") },
             { label: "Move to Trash", icon: <Trash2 />, shortcut: "Delete", danger: true, onSelect: () => setState("trashed") },
           ];
@@ -539,6 +544,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
             </>
           )}
 
+          <RevisionsSection key={item.rev} item={item} onRestored={setItem} />
           <MetaRow label="Created">
             <span title={formatDateTime(item.createdAt)}>{formatDate(item.createdAt)}</span>
           </MetaRow>

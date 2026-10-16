@@ -1,6 +1,7 @@
 // Unlock, Missing vault, Tampered vault and Older file screens (SPEC 3.5, 11).
 import { CircleAlert, FolderSearch, History, Lock, SearchX } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { HelloUnlock } from "../../components/HelloUnlock";
 import { Dialog, useReprompt, useToast } from "../../components/overlays";
 import { Button, FormRow, Input, Notice, PasswordInput, Spinner } from "../../components/ui";
 import type { BackupEntry, VaultStatus } from "../../lib/contract";
@@ -144,6 +145,15 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
         </Button>
         {info?.demo && <p className="text-xs text-muted-foreground">Demo backend: the master password is "demo".</p>}
       </form>
+      {status && (
+        <HelloUnlock
+          className="mt-3"
+          status={status}
+          onUnlocked={setStatus}
+          onStatus={setStatus}
+          onError={(e) => (e.code === "tampered" ? (onOutcome({ kind: "tampered" }), true) : e.code === "olderFile" ? (onOutcome({ kind: "older", message: e.message }), true) : false)}
+        />
+      )}
     </ScreenFrame>
   );
 }

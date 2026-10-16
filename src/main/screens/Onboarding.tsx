@@ -260,7 +260,8 @@ export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; 
   );
 }
 
-function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
+/** Also used by Settings > Security > Rotate Secret Key, with its own step and title. */
+export function KitStep({ kit, onNext, step = stepLabel("kit"), title = "Save your Emergency Kit" }: { kit: EmergencyKit; onNext: () => void; step?: string; title?: string }) {
   // Continue opens once the print dialog ran (print or "Microsoft Print to PDF"); Coffer cannot see which.
   const [printed, setPrinted] = useState(false);
   const print = () => {
@@ -270,7 +271,7 @@ function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
   return (
     <ScreenFrame steps>
       <div className="no-print">
-        <StepTitle step={stepLabel("kit")} title="Save your Emergency Kit">
+        <StepTitle step={step} title={title}>
           Your vault opens with your master password plus this Secret Key. If you lose this kit and this computer, nobody can open this vault, not even Coffer.
         </StepTitle>
       </div>
@@ -308,7 +309,7 @@ function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
   );
 }
 
-function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => void; onNext: () => void }) {
+export function ConfirmKit({ kit, onBack, onNext, step = stepLabel("confirm") }: { kit: EmergencyKit; onBack: () => void; onNext: () => void; step?: string }) {
   const [v, setV] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const id = useId();
@@ -320,7 +321,7 @@ function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => 
   };
   return (
     <ScreenFrame steps onBack={onBack} backLabel="Back to the kit">
-      <StepTitle step={stepLabel("confirm")} title="Check your kit">
+      <StepTitle step={step} title="Check your kit">
         Type the last group of your Secret Key ({need} letters and digits), from the saved kit.
       </StepTitle>
       <form
