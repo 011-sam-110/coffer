@@ -10,6 +10,7 @@ import type { HealthCheck, HealthFinding, HealthReport, ItemSummary } from "../.
 import { formatDate } from "../../lib/format";
 import { call } from "../../lib/ipc";
 import { formFromView, formToInput } from "../../lib/itemForm";
+import { upgradeUnsecuredUrls } from "../../lib/url";
 import { useStore } from "../store";
 import type { HealthTab, Nav } from "../vault/nav";
 import { PageShell, Tabs, type TabDef } from "./PageShell";
@@ -112,7 +113,10 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
     try {
       const view = await call("item_get", { id });
       const form = formFromView(view);
-      form.urls = form.urls.map((u) => ({ ...u, url: u.url.replace(/^http:\/\//i, "https://") }));
+      // Only the flagged addresses: http:// to localhost or a private address stays.
+      const urls = upgradeUnsecuredUrls(form.urls);
+      if (urls.every((u, i) => u.url === form.urls[i].url)) return toast(`${view.title} has no http:// address to change.`);
+      form.urls = urls;
       await call("item_save", { item: formToInput(form), password: null });
       toast(`${view.title} now uses https://. Check that the site opens.`);
       load();
@@ -239,7 +243,7 @@ export function HealthView({ go, initialTab }: { go: (p: Partial<Nav>) => void; 
         </div>
       )}
 
-      {noCounted && report.score !== null && (
+      {noCounted && (
         <Notice icon={<ShieldCheck />} role="status">
           No weak, reused or breached passwords found.
         </Notice>
