@@ -545,6 +545,21 @@ fn view_masks_secrets_and_summary_has_none() {
 }
 
 #[test]
+fn view_sends_an_empty_secret_field_as_empty_not_masked() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let mut input = login("No code", "me", "pw-value");
+    input.fields.push(field("totp", FieldKind::Totp, ""));
+    let view = v.item_save(&input, None).unwrap();
+    let code = view.fields.iter().find(|f| f.kind == FieldKind::Totp).unwrap();
+    assert_eq!(code.value, "");
+    assert_eq!(code.masked, None);
+    let pw = view.fields.iter().find(|f| f.builtin.as_deref() == Some("password")).unwrap();
+    assert_eq!(pw.masked, Some(true));
+    assert!(!v.items_list()[0].has_totp);
+}
+
+#[test]
 fn field_refs_history_role_and_id() {
     let k = sk();
     let mut v = new_vault(&k);

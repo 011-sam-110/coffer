@@ -1047,7 +1047,9 @@ impl Vault {
                 .fields
                 .iter()
                 .map(|f| {
-                    let secret = f.kind.is_secret();
+                    // An empty secret field is sent as empty, not masked: the UI must
+                    // not offer to reveal, copy or compute a value that is not there.
+                    let secret = f.kind.is_secret() && !f.value.is_empty();
                     Field {
                         id: f.id.clone(),
                         label: f.label.clone(),
