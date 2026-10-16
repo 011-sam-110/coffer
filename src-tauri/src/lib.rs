@@ -32,6 +32,7 @@ mod settings;
 mod shell;
 mod ssh;
 mod state;
+mod totp_image;
 mod tray;
 mod usage;
 mod vault;

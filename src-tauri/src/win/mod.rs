@@ -10,6 +10,7 @@ pub mod fs;
 pub mod hello;
 pub mod monitor;
 pub mod open;
+pub mod screen;
 pub mod signals;
 pub mod webview;
 

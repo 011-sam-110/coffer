@@ -31,6 +31,9 @@ base64 = "0.23.1"
 sha2 = "0.11"
 # ssh_generate: Ed25519 from ring (already in the build for TLS).
 ring = "0.17"
+# totp_from_image: a pure-Rust QR reader and the image decoders (PNG is already in the build).
+rqrr = { version = "0.11", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
 time = "0.3.55"
 # The one network client: the opt-in breach check (SPEC 3.10). rustls + ring + webpki roots.
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
