@@ -20,7 +20,7 @@
 
 Coffer keeps your passwords in one encrypted file on your own disk. It has no account, no server and no subscription. You open it from the tray (under the "^" arrow next to the clock, like a VPN app) or with Ctrl+Shift+Space from any app. The feature set takes what works without a server from 1Password, Bitwarden and Dashlane. The research, the spec and its five review rounds are in [`docs/`](docs/).
 
-_Status: v0.1.0 pre-release for Windows 10 and 11. The installer is not code-signed, and nobody outside this project has audited the crypto. Windows Hello and auto-type are the newest parts and have had the least real-world use._
+_Status: v0.1.0 pre-release for Windows 10 and 11. The installer is not code-signed, and nobody outside this project has audited the crypto. PIN unlock, smart fill and Windows Hello are the newest parts and have had the least real-world use._
 
 ## ✨ Features
 - **Two-secret unlock** - a master password plus a 128-bit Secret Key, through Argon2id (128 MiB, 3 passes) with stored parameters, a floor and a ceiling. You get an Emergency Kit when you create the vault, and Coffer asks you to confirm it before you go on.

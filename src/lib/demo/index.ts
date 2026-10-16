@@ -683,7 +683,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   // ---------- commands ----------
   const handlers: Handlers = {
     app_info: (): AppInfo => ({
-      version: "0.1.0",
+      version: "0.2.0",
       computerName: COMPUTER_NAME,
       defaultFolder: DEMO_DEFAULT_FOLDER,
       hotkeyStatus: { quick: hotkeyStatus(settings.hotkeyQuick), lock: hotkeyStatus(settings.hotkeyLock) },
