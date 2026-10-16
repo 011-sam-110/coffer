@@ -455,6 +455,14 @@ dialog {
     background: var(--print-paper) !important;
     border: 0 !important;
   }
+  .kit-sheet .screen-only {
+    display: none !important;
+  }
+}
+@media screen {
+  .kit-sheet .print-only {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
