@@ -32,3 +32,9 @@ dist-ssr
 *.cofferx
 device.json
 src/assets/fonts/itf/
+
+# Coffer UI: ITF fonts are fetched by scripts/fetch-fonts.mjs (licence: never commit them)
+public/fonts/itf/
+# UI check screenshots and design-review captures
+.shots/
+.impeccable/
