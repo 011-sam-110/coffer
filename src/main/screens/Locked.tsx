@@ -137,6 +137,9 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
               {pinNote}
             </Notice>
           )}
+          {!pinNote && status?.pinSet && !status.pinReady && !needsKey && (
+            <p className="text-sm text-balance text-muted-foreground">Type your master password this time. Then your PIN works again.</p>
+          )}
           <FormRow label="Master password" htmlFor={ids.pw} error={error}>
             <PasswordInput
               ref={pwRef}

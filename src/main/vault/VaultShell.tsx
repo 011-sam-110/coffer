@@ -261,6 +261,8 @@ export function VaultShell({
       const typing = inTextField(document.activeElement);
       const modalOpen = !!document.querySelector("dialog[open]");
       if (modalOpen) return;
+      // A hotkey field that records keys gets every key (Ctrl+L there is a shortcut, not a lock).
+      if ((document.activeElement as HTMLElement | null)?.dataset.hotkeyRecording) return;
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       const ctrl = e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
       const handled = (() => {

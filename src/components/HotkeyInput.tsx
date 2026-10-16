@@ -67,6 +67,7 @@ export function HotkeyInput({
       <button
         type="button"
         aria-label={`${label}: ${value ?? "off"}. Press to change.`}
+        data-hotkey-recording={recording || undefined}
         onClick={() => setRecording(true)}
         onBlur={() => setRecording(false)}
         onKeyDown={(e) => {

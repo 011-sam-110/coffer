@@ -140,6 +140,9 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
         }}
       >
         {pinNote && <p className="text-xs text-gold">{pinNote}</p>}
+        {!pinNote && status.pinSet && !status.pinReady && !status.needsSecretKey && (
+          <p className="text-xs text-balance text-muted-foreground">Type your master password this time. Then your PIN works again.</p>
+        )}
         <label htmlFor="quick-pw" className="sr-only">
           Master password
         </label>

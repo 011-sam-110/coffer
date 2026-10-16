@@ -135,7 +135,25 @@ const STATES = [
   ["q13-quick-actions-autotype", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "ArrowRight", target: "input[role=combobox]" }, { wait: 400 }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }]],
   ["q14-quick-autotype-admin", "/quick.html?autotype=admin", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "Control+Enter", target: "input[role=combobox]" }, { wait: 600 }]],
   ["q15-quick-autotype-gone", "/quick.html?autotype=gone", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "Control+Shift+Enter", target: "input[role=combobox]" }, { wait: 600 }]],
-  ["q09-quick-copied", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }, { press: "Enter", target: "input[role=combobox]" }, { wait: 700 }]],
+  // Enter on a login fills; Ctrl+C copies.
+  ["q09-quick-copied", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }, { press: "Control+c", target: "input[role=combobox]" }, { wait: 700 }]],
+  // Smart fill (SPEC 10): after a fill, the next open offers what comes next.
+  ["f01-quick-continue-code", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "Enter", target: "input[role=combobox]" }, { wait: 600 }, { eval: "window.__cofferDemo.simulate('quickShown')" }, { wait: 600 }, { expect: "text=Type code" }]],
+  // PIN unlock (SPEC 3.9). The demo PIN is 482917.
+  ["p01-unlock-pin", "/?state=locked&pin=on", MAIN],
+  ["p02-unlock-pin-wrong", "/?state=locked&pin=on", MAIN, [{ type: "111111", target: "input[inputmode=numeric]" }, { wait: 1200 }]],
+  ["p03-unlock-pin-password", "/?state=locked&pin=on", MAIN, [{ click: "text=Use master password instead" }, { expect: "text=Use PIN instead" }]],
+  ["p04-unlock-pin-paused", "/?state=locked&pin=stale", MAIN, [{ expect: "text=Then your PIN works again" }]],
+  ["p05-settings-pin-on", "/?view=settings&tab=security&pin=on", MAIN],
+  ["p06-settings-pin-dialog", "/?view=settings&tab=security", MAIN, [{ click: "role=switch[name='Unlock with a PIN']" }, { wait: 400 }, { expect: "text=Set a PIN" }]],
+  ["p07-settings-pin-mismatch", "/?view=settings&tab=security", MAIN, [{ click: "role=switch[name='Unlock with a PIN']" }, { wait: 400 }, { type: "482917", target: "dialog input[inputmode=numeric] >> nth=0" }, { type: "482918", target: "dialog input[inputmode=numeric] >> nth=1" }, { wait: 300 }]],
+  ["p08-quick-pin", "/quick.html?state=locked&pin=on", QUICK],
+  ["p09-quick-pin-wrong", "/quick.html?state=locked&pin=on", QUICK, [{ type: "111111", target: "input[inputmode=numeric]" }, { wait: 1200 }]],
+  ["p10-quick-pin-paused", "/quick.html?state=locked&pin=stale", QUICK, [{ expect: "text=Then your PIN works again" }]],
+  // A Quick Access hotkey that takes an app's key gets a warning.
+  ["p11-hotkey-clash", "/?view=settings&tab=shortcuts", MAIN, [{ click: "button[aria-label^='Quick Access:']" }, { press: "Control+p" }, { wait: 300 }, { expect: "text=Ctrl+P is Print" }]],
+  // Ctrl+L locks the main window, but not while the hotkey field records keys.
+  ["p12-hotkey-records-app-key", "/?view=settings&tab=shortcuts", MAIN, [{ click: "button[aria-label^='Quick Access:']" }, { press: "Control+l" }, { wait: 300 }, { expect: "text=Ctrl+L is a shortcut" }]],
 ];
 
 const filter = process.argv[2];
@@ -162,7 +180,11 @@ for (const [name, path, viewport, steps = []] of STATES) {
         else if (s.press) {
           if (s.target) await page.focus(s.target).catch(() => undefined);
           await page.keyboard.press(s.press);
-        } else if (s.expect) await page.waitForSelector(s.expect, { timeout: 3000 });
+        } else if (s.type) {
+          if (s.target) await page.focus(s.target);
+          await page.keyboard.type(s.type);
+        } else if (s.eval) await page.evaluate(s.eval);
+        else if (s.expect) await page.waitForSelector(s.expect, { timeout: 3000 });
         if (s.wait) await page.waitForTimeout(s.wait);
         else await page.waitForTimeout(250);
       } catch (e) {
