@@ -328,7 +328,8 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
         st.vault_path = Some(s.path.to_string_lossy().into_owned());
         st.vault_name = Some(stem_of(&s.path));
         st.key_id = Some(s.vault.key_id().to_string());
-        st.item_count = Some(s.vault.item_count() as u32);
+        // Active items, as the UI counts them (not archived, not in Trash).
+        st.item_count = Some(s.vault.items_list().iter().filter(|i| i.state == ItemState::Active).count() as u32);
         return Ok(st);
     }
     let Some(path) = vault_path(&state) else { return Ok(st) };

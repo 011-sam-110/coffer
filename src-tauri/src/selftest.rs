@@ -331,7 +331,12 @@ fn vault_round_trip(app: &AppHandle) {
         Ok(r) => crate::vault::import_undo(app, &r.batch_id),
         Err(e) => Err(e.clone()),
     };
-    c.check("import_undo moves the batch to Trash", matches!(undone, Ok(2)) && item_count(app) == Some(n0), format!("{} items {:?}", code_of(&undone), item_count(app)));
+    let status_count = crate::vault::status(app).ok().and_then(|s| s.item_count);
+    c.check(
+        "import_undo moves the batch to Trash (status counts active items)",
+        matches!(undone, Ok(2)) && item_count(app) == Some(n0) && status_count == Some(n0),
+        format!("{} items {:?}, status itemCount {status_count:?}", code_of(&undone), item_count(app)),
+    );
     let deleted = match &preview {
         Ok(p) => crate::vault::import_delete_source(app, &p.preview_id),
         Err(e) => Err(e.clone()),
