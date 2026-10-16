@@ -71,11 +71,13 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
   label: string;
   size?: "sm" | "md";
   active?: boolean;
+  /** A shortcut such as "Ctrl+U": shown in the tooltip, announced as aria-keyshortcuts. */
+  shortcut?: string;
 }
 
 /** A square icon-only button. `label` is its accessible name and tooltip. */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
-  { label, size = "md", active, className, children, type = "button", ...rest },
+  { label, size = "md", active, shortcut, className, children, type = "button", ...rest },
   ref,
 ) {
   return (
@@ -83,7 +85,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       ref={ref}
       type={type}
       aria-label={label}
-      title={label}
+      aria-keyshortcuts={shortcut}
+      title={shortcut ? `${label} (${shortcut})` : label}
       className={cx(
         "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors duration-150",
         "hover:bg-muted hover:text-foreground active:translate-y-px disabled:pointer-events-none disabled:opacity-40",
@@ -307,6 +310,15 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="kbd">{children}</kbd>;
 }
 
+/** A key badge inside a button, in the button's own colour: <Button>New <KeyBadge>Ctrl+N</KeyBadge></Button>. */
+export function KeyBadge({ children }: { children: ReactNode }) {
+  return (
+    <kbd aria-hidden className="kbd-inline">
+      {children}
+    </kbd>
+  );
+}
+
 /** Show a shortcut like "Ctrl+Shift+Space" as keycaps. */
 export function Keys({ combo }: { combo: string }) {
   return (
@@ -435,9 +447,9 @@ export function Segmented<T extends string>({
               if (on && el && el.ownerDocument.activeElement?.closest("[role=radiogroup]") === el.parentElement) el.focus();
             }}
             className={cx(
-              "cursor-pointer rounded-[3px] font-medium transition-colors duration-150",
+              "cursor-pointer rounded-[3px] transition-colors duration-150",
               size === "sm" ? "h-6 px-2 text-xs" : "h-7 px-3 text-sm",
-              on ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
+              on ? "bg-foreground font-semibold text-background" : "font-medium text-muted-foreground hover:text-foreground",
             )}
           >
             {o.label}

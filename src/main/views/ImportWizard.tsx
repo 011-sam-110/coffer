@@ -8,6 +8,7 @@ import type { ImportPreview, ImportResult, ItemType } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
 import { ITEM_TYPES } from "../../lib/itemTypes";
 import { secretKeyCharMessage } from "../../lib/secretKey";
+import { PageShell } from "./PageShell";
 
 const SOURCES = [
   "1Password: .1pux or CSV",
@@ -18,7 +19,9 @@ const SOURCES = [
   "Coffer: .cofferx, Coffer JSON or a .coffer vault",
 ];
 
-const ENCRYPTED_FORMATS = ["coffer-export", "coffer-vault", "cofferx"];
+/** Format ids from Rust (import/coffer.rs). A vault file is never deleted; an encrypted export is not plain text. */
+const VAULT_FORMAT = "coffer-vault";
+const ENCRYPTED_EXPORT_FORMATS = ["coffer-cofferx"];
 
 type Stage = "intro" | "loading" | "password" | "preview" | "importing" | "result";
 
@@ -74,12 +77,9 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
     embedded ? (
       <div className="flex flex-col gap-5">{children}</div>
     ) : (
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto flex max-w-[640px] flex-col gap-5 px-8 pt-6 pb-16">
-          <h1 className="text-lg font-semibold">Import</h1>
-          {children}
-        </div>
-      </div>
+      <PageShell title="Import">
+        <div className="-mt-1 flex flex-col gap-5">{children}</div>
+      </PageShell>
     );
 
   if (stage === "intro")
@@ -150,7 +150,8 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
 
   if (stage === "preview" && preview) {
     const types = (Object.entries(preview.counts) as Array<[ItemType, number]>).filter(([, n]) => n > 0);
-    const toImport = Math.max(0, preview.total - preview.duplicates - preview.skipped.length);
+    // `total` is what will be added: Rust has already left out duplicates, and skipped entries are not items.
+    const inFile = preview.total + preview.duplicates + preview.skipped.length;
     return wrap(
       <>
         <div className="flex items-start gap-3">
@@ -158,7 +159,7 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
           <div>
             <p className="text-sm font-medium">{preview.formatLabel}</p>
             <p className="text-xs text-muted-foreground">
-              {preview.total} items in the file. {toImport} will be added with an Imported tag, so you can find or undo them.
+              {inFile} {inFile === 1 ? "entry" : "entries"} in the file. {preview.total} will be added with an Imported tag, so you can find or undo them.
             </p>
           </div>
         </div>
@@ -199,8 +200,8 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
           </Notice>
         ))}
         <div className="flex gap-2">
-          <Button variant="primary" onClick={commit} disabled={toImport === 0}>
-            Import {toImport} item{toImport === 1 ? "" : "s"}
+          <Button variant="primary" onClick={commit} disabled={preview.total === 0}>
+            Import {preview.total} item{preview.total === 1 ? "" : "s"}
           </Button>
           <Button variant="ghost" onClick={source === "conflict" ? onClose : () => setStage("intro")}>
             Cancel
@@ -211,7 +212,9 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
   }
 
   if (stage === "result" && result && preview) {
-    const plain = !ENCRYPTED_FORMATS.some((f) => preview.format.startsWith(f)) && source !== "conflict";
+    const encryptedExport = ENCRYPTED_EXPORT_FORMATS.includes(preview.format);
+    const offerDelete = source !== "conflict" && preview.format !== VAULT_FORMAT;
+    const plain = offerDelete && !encryptedExport;
     return wrap(
       <>
         <Notice icon={<FileCheck2 />} role="status">
@@ -235,10 +238,10 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
             </Button>
           </div>
         )}
-        {plain && sourceFile === "ask" && (
+        {offerDelete && sourceFile === "ask" && (
           <Notice
-            tone="warning"
-            icon={<TriangleAlert />}
+            tone={plain ? "warning" : "neutral"}
+            icon={plain ? <TriangleAlert /> : <FileCheck2 />}
             actions={
               <>
                 <Button
@@ -262,10 +265,10 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
               </>
             }
           >
-            This file holds your passwords in plain text.
+            {plain ? "This file holds your passwords in plain text." : "The export file is encrypted. Delete it if you no longer need it."}
           </Notice>
         )}
-        {sourceFile === "deleted" && <p className="text-sm text-muted-foreground">The export file is deleted.</p>}
+        {sourceFile === "deleted" && <p className="text-sm text-muted-foreground">The import file is deleted.</p>}
         <div>
           <Button variant={plain && sourceFile === "ask" ? "secondary" : "primary"} onClick={onClose}>
             Done

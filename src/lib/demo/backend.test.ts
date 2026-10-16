@@ -688,3 +688,18 @@ describe("demo window events", () => {
     await expect(call(b, "main_hide")).resolves.toBeUndefined();
   });
 });
+
+describe("generator_options", () => {
+  it("returns the defaults first, then the options of the last generate", async () => {
+    const b = mk();
+    const first = await call<{ mode: string; length: number }>(b, "generator_options");
+    expect(first.mode).toBe("random");
+    const opts = { ...first, mode: "passphrase", words: 6 };
+    await call(b, "generate", { options: opts });
+    expect(await call(b, "generator_options")).toEqual(opts);
+  });
+  it("needs an unlocked vault", async () => {
+    const b = mk({ startState: "locked" });
+    expect((await err(b, "generator_options")).code).toBe("locked");
+  });
+});

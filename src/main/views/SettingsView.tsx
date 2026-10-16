@@ -7,10 +7,12 @@ import { Dialog, useToast } from "../../components/overlays";
 import { Button, Checkbox, cx, FormRow, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
 import type { EmergencyKit, ExportKind, Settings } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
+import { useListDensity } from "../prefs";
 import { BackupList } from "../screens/Locked";
 import { KitSheet } from "../screens/Onboarding";
 import { useStore } from "../store";
 import type { Nav, SettingsTab } from "../vault/nav";
+import { PageShell, Tabs } from "./PageShell";
 
 export const MAIN_SHORTCUTS: Array<[string, string]> = [
   ["Ctrl+F", "Search"],
@@ -56,9 +58,9 @@ function Row({ title, description, children, htmlFor }: { title: string; descrip
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col">
-      <h2 className="mb-1 text-sm font-semibold">{title}</h2>
-      <div className="divide-y divide-border border-y border-border">{children}</div>
+    <section className="mt-8 flex flex-col first:mt-0">
+      <h2 className="mb-1 text-2xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">{title}</h2>
+      <div className="divide-y divide-border">{children}</div>
     </section>
   );
 }
@@ -76,45 +78,36 @@ export function SettingsView({ tab, onTab, go }: { tab: SettingsTab; onTab: (t: 
   if (!settings) return null;
   const set = (patch: Partial<Settings>) => updateSettings(patch);
   return (
-    <div className="flex h-full">
-      <nav aria-label="Settings" className="w-[180px] shrink-0 border-r border-border px-2 pt-6">
-        <h1 className="mb-3 px-2 text-lg font-semibold">Settings</h1>
-        <ul className="flex flex-col gap-0.5">
-          {TABS.map((t) => (
-            <li key={t.id}>
-              <button
-                type="button"
-                aria-current={tab === t.id ? "page" : undefined}
-                onClick={() => onTab(t.id)}
-                className={cx(
-                  "flex h-7 w-full cursor-pointer items-center rounded-sm px-2 text-left text-sm",
-                  tab === t.id ? "row-selected" : "text-foreground/80 hover:bg-muted hover:text-foreground",
-                )}
-              >
-                {t.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="flex max-w-[720px] flex-col gap-8 px-8 pt-7 pb-16">
-          {tab === "general" && <General settings={settings} set={set} />}
-          {tab === "security" && <Security settings={settings} set={set} />}
-          {tab === "vault" && <VaultTab go={go} />}
-          {tab === "shortcuts" && <Shortcuts settings={settings} set={set} />}
-          {tab === "about" && <About />}
-        </div>
+    <PageShell title="Settings">
+      <Tabs label="Settings" tabs={TABS} value={tab} onChange={onTab} />
+      <div role="tabpanel" aria-label={TABS.find((t) => t.id === tab)?.label} className="flex flex-col">
+        {tab === "general" && <General settings={settings} set={set} />}
+        {tab === "security" && <Security settings={settings} set={set} />}
+        {tab === "vault" && <VaultTab go={go} />}
+        {tab === "shortcuts" && <Shortcuts settings={settings} set={set} />}
+        {tab === "about" && <About />}
       </div>
-    </div>
+    </PageShell>
   );
 }
 
 type SetFn = (patch: Partial<Settings>) => void;
 
 function General({ settings, set }: { settings: Settings; set: SetFn }) {
+  const [density, setDensity] = useListDensity();
   return (
     <Section title="General">
+      <Row title="List density" description="Compact shows each item on one 30 px line: title, username and website.">
+        <Segmented
+          label="List density"
+          value={density}
+          onChange={setDensity}
+          options={[
+            { value: "comfortable", label: "Comfortable" },
+            { value: "compact", label: "Compact" },
+          ]}
+        />
+      </Row>
       <Row title="Start with Windows" description="Coffer starts in the tray, locked.">
         <Switch label="Start with Windows" checked={settings.startWithWindows} onChange={(v) => set({ startWithWindows: v })} />
       </Row>
@@ -511,8 +504,8 @@ function VaultTab({ go }: { go: (p: Partial<Nav>) => void }) {
           </Button>
         </Row>
       </Section>
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">Backups</h2>
+      <section className="mt-8 flex flex-col gap-2">
+        <h2 className="text-2xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">Backups</h2>
         <p className="text-xs text-muted-foreground">After each save Coffer keeps an encrypted copy on this PC: the last 20 saves and one a day for 30 days.</p>
         <BackupList onRestored={setStatus} />
       </section>
@@ -657,10 +650,10 @@ function Shortcuts({ settings, set }: { settings: Settings; set: SetFn }) {
 
 export function ShortcutTable({ title, rows }: { title: string; rows: Array<[string, string]> }) {
   return (
-    <section>
-      <h2 className="mb-1 text-sm font-semibold">{title}</h2>
+    <section className="mt-8 first:mt-0">
+      <h2 className="mb-1 text-2xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">{title}</h2>
       <table className="w-full text-sm">
-        <tbody className="divide-y divide-border border-y border-border">
+        <tbody className="divide-y divide-border">
           {rows.map(([k, d]) => (
             <tr key={k}>
               <td className="w-40 py-2 align-top">{k.includes("/") ? <span className="text-xs">{k}</span> : <Keys combo={k} />}</td>
@@ -678,11 +671,11 @@ function About() {
   return (
     <>
       <section className="flex flex-col gap-1">
-        <h2 className="text-sm font-semibold">Coffer {info?.version}</h2>
+        <h2 className="text-2xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">Coffer {info?.version}</h2>
         <p className="text-sm text-muted-foreground">A password manager that keeps your vault in one encrypted file on this PC. No account, no server.</p>
       </section>
-      <section className="flex flex-col gap-2 text-sm">
-        <h2 className="text-sm font-semibold">How Coffer protects your data</h2>
+      <section className="mt-8 flex flex-col gap-2 text-sm">
+        <h2 className="text-2xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">How Coffer protects your data</h2>
         <p>
           Your vault opens with two secrets: your master password and a Secret Key that this PC keeps and your Emergency Kit holds. A copy of the vault file alone is not enough to read it.
         </p>
@@ -692,9 +685,9 @@ function About() {
           Limits: a program running as you while Coffer is unlocked can read what you can read. Copies of the vault made before a password change still open with the old password.
         </p>
       </section>
-      <section className="flex flex-col gap-1.5">
-        <h2 className="text-sm font-semibold">Licences</h2>
-        <ul className="divide-y divide-border border-y border-border text-sm">
+      <section className="mt-8 flex flex-col gap-1.5">
+        <h2 className="text-2xs font-semibold tracking-[0.06em] text-muted-foreground uppercase">Licences</h2>
+        <ul className="divide-y divide-border text-sm">
           {[
             ["EFF large word list", "Electronic Frontier Foundation, CC BY 3.0 US. Used for passphrases."],
             ["Switzer", "Indian Type Foundry, ITF Free Font License."],

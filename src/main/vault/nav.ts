@@ -10,6 +10,7 @@ export type Filter =
   | { kind: "trash" };
 
 export type View = "items" | "generator" | "health" | "settings" | "import";
+export type HealthTab = "breached" | "reused" | "weak" | "unsecured" | "old" | "expiring" | "duplicate" | "excluded";
 export type SettingsTab = "general" | "security" | "vault" | "shortcuts" | "about";
 
 export interface Nav {
@@ -23,6 +24,8 @@ export interface Nav {
   /** Open the editor with the generator on the password field ("Change password"). */
   withGenerator?: boolean;
   settingsTab: SettingsTab;
+  /** The Health tab to open (a flag chip in the list links to it). */
+  healthTab?: HealthTab;
 }
 
 export const filterKey = (f: Filter): string =>

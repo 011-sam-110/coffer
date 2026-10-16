@@ -37,8 +37,13 @@ const BASE = process.env.COFFER_UI_URL ?? "http://localhost:1420";
 const SHOTS = join(root, ".shots");
 mkdirSync(SHOTS, { recursive: true });
 
-const MAIN = { width: 1100, height: 720 };
-const QUICK = { width: 400, height: 560 };
+// CHECK_UI_MAIN=900x600 / CHECK_UI_QUICK=400x560 try other window sizes (the main window's minimum is 900 x 600).
+const size = (v, w, h) => {
+  const m = /^(\d+)x(\d+)$/.exec(v ?? "");
+  return m ? { width: +m[1], height: +m[2] } : { width: w, height: h };
+};
+const MAIN = size(process.env.CHECK_UI_MAIN, 1100, 720);
+const QUICK = size(process.env.CHECK_UI_QUICK, 400, 560);
 
 /** name, path, viewport, optional steps (run before the checks). */
 const STATES = [
@@ -108,7 +113,7 @@ for (const [name, path, viewport, steps = []] of STATES) {
     if (m.type() === "error") errors.push(m.text());
   });
   page.on("pageerror", (e) => errors.push(String(e)));
-  const r = { name, errors, overflow: false, unfocused: [], focusChecked: 0, stepErrors: [] };
+  const r = { name, errors, overflow: false, unfocused: [], focusChecked: 0, stepErrors: [], clipped: [], truncated: [] };
   try {
     await page.goto(BASE + path, { waitUntil: "networkidle" });
     await page.waitForTimeout(900);
@@ -143,6 +148,42 @@ for (const [name, path, viewport, steps = []] of STATES) {
       }
       return false;
     });
+
+    // Text that does not fit: clipped without an ellipsis is a fault; an ellipsis is listed for review.
+    const fit = await page.evaluate(() => {
+      const clipped = [];
+      const truncated = [];
+      const ownText = (el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+      for (const el of document.querySelectorAll("body *")) {
+        const b = el.getBoundingClientRect();
+        // Skip screen-reader-only text (1 x 1 px by design).
+        if (b.width < 3 || b.height < 3 || !ownText(el)) continue;
+        const st = getComputedStyle(el);
+        if (st.visibility === "hidden") continue;
+        const text = el.textContent.trim().slice(0, 40);
+        const clipsX = st.overflowX === "hidden" || st.overflowX === "clip";
+        const clipsY = st.overflowY === "hidden" || st.overflowY === "clip";
+        if (clipsX && el.scrollWidth > el.clientWidth + 1) {
+          if (st.textOverflow === "ellipsis") truncated.push(text);
+          else clipped.push(`"${text}" (${el.scrollWidth}>${el.clientWidth} wide)`);
+        }
+        if (clipsY && el.scrollHeight > el.clientHeight + 2 && st.overflowY !== "auto") clipped.push(`"${text}" (${el.scrollHeight}>${el.clientHeight} high)`);
+      }
+      // A placeholder is text too: it must fit its empty field.
+      const ctx = document.createElement("canvas").getContext("2d");
+      for (const el of document.querySelectorAll("input[placeholder], textarea[placeholder]")) {
+        if (el.value || !el.placeholder || el.offsetParent === null) continue;
+        const st = getComputedStyle(el, "::placeholder");
+        ctx.font = `${st.fontWeight} ${st.fontSize} ${st.fontFamily}`;
+        const cs = getComputedStyle(el);
+        const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const need = ctx.measureText(el.placeholder).width;
+        if (el.tagName === "INPUT" && need > room + 1) clipped.push(`placeholder "${el.placeholder.slice(0, 30)}" (${Math.ceil(need)}>${Math.floor(room)} wide)`);
+      }
+      return { clipped: clipped.slice(0, 6), truncated };
+    });
+    r.clipped = fit.clipped;
+    r.truncated = fit.truncated;
 
     // Tab through the first focusable elements; each must show a ring (outline on it or a near ancestor).
     if (!name.includes("copied")) {
@@ -183,8 +224,13 @@ for (const r of results) {
   if (r.overflow) issues.push(`overflow: ${r.overflow}`);
   if (r.unfocused.length) issues.push(`no focus ring: ${r.unfocused.join(", ")}`);
   if (r.stepErrors.length) issues.push(`step failed: ${r.stepErrors.join(" | ").slice(0, 200)}`);
+  if (r.clipped.length) issues.push(`clipped text: ${r.clipped.join(", ")}`);
   if (issues.length) bad++;
   console.log(`${issues.length ? "FAIL" : "ok  "} ${r.name.padEnd(26)} focus checked ${String(r.focusChecked).padStart(2)}${issues.length ? "  " + issues.join("; ") : ""}`);
+}
+// Ellipsis truncation is allowed (long titles), but list it so a person can check it hides nothing that matters.
+if (process.env.CHECK_UI_TRUNCATED) {
+  for (const r of results) if (r.truncated.length) console.log(`truncated ${r.name}: ${r.truncated.slice(0, 12).join(" | ")}`);
 }
 console.log(`\ncheck-ui: ${results.length} states, ${results.length - bad} clean, ${bad} with issues. Screenshots in .shots/`);
 process.exit(bad ? 1 : 0);

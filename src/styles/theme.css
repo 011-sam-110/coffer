@@ -31,6 +31,9 @@
 
 /* ---------- Red Dark (dark mode), exact ---------- */
 :root {
+  /* ONE knob for every text size and line height (1 = the original scale).
+     1.2 makes body text 15.6 px; the print stylesheet sets it back to 1. */
+  --type-scale: 1.2;
   color-scheme: dark;
 
   --background: oklch(0.216 0 0);
@@ -94,8 +97,11 @@
   /* derived: a focused text field. A crimson field reads as an error, so fields use a light neutral edge and halo. */
   --focus-field: oklch(0.72 0 0);
   --focus-halo: oklch(0.985 0 0 / 0.16);
-  /* derived: a control border on hover, one step above --input. */
-  --input-hover: oklch(0.4 0 0);
+  /* derived: the edge of a text field, number field or select (3:1 on the background, WCAG 1.4.11).
+     --input (0.321) stays for dividers and quiet surfaces. */
+  --input-border: oklch(0.55 0 0);
+  /* derived: a control edge on hover, one step above --input-border. */
+  --input-hover: oklch(0.63 0 0);
   /* derived: scrim behind dialogs. */
   --scrim: oklch(0.12 0 0 / 0.66);
 
@@ -146,6 +152,7 @@
   --color-secondary-hover: var(--secondary-hover);
   --color-destructive-hover: var(--destructive-hover);
   --color-input-hover: var(--input-hover);
+  --color-input-border: var(--input-border);
   --color-char-digit: var(--char-digit);
   --color-char-symbol: var(--char-symbol);
 
@@ -158,23 +165,23 @@
   --font-sans: "Switzer", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
 
-  /* Product type scale, ratio about 1.15. Fixed rem, never fluid. */
-  --text-2xs: 0.6875rem;
-  --text-2xs--line-height: 1rem;
-  --text-xs: 0.75rem;
-  --text-xs--line-height: 1.05rem;
-  --text-sm: 0.8125rem;
-  --text-sm--line-height: 1.25rem;
-  --text-base: 0.875rem;
-  --text-base--line-height: 1.375rem;
-  --text-md: 1rem;
-  --text-md--line-height: 1.5rem;
-  --text-lg: 1.25rem;
-  --text-lg--line-height: 1.75rem;
-  --text-xl: 1.75rem;
-  --text-xl--line-height: 2.125rem;
-  --text-2xl: 2.5rem;
-  --text-2xl--line-height: 2.75rem;
+  /* Product type scale, ratio about 1.15, times --type-scale (one knob). Never fluid. */
+  --text-2xs: calc(0.6875rem * var(--type-scale));
+  --text-2xs--line-height: calc(1rem * var(--type-scale));
+  --text-xs: calc(0.75rem * var(--type-scale));
+  --text-xs--line-height: calc(1.05rem * var(--type-scale));
+  --text-sm: calc(0.8125rem * var(--type-scale));
+  --text-sm--line-height: calc(1.25rem * var(--type-scale));
+  --text-base: calc(0.875rem * var(--type-scale));
+  --text-base--line-height: calc(1.375rem * var(--type-scale));
+  --text-md: calc(1rem * var(--type-scale));
+  --text-md--line-height: calc(1.5rem * var(--type-scale));
+  --text-lg: calc(1.25rem * var(--type-scale));
+  --text-lg--line-height: calc(1.75rem * var(--type-scale));
+  --text-xl: calc(1.75rem * var(--type-scale));
+  --text-xl--line-height: calc(2.125rem * var(--type-scale));
+  --text-2xl: calc(2.5rem * var(--type-scale));
+  --text-2xl--line-height: calc(2.75rem * var(--type-scale));
 
   --tracking-ui: var(--tracking);
 
@@ -304,7 +311,7 @@
   /* A form control: filled, 1 px border, 4 px radius. */
   .control {
     background: var(--muted);
-    border: 1px solid var(--input);
+    border: 1px solid var(--input-border);
     border-radius: var(--radius);
     min-height: 2rem;
     padding: 0 0.625rem;
@@ -379,11 +386,25 @@
     background: var(--primary);
   }
 
+  /* A key badge inside a button (New Ctrl+N): drawn in the button's own text colour. */
+  .kbd-inline {
+    display: inline-flex;
+    align-items: center;
+    height: calc(1.125rem * var(--type-scale));
+    padding: 0 0.25rem;
+    border: 1px solid color-mix(in oklch, currentColor 35%, transparent);
+    border-radius: var(--radius);
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    opacity: 0.85;
+    white-space: nowrap;
+  }
+
   .kbd {
     display: inline-flex;
     align-items: center;
-    min-width: 1.25rem;
-    height: 1.25rem;
+    min-width: calc(1.25rem * var(--type-scale));
+    height: calc(1.25rem * var(--type-scale));
     padding: 0 0.3125rem;
     border: 1px solid var(--border);
     border-bottom-width: 2px;
@@ -430,6 +451,9 @@ dialog {
 
 /* Emergency Kit print: only the kit, black on white. */
 @media print {
+  :root {
+    --type-scale: 1;
+  }
   @page {
     margin: 16mm;
   }

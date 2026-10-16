@@ -175,7 +175,7 @@ function ItemRow({
       <div
         onClick={onClick}
         className={cx(
-          "flex h-11 cursor-pointer items-center gap-2.5 rounded-sm pr-1 pl-2 transition-colors duration-75",
+          "flex h-12 cursor-pointer items-center gap-2.5 rounded-sm pr-1 pl-2 transition-colors duration-75",
           selected ? "row-selected" : "hover:bg-muted",
         )}
       >
@@ -222,8 +222,10 @@ interface Action {
   label: string;
   /** The action's own shortcut (Ctrl+P, Ctrl+U, Ctrl+T, Ctrl+O). */
   hint?: string;
-  /** Live text on the row, such as the one-time code and the seconds left. */
+  /** Live text on the row, such as the one-time code. */
   detail?: string;
+  /** The code's countdown, drawn as a ring after the code. */
+  ring?: { remaining: number; period: number };
   icon: ReactNode;
   run: () => void;
 }
@@ -451,7 +453,8 @@ function Quick() {
       list.push({
         label: `Copy ${f.label.toLowerCase()}`,
         hint: f.builtin ? shortcut[f.builtin] : undefined,
-        detail: isTotp && actCode ? `${groupCode(actCode.code)} · ${actCode.remaining} s` : undefined,
+        detail: isTotp && actCode ? groupCode(actCode.code) : undefined,
+        ring: isTotp && actCode ? { remaining: actCode.remaining, period: actCode.period } : undefined,
         icon: <Copy className={cx(isSecretKind(f.kind) ? "text-primary-text" : "")} />,
         run: () => copyField(item, f.id, f.builtin ?? null, isTotp),
       });
@@ -627,8 +630,15 @@ function Quick() {
                         {i < 6 ? i + 1 : ""}
                       </span>
                       {a.icon}
-                      <span className="flex-1 truncate">{a.label}</span>
-                      {a.detail && <span className="font-mono text-xs text-muted-foreground tabular-nums">{a.detail}</span>}
+                      <span className="min-w-0 flex-1 truncate" title={a.label}>
+                        {a.label}
+                      </span>
+                      {a.detail && (
+                        <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground tabular-nums" aria-label={a.ring ? `${a.detail}, ${a.ring.remaining} seconds left` : a.detail}>
+                          {a.detail}
+                          {a.ring && <CountdownRing remaining={a.ring.remaining} period={a.ring.period} size={14} />}
+                        </span>
+                      )}
                       {i === actSel && <Kbd>↵</Kbd>}
                       {a.hint && <Kbd>{a.hint}</Kbd>}
                     </div>
@@ -676,7 +686,7 @@ function Quick() {
 
         {hint && mode.kind === "list" && (
           <p className="shrink-0 border-t border-border px-4 py-1.5 text-xs text-muted-foreground" role="note">
-            Enter copies the password · Ctrl+U username · → more
+            Enter copies · Ctrl+U username · → more actions
           </p>
         )}
       </>

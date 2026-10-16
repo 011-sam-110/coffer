@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Generator } from "../../components/Generator";
 import { Monogram } from "../../components/bits";
 import { ConfirmDialog, Menu, useReprompt, useToast } from "../../components/overlays";
-import { Button, Checkbox, cx, IconButton, Input, Notice, Select, Spinner, Textarea } from "../../components/ui";
+import { Button, Checkbox, cx, IconButton, Input, KeyBadge, Notice, Select, Spinner, Textarea } from "../../components/ui";
 import type { FieldKind, ItemType, ItemView } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
 import {
@@ -123,14 +123,14 @@ function ValueInput({
     case "multiline":
       return <Textarea id={id} rows={3} mono={field.builtin === "publicKey"} value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} />;
     case "date":
-      return <Input id={id} type="date" value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} className="w-44" />;
+      return <Input id={id} type="date" value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} className="w-44 max-w-full" />;
     case "monthYear":
-      return <Input id={id} type="month" value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} className="w-44" placeholder="YYYY-MM" />;
+      return <Input id={id} type="month" value={v} invalid={invalid} onChange={(e) => onChange(e.target.value)} className="w-44 max-w-full" placeholder="YYYY-MM" />;
     case "boolean":
       return <Checkbox label="Yes" checked={v === "true"} onChange={(c) => onChange(c ? "true" : "false")} />;
     case "menu":
       return (
-        <Select id={id} value={v} onChange={(e) => onChange(e.target.value)} className="w-56">
+        <Select id={id} value={v} onChange={(e) => onChange(e.target.value)} className="w-56 max-w-full">
           <option value="">Not set</option>
           {(field.options ?? []).map((o) => (
             <option key={o} value={o}>
@@ -169,19 +169,22 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
   }, [field.value]);
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
-        <Input
+      {/* Same shape as a secret field: the eye sits inside, so the hint keeps its room in a narrow pane. */}
+      <div className="control flex items-center gap-1 pr-1" aria-invalid={invalid || undefined}>
+        <input
           id={id}
-          mono
+          autoComplete="off"
+          spellCheck={false}
           value={field.value ?? ""}
-          placeholder={field.value === null && field.hasStored ? "Saved. Paste a new setup key to replace." : "otpauth://... or the setup key"}
-          invalid={invalid}
+          placeholder={field.value === null && field.hasStored ? "Saved. Paste to replace." : "otpauth://... or the setup key"}
+          aria-invalid={invalid || undefined}
           onChange={(e) => onChange(e.target.value === "" && field.hasStored ? null : e.target.value)}
+          className="h-[1.875rem] min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
         />
         {field.value === null && field.hasStored && itemId && field.id && (
-          <Button
+          <IconButton
             size="sm"
-            variant="quiet"
+            label="Show the saved setup key"
             onClick={async () => {
               try {
                 onChange(await withReprompt((password) => call("item_reveal", { id: itemId, field: field.id!, password })));
@@ -190,8 +193,8 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
               }
             }}
           >
-            Show
-          </Button>
+            <Eye />
+          </IconButton>
         )}
       </div>
       {info && <p className="text-xs text-muted-foreground">{info}</p>}
@@ -392,9 +395,9 @@ export function ItemEditor({
     const labelErr = errors[`label:${f.key}`];
     return (
       <div key={f.key} className="flex flex-col gap-2 px-4 py-3" data-err={err ? `field:${f.key}` : labelErr ? `label:${f.key}` : undefined}>
-        <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
           {isCustom ? (
-            <div className="flex flex-col gap-1">
+            <div className="col-span-2 flex flex-col gap-1 @min-[560px]:col-span-1">
               <Input
                 aria-label="Field name"
                 placeholder="Field name"
@@ -412,7 +415,7 @@ export function ItemEditor({
               />
             </div>
           ) : (
-            <label htmlFor={fid(f.key)} className="pt-2 text-xs text-muted-foreground">
+            <label htmlFor={fid(f.key)} className="col-span-2 text-xs text-muted-foreground @min-[560px]:col-span-1 @min-[560px]:pt-2">
               {f.label}
             </label>
           )}
@@ -473,13 +476,13 @@ export function ItemEditor({
     <form
       ref={formRef}
       aria-label={mode === "new" ? `New ${def.label}` : `Edit ${form.title}`}
-      className="flex h-full flex-col"
+      className="@container flex h-full flex-col"
       onSubmit={(e) => {
         e.preventDefault();
         save();
       }}
     >
-      <header className="flex shrink-0 items-start gap-3 px-6 pt-5 pb-4">
+      <header className="flex shrink-0 flex-wrap items-start gap-3 px-6 pt-5 pb-4">
         <Monogram title={form.title || def.label} size={40} />
         <div className="min-w-0 flex-1" data-err={errors.title ? "title" : undefined}>
           <input
@@ -492,7 +495,7 @@ export function ItemEditor({
             aria-invalid={!!errors.title || undefined}
             onChange={(e) => patch({ title: e.target.value })}
             className={cx(
-              "field-focus -mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 text-lg font-semibold hover:border-input",
+              "field-focus -mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 text-lg font-semibold hover:border-input-border",
               errors.title && "border-danger-text",
             )}
           />
@@ -504,12 +507,13 @@ export function ItemEditor({
             <p className="text-xs text-muted-foreground">{mode === "new" ? `New ${def.label.toLowerCase()}` : `Editing ${def.label.toLowerCase()}`}</p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
           <Button onClick={cancel} title="Cancel (Esc)">
             Cancel
           </Button>
-          <Button type="submit" variant="primary" loading={saving} title="Save (Ctrl+S)">
+          <Button type="submit" variant="primary" loading={saving} title="Save (Ctrl+S)" aria-keyshortcuts="Control+S">
             Save
+            <KeyBadge>Ctrl+S</KeyBadge>
           </Button>
         </div>
       </header>
@@ -550,8 +554,8 @@ export function ItemEditor({
             {def.hasUrls &&
               form.urls.map((u, i) => (
                 <div key={`url-${i}`} className="flex flex-col gap-1 px-4 py-3" data-err={errors[`url:${i}`] ? `url:${i}` : undefined}>
-                  <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
-                    <label htmlFor={`${uid}-url-${i}`} className="pt-2 text-xs text-muted-foreground">
+                  <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
+                    <label htmlFor={`${uid}-url-${i}`} className="col-span-2 text-xs text-muted-foreground @min-[560px]:col-span-1 @min-[560px]:pt-2">
                       {form.urls.length > 1 ? `Website ${i + 1}` : "Website"}
                     </label>
                     <div className="flex min-w-0 flex-col gap-1">
@@ -574,8 +578,8 @@ export function ItemEditor({
               ))}
             {def.hasUrls && (
               <div className="px-4 py-2">
-                <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
-                  <span />
+                <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
+                  <span className="hidden @min-[560px]:block" />
                   <div>
                     <Button size="sm" variant="ghost" className="-ml-2.5" icon={<Plus className="size-3.5" />} onClick={() => patch({ urls: [...form.urls, { url: "", label: null }] })}>
                       Add a website
@@ -585,8 +589,8 @@ export function ItemEditor({
               </div>
             )}
             <div className="px-4 py-3">
-              <div className="grid grid-cols-[148px_minmax(0,1fr)_64px] items-start gap-3">
-                <label htmlFor={`${uid}-notes`} className="pt-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-[minmax(0,1fr)_64px] items-start gap-x-3 gap-y-1 @min-[560px]:grid-cols-[148px_minmax(0,1fr)_64px]">
+                <label htmlFor={`${uid}-notes`} className="col-span-2 text-xs text-muted-foreground @min-[560px]:col-span-1 @min-[560px]:pt-2">
                   Notes
                 </label>
                 <div className="flex min-w-0 flex-col gap-1">
@@ -601,7 +605,7 @@ export function ItemEditor({
             <section className="flex flex-col gap-1.5">
               <h2 className="px-1 text-xs font-medium text-muted-foreground">{builtins.length ? "More fields" : "Fields"}</h2>
               <div className="rounded-sm border border-border bg-card">
-                <div aria-hidden className="grid grid-cols-[148px_minmax(0,1fr)_64px] gap-3 border-b border-border px-4 pt-2 pb-1.5 text-2xs text-muted-foreground">
+                <div aria-hidden className="hidden grid-cols-[148px_minmax(0,1fr)_64px] gap-3 border-b border-border px-4 pt-2 pb-1.5 text-2xs text-muted-foreground @min-[560px]:grid">
                   <span>Name and section</span>
                   <span>Value</span>
                 </div>

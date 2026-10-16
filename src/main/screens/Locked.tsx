@@ -73,7 +73,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
             : null;
 
   return (
-    <ScreenFrame center width={380} aside={<Button variant="quiet" size="sm" onClick={onOpenOther}>Open another vault</Button>}>
+    <ScreenFrame center width={needsKey ? 460 : 380} aside={<Button variant="quiet" size="sm" onClick={onOpenOther}>Open another vault</Button>}>
       <div className="mb-7 flex items-center gap-3">
         <span className="inline-flex size-10 items-center justify-center rounded-sm border border-border bg-card">
           <Lock aria-hidden className="size-5 text-muted-foreground" />
