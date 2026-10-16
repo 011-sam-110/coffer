@@ -511,6 +511,10 @@ pub async fn health_report(app: AppHandle) -> CofferResult<HealthReport> {
 /// "Check now": the k-anonymity range calls (SPEC 3.10).
 #[tauri::command]
 pub async fn health_check_breaches(app: AppHandle) -> CofferResult<HealthReport> {
+    // The setting is the consent to send hash prefixes (SPEC 3.10): Rust checks it too.
+    if app.state::<AppState>().settings.rd().settings.breach_check == BreachMode::Off {
+        return Err(CofferError::invalid("Breach checks are off. Turn them on in Settings > Security first."));
+    }
     blocking(move || vault::breach_check(&app)).await?
 }
 
