@@ -53,6 +53,17 @@ pub fn uniform(n: u32) -> u32 {
 pub struct Key32(pub(crate) [u8; 32]);
 
 impl Key32 {
+    /// Copies 32 bytes straight into a key (no loose `[u8; 32]` copy left
+    /// on the stack). `None` for another length.
+    pub(crate) fn from_slice(b: &[u8]) -> Option<Key32> {
+        if b.len() != 32 {
+            return None;
+        }
+        let mut k = Key32([0u8; 32]);
+        k.0.copy_from_slice(b);
+        Some(k)
+    }
+
     /// 32 random bytes.
     pub fn random() -> Self {
         Key32(random_array())

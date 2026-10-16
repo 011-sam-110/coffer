@@ -67,13 +67,17 @@ pub enum ExternalChange {
     /// The header changed (password changed or key rotated elsewhere): write
     /// our state to a conflict file, then lock with reason `keyChanged`.
     HeaderChanged,
-    /// Clean: call [`Vault::reload`] and emit `vault://reloaded`.
+    /// Clean: call [`Vault::reload`] and emit `vault://reloaded`. Never
+    /// returned by [`Vault::check_external_change`] while the open vault has
+    /// unsaved changes (that is `Conflict`).
     Reload,
     /// The disk generation is under the highest seen (a rollback): keep the
     /// open state, block saves, emit `vault://olderOnDisk`.
     OlderOnDisk,
-    /// Generation equal, or higher with records of ours missing: write our
-    /// state to a conflict file, then [`Vault::reload`] the disk file.
+    /// Generation equal, or higher with records of ours missing, or higher
+    /// while the open vault has unsaved changes: write our state to a
+    /// conflict file ([`Vault::conflict_bytes`]), then [`Vault::reload`]
+    /// the disk file.
     Conflict,
     /// The MAC fails (or the file is unreadable): block saves, emit
     /// `vault://diskDamaged`.
@@ -260,6 +264,10 @@ pub struct Vault {
     meta: MetaRecord,
     meta_enc: Option<Enc>,
     disk: Option<DiskState>,
+    /// Keys and Secret Key of the file on disk while they differ from the
+    /// open ones (a rekey or key rotation not yet saved). MAC checks of the
+    /// disk file use these until [`Vault::mark_saved`].
+    disk_keys: Option<(VaultKeys, SecretKey)>,
     pending: Option<DiskState>,
     load_revs: BTreeMap<Uuid, u64>,
     written: BTreeMap<Uuid, u64>,
@@ -280,7 +288,7 @@ impl std::fmt::Debug for Vault {
 }
 
 fn now_str() -> String {
-    time_util::fmt(time_util::now())
+    time_util::now_string()
 }
 
 fn derive_kek(password: &str, sk: &SecretKey, vault_id: &Uuid, salt: &[u8; 16], kdf: &KdfParams) -> Result<Key32> {
@@ -290,10 +298,11 @@ fn derive_kek(password: &str, sk: &SecretKey, vault_id: &Uuid, salt: &[u8; 16], 
 }
 
 fn encrypt_record<T: serde::Serialize>(keys: &VaultKeys, vault_id: &Uuid, id: &Uuid, kind: u8, rev: u64, value: &T) -> Enc {
-    let mut pt = Zeroizing::new(serde_json::to_vec(value).expect("record JSON serialisation cannot fail"));
-    encoding::pad_256(&mut pt);
+    // Written and padded through SecretBuf: no growth frees an unwiped copy.
+    let mut pt = encoding::json_secret(value, false);
+    pt.pad_256();
     let aad = encoding::record_aad(vault_id, id, kind, rev);
-    let (nonce, ct) = crypto::seal(&keys.item_key, &aad, &pt);
+    let (nonce, ct) = crypto::seal(&keys.item_key, &aad, pt.as_slice());
     Enc { nonce, ct }
 }
 
@@ -380,8 +389,8 @@ pub(crate) fn open_file(bytes: &[u8], password: &str, sk: &SecretKey) -> Result<
     let kek = derive_kek(password, sk, &f.vault_id, &f.salt, &f.kdf)?;
     let aad = encoding::header_aad(&f.vault_id, &f.kdf, &f.salt, &f.key_id);
     let vk = crypto::open(&kek, &f.wrap_nonce, &aad, &f.wrap_ct).ok_or(CoreError::BadCredentials)?;
-    let vk: [u8; 32] = vk[..].try_into().map_err(|_| CoreError::BadCredentials)?;
-    let keys = VaultKeys::from_vk(Key32(vk), &f.vault_id);
+    let vk = Key32::from_slice(&vk).ok_or(CoreError::BadCredentials)?;
+    let keys = VaultKeys::from_vk(vk, &f.vault_id);
     if !verify_mac(&keys, &f) {
         return Err(CoreError::Tampered);
     }
@@ -441,6 +450,7 @@ impl Vault {
             meta,
             meta_enc: None,
             disk: None,
+            disk_keys: None,
             pending: None,
             load_revs: BTreeMap::new(),
             written: BTreeMap::new(),
@@ -482,6 +492,7 @@ impl Vault {
             meta_enc: Some(d.meta_enc),
             load_revs: disk.revs.clone(),
             disk: Some(disk),
+            disk_keys: None,
             pending: None,
             written: BTreeMap::new(),
             grants: HashMap::new(),
@@ -510,8 +521,8 @@ impl Vault {
         let kek = derive_kek(password, &self.secret_key, &self.vault_id, &self.salt, &self.kdf)?;
         let aad = encoding::header_aad(&self.vault_id, &self.kdf, &self.salt, &self.key_id);
         let vk = crypto::open(&kek, &self.wrap_nonce, &aad, &self.wrap_ct).ok_or(CoreError::BadCredentials)?;
-        let vk: [u8; 32] = vk[..].try_into().map_err(|_| CoreError::BadCredentials)?;
-        if Key32(vk).ct_eq(&self.keys.vk) { Ok(()) } else { Err(CoreError::BadCredentials) }
+        let vk = Key32::from_slice(&vk).ok_or(CoreError::BadCredentials)?;
+        if vk.ct_eq(&self.keys.vk) { Ok(()) } else { Err(CoreError::BadCredentials) }
     }
 
     // ------------------------------------------------------------ facts
@@ -559,11 +570,32 @@ impl Vault {
         Ok(self.secret_key.clone())
     }
 
-    /// `true` when anything changed since the last save.
+    /// `true` when the open state differs from the file last loaded or
+    /// confirmed written ([`Vault::mark_saved`]): any record (meta
+    /// included) added, removed or at another rev, or another header (a
+    /// password change or key rotation not yet saved). A vault never saved
+    /// is dirty. A [`Vault::to_bytes`] whose write did not land leaves it
+    /// dirty.
     pub fn is_dirty(&self) -> bool {
-        self.meta_enc.is_none() || self.items.values().any(|s| s.enc.is_none()) || self.disk.as_ref().is_some_and(|d| {
-            d.revs.len() != self.items.len() + 1 || self.items.keys().any(|k| !d.revs.contains_key(k))
-        })
+        let Some(d) = &self.disk else { return true };
+        self.meta_enc.is_none()
+            || self.items.values().any(|s| s.enc.is_none())
+            || d.header != self.header_facts()
+            || d.revs.len() != self.items.len() + 1
+            || d.revs.get(&self.meta_id) != Some(&self.meta_rev)
+            || self.items.iter().any(|(id, s)| d.revs.get(id) != Some(&s.rev))
+    }
+
+    /// The header facts of the open state.
+    fn header_facts(&self) -> HeaderFacts {
+        HeaderFacts {
+            vault_id: self.vault_id,
+            key_id: self.key_id.clone(),
+            kdf: self.kdf,
+            salt: self.salt,
+            wrap_nonce: self.wrap_nonce,
+            wrap_ct: self.wrap_ct.clone(),
+        }
     }
 
     // ------------------------------------------------------------ save
@@ -624,6 +656,10 @@ impl Vault {
     /// file on disk. Returns the new generation (store it as highest seen).
     pub fn mark_saved(&mut self) -> Option<u64> {
         let p = self.pending.take()?;
+        // The written file has the open header: the disk now uses the open keys.
+        if p.header == self.header_facts() {
+            self.disk_keys = None;
+        }
         for (id, rev) in &p.revs {
             if self.load_revs.get(id) != Some(rev) {
                 self.written.insert(*id, *rev);
@@ -636,35 +672,43 @@ impl Vault {
 
     // ------------------------------------------------------------ external change
 
+    /// The keys of the file last loaded or written.
+    fn disk_side_keys(&self) -> &VaultKeys {
+        self.disk_keys.as_ref().map(|(k, _)| k).unwrap_or(&self.keys)
+    }
+
+    /// Facts of a disk file, compared with the file last loaded or written
+    /// (its header and keys), not with the open header: a password change
+    /// not yet saved must not make an unchanged disk look changed.
     fn disk_facts(&self, bytes: &[u8]) -> Option<DiskFacts> {
         let f = VaultFile::parse(bytes).ok()?;
-        let header = header_of(&f);
-        let ours = HeaderFacts {
-            vault_id: self.vault_id,
-            key_id: self.key_id.clone(),
-            kdf: self.kdf,
-            salt: self.salt,
-            wrap_nonce: self.wrap_nonce,
-            wrap_ct: self.wrap_ct.clone(),
-        };
-        let header_same = header == ours;
-        let mac_ok = header_same && verify_mac(&self.keys, &f);
+        let base = self.disk.as_ref().map(|d| d.header.clone()).unwrap_or_else(|| self.header_facts());
+        let header_same = header_of(&f) == base;
+        let mac_ok = header_same && verify_mac(self.disk_side_keys(), &f);
         Some(DiskFacts { header_same, mac_ok, generation: f.generation, manifest_mac: f.manifest_mac, revs: f.revs() })
     }
 
     /// Applies the external-change rule of SPEC 3.5 to the bytes on disk.
+    /// While the open state has changes not on disk ([`Vault::is_dirty`],
+    /// also after a `to_bytes` whose write did not land), a clean `Reload`
+    /// becomes `Conflict`, so those changes go to a conflict file instead
+    /// of being dropped.
     pub fn check_external_change(&self, disk_bytes: &[u8], highest_seen: u64) -> ExternalChange {
         let facts = self.disk_facts(disk_bytes);
         let (g, mac) = match &self.disk {
             Some(d) => (d.generation, d.manifest_mac),
             None => (0, [0u8; 32]),
         };
-        decide_external_change(g, &mac, &self.written, highest_seen, facts.as_ref())
+        match decide_external_change(g, &mac, &self.written, highest_seen, facts.as_ref()) {
+            ExternalChange::Reload if self.is_dirty() => ExternalChange::Conflict,
+            other => other,
+        }
     }
 
     /// Loads the disk file into this open vault (after `Reload`, or after
-    /// writing a conflict copy on `Conflict`). The header must equal ours and
-    /// the MAC must verify.
+    /// writing a conflict copy on `Conflict`). The header must equal the
+    /// header of the file last loaded or written and the MAC must verify.
+    /// The open state, header and keys included, becomes the disk file's.
     ///
     /// # Errors
     /// `Tampered` when the MAC or a record fails; `Conflict` when the header
@@ -678,7 +722,18 @@ impl Vault {
             return Err(CoreError::Tampered);
         }
         let f = VaultFile::parse(disk_bytes)?;
-        let d = decrypt_all(&self.keys, &f)?;
+        let d = decrypt_all(self.disk_side_keys(), &f)?;
+        // The open state becomes the disk's, header and keys included (an
+        // unsaved password change or rotation went to the conflict copy).
+        if let Some((keys, sk)) = self.disk_keys.take() {
+            self.keys = keys;
+            self.secret_key = sk;
+        }
+        self.key_id = f.key_id.clone();
+        self.kdf = f.kdf;
+        self.salt = f.salt;
+        self.wrap_nonce = f.wrap_nonce;
+        self.wrap_ct = f.wrap_ct.clone();
         self.items = d.items;
         self.meta_id = d.meta_id;
         self.meta_rev = d.meta_rev;
@@ -693,15 +748,22 @@ impl Vault {
         Ok(())
     }
 
-    /// Restore while unlocked (SPEC 3.5): decrypts a backup of this vault
-    /// with the current VK and takes its records as the open state. Every
-    /// restored record gets a rev above both its backup rev and our current
-    /// rev. Save next: [`Vault::to_bytes`] writes generation = highest seen + 1.
+    /// Restore while unlocked (SPEC 3.5, `backup_restore({ index, password })`):
+    /// decrypts a backup of this vault with the current VK and takes its
+    /// records as the open state. Every restored record gets a rev above
+    /// both its backup rev and our current rev. Save next:
+    /// [`Vault::to_bytes`] writes generation = highest seen + 1.
+    ///
+    /// Re-prompt: when an item has re-prompt now and its backup version
+    /// would weaken it (re-prompt off, or a secret field's kind changed),
+    /// the restore needs the master password (or a live grant for every
+    /// such item). Without it: `RepromptRequired`; ask and call again.
     ///
     /// # Errors
     /// `Invalid` for a backup of another vault or another vault key;
-    /// `Tampered` when it fails to verify.
-    pub fn restore_backup(&mut self, backup_bytes: &[u8]) -> Result<()> {
+    /// `Tampered` when it fails to verify; `RepromptRequired`,
+    /// `BadCredentials`.
+    pub fn restore_backup(&mut self, backup_bytes: &[u8], password: Option<&str>) -> Result<()> {
         let f = VaultFile::parse(backup_bytes)?;
         if f.vault_id != self.vault_id {
             return Err(CoreError::invalid("This backup is of another vault."));
@@ -712,6 +774,18 @@ impl Vault {
             ));
         }
         let d = decrypt_all(&self.keys, &f)?;
+        let needs_password = d.items.iter().any(|(id, restored)| {
+            self.items.get(id).is_some_and(|cur| {
+                Self::weakens(&cur.item, restored.item.reprompt, restored.item.fields.iter().map(|f| (f.id.as_str(), f.kind)))
+                    && !self.has_grant(id)
+            })
+        });
+        if needs_password {
+            match password {
+                Some(p) => self.verify_password(p)?,
+                None => return Err(CoreError::RepromptRequired),
+            }
+        }
         let mut items = BTreeMap::new();
         for (id, slot) in d.items {
             let cur = self.items.get(&id).map(|s| s.rev).unwrap_or(0);
@@ -764,7 +838,12 @@ impl Vault {
         let salt: [u8; 16] = crypto::random_array();
         let kek = derive_kek(password, sk, &self.vault_id, &salt, &self.kdf)?;
         if rekey {
-            self.keys = VaultKeys::from_vk(Key32::random(), &self.vault_id);
+            let old = std::mem::replace(&mut self.keys, VaultKeys::from_vk(Key32::random(), &self.vault_id));
+            // Keep the disk file's keys for MAC checks until the save lands
+            // (the first rekey since the last save holds them).
+            if self.disk.is_some() && self.disk_keys.is_none() {
+                self.disk_keys = Some((old, self.secret_key.clone()));
+            }
             for slot in self.items.values_mut() {
                 slot.enc = None;
             }
@@ -832,30 +911,28 @@ impl Vault {
         self.analysis.flags.get(id).copied().unwrap_or_default()
     }
 
+    /// The list subtitle. Built only from built-in fields whose kind is not
+    /// secret (a user can make any field concealed), so it never shows a
+    /// value that reveal or re-prompt guards. The one intended exception:
+    /// the last 4 digits of a card number.
     fn subtitle(item: &StoredItem) -> String {
+        let plain = |role: &str| item.builtin(role).filter(|f| !f.kind.is_secret()).map(|f| f.value.as_str()).unwrap_or("");
         let last4 = |v: &str| {
-            let digits: String = v.chars().filter(char::is_ascii_digit).collect();
+            let digits: Zeroizing<String> = Zeroizing::new(v.chars().filter(char::is_ascii_digit).collect());
             if digits.len() >= 4 { format!("\u{2022}\u{2022}\u{2022}\u{2022} {}", &digits[digits.len() - 4..]) } else { String::new() }
         };
         match item.item_type {
             ItemType::Login | ItemType::ApiCredential => {
-                let u = item.builtin_value("username");
-                if u.is_empty() && item.item_type == ItemType::ApiCredential {
-                    item.builtin_value("host").to_owned()
-                } else {
-                    u.to_owned()
-                }
+                let u = plain("username");
+                if u.is_empty() && item.item_type == ItemType::ApiCredential { plain("host").to_owned() } else { u.to_owned() }
             }
             ItemType::Card => last4(item.builtin_value("number")),
-            ItemType::Bank => item.builtin_value("bankName").to_owned(),
-            ItemType::Identity => {
-                let n = format!("{} {}", item.builtin_value("firstName"), item.builtin_value("lastName"));
-                n.trim().to_owned()
-            }
-            ItemType::Document => item.builtin_value("docKind").to_owned(),
-            ItemType::SshKey => item.builtin_value("fingerprint").to_owned(),
-            ItemType::Wifi => item.builtin_value("ssid").to_owned(),
-            ItemType::License => item.builtin_value("product").to_owned(),
+            ItemType::Bank => plain("bankName").to_owned(),
+            ItemType::Identity => format!("{} {}", plain("firstName"), plain("lastName")).trim().to_owned(),
+            ItemType::Document => plain("docKind").to_owned(),
+            ItemType::SshKey => plain("fingerprint").to_owned(),
+            ItemType::Wifi => plain("ssid").to_owned(),
+            ItemType::License => plain("product").to_owned(),
             ItemType::Password | ItemType::Note => String::new(),
         }
     }
@@ -1177,7 +1254,7 @@ impl Vault {
                 n
             }
         };
-        let old_pw = old.as_ref().map(|o| o.password().to_owned()).unwrap_or_default();
+        let old_pw: Zeroizing<String> = Zeroizing::new(old.as_ref().map(|o| o.password().to_owned()).unwrap_or_default());
         if let Some(o) = &old {
             item.revisions.insert(0, RevisionRecord { rev: self.items[&o.id].rev, saved_at: o.updated_at.clone(), snapshot: o.snapshot() });
             item.revisions.truncate(REVISIONS_MAX);
@@ -1194,10 +1271,10 @@ impl Vault {
         item.autotype_sequence = input.autotype_sequence.clone().filter(|s| !s.trim().is_empty());
         item.health_excluded = input.health_excluded;
         item.updated_at = now.clone();
-        let new_pw = item.password().to_owned();
-        if new_pw != old_pw {
+        let new_pw: Zeroizing<String> = Zeroizing::new(item.password().to_owned());
+        if *new_pw != *old_pw {
             if !old_pw.is_empty() {
-                item.password_history.insert(0, HistoryValue { id: Uuid::new_v4().to_string(), value: old_pw.clone(), changed_at: now.clone() });
+                item.password_history.insert(0, HistoryValue { id: Uuid::new_v4().to_string(), value: (*old_pw).clone(), changed_at: now.clone() });
                 item.password_history.truncate(PASSWORD_HISTORY_MAX);
             }
             if !new_pw.is_empty() {
@@ -1205,8 +1282,8 @@ impl Vault {
             }
         }
         // Generated values saved into the item enter generator history.
-        let secret_values: Vec<String> = item.fields.iter().filter(|f| f.kind.is_secret()).map(|f| f.value.clone()).collect();
-        for v in &secret_values {
+        let secret_values: Zeroizing<Vec<String>> = Zeroizing::new(item.fields.iter().filter(|f| f.kind.is_secret()).map(|f| f.value.clone()).collect());
+        for v in secret_values.iter() {
             if let Some(pos) = self.generated.iter().position(|g| &g.value == v) {
                 let g = self.generated.remove(pos);
                 self.push_history(&g.value, g.mode);

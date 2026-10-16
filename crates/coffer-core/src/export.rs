@@ -33,9 +33,9 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use uuid::Uuid;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::crypto::{self, KdfParams};
 use crate::encoding::{self, Fields};
@@ -90,7 +90,7 @@ pub fn coffer_json(items: &[&StoredItem], exported_at: &str) -> Zeroizing<Vec<u8
         })
         .collect();
     let doc = CofferJson { format: COFFER_JSON_FORMAT.into(), version: 1, exported_at: exported_at.into(), items };
-    Zeroizing::new(serde_json::to_vec_pretty(&doc).expect("JSON serialisation cannot fail"))
+    encoding::json_secret(&doc, true).into_inner()
 }
 
 fn export_aad(export_id: &Uuid, kdf: &KdfParams, salt: &[u8]) -> Vec<u8> {
@@ -116,9 +116,11 @@ pub fn cofferx_seal(coffer_json: &[u8], export_password: &str, kdf: KdfParams) -
     let salt: [u8; 16] = crypto::random_array();
     let key = crypto::argon2id_key(pw.as_bytes(), &salt, &kdf)?;
     let export_id = Uuid::new_v4();
-    let mut pt = Zeroizing::new(coffer_json.to_vec());
-    encoding::pad_256(&mut pt);
-    let (nonce, ct) = crypto::seal(&key, &export_aad(&export_id, &kdf, &salt), &pt);
+    // The final padded length is reserved first, so padding never reallocates.
+    let mut pt = encoding::SecretBuf::with_capacity(encoding::padded_256_len(coffer_json.len()));
+    std::io::Write::write_all(&mut pt, coffer_json).expect("writing to memory cannot fail");
+    pt.pad_256();
+    let (nonce, ct) = crypto::seal(&key, &export_aad(&export_id, &kdf, &salt), pt.as_slice());
     let doc = CofferX {
         format: COFFERX_FORMAT.into(),
         version: 1,
@@ -187,8 +189,36 @@ fn bw_consumed(t: ItemType) -> &'static [&'static str] {
     }
 }
 
+/// A JSON tree whose strings are zeroed on drop (export trees hold secrets).
+struct WipeValue(Value);
+
+impl Drop for WipeValue {
+    fn drop(&mut self) {
+        wipe_value(&mut self.0);
+    }
+}
+
+fn wipe_value(v: &mut Value) {
+    match v {
+        Value::String(s) => s.zeroize(),
+        Value::Array(a) => a.iter_mut().for_each(wipe_value),
+        Value::Object(m) => m.values_mut().for_each(wipe_value),
+        _ => {}
+    }
+}
+
+fn s(v: &str) -> Value {
+    Value::String(v.to_owned())
+}
+
 fn opt(v: &str) -> Value {
-    if v.is_empty() { Value::Null } else { Value::String(v.to_owned()) }
+    if v.is_empty() { Value::Null } else { s(v) }
+}
+
+/// A JSON object of moved values (`json!` clones each value it is given
+/// and drops the original unwiped).
+fn obj<const N: usize>(pairs: [(&str, Value); N]) -> Value {
+    Value::Object(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect())
 }
 
 fn bitwarden_item(i: &StoredItem) -> Value {
@@ -198,96 +228,98 @@ fn bitwarden_item(i: &StoredItem) -> Value {
         .iter()
         .filter(|f| !f.builtin.as_deref().is_some_and(|b| consumed.contains(&b)))
         .filter(|f| !f.value.is_empty())
-        .map(|f| json!({ "name": f.label, "value": f.value, "type": secret_type(f.kind), "linkedId": null }))
+        .map(|f| obj([("name", s(&f.label)), ("value", s(&f.value)), ("type", secret_type(f.kind).into()), ("linkedId", Value::Null)]))
         .collect();
     let history: Vec<Value> =
-        i.password_history.iter().map(|h| json!({ "lastUsedDate": h.changed_at, "password": h.value })).collect();
+        i.password_history.iter().map(|h| obj([("lastUsedDate", s(&h.changed_at)), ("password", s(&h.value))])).collect();
     let history = if history.is_empty() { Value::Null } else { Value::Array(history) };
     let reprompt: u8 = if i.reprompt { 1 } else { 0 };
-    let mut o = json!({
-        "id": i.id.to_string(),
-        "organizationId": null,
-        "folderId": null,
-        "reprompt": reprompt,
-        "name": i.title,
-        "notes": opt(&i.notes),
-        "favorite": i.favorite,
-        "fields": fields,
-        "collectionIds": null,
-        "passwordHistory": history,
-        "creationDate": i.created_at,
-        "revisionDate": i.updated_at,
-    });
-    let b = |r: &str| i.builtin_value(r).to_owned();
-    let mut uris: Vec<Value> = i.urls.iter().map(|u| json!({ "match": null, "uri": u.url })).collect();
-    match i.item_type {
+    let b = |r: &str| i.builtin_value(r);
+    let (type_id, key, body): (u8, &str, Value) = match i.item_type {
         ItemType::Login | ItemType::Password | ItemType::ApiCredential | ItemType::Wifi => {
+            let mut uris: Vec<Value> = i.urls.iter().map(|u| obj([("match", Value::Null), ("uri", s(&u.url))])).collect();
             let (user, pass) = match i.item_type {
                 ItemType::Login => (b("username"), b("password")),
-                ItemType::Password => (String::new(), b("password")),
+                ItemType::Password => ("", b("password")),
                 ItemType::ApiCredential => {
                     if uris.is_empty() && !b("host").is_empty() {
-                        uris.push(json!({ "match": null, "uri": b("host") }));
+                        uris.push(obj([("match", Value::Null), ("uri", s(b("host")))]));
                     }
                     (b("username"), b("credential"))
                 }
                 _ => (b("ssid"), b("password")),
             };
-            o["type"] = 1.into();
-            o["login"] = json!({
-                "uris": uris,
-                "username": opt(&user),
-                "password": opt(&pass),
-                "totp": opt(&b("totp")),
-            });
+            let login = obj([("uris", Value::Array(uris)), ("username", opt(user)), ("password", opt(pass)), ("totp", opt(b("totp")))]);
+            (1, "login", login)
         }
         ItemType::Card => {
             let exp = b("expiry");
-            let (y, m) = exp.split_once('-').map(|(y, m)| (y.to_owned(), m.trim_start_matches('0').to_owned())).unwrap_or_default();
-            o["type"] = 3.into();
-            o["card"] = json!({
-                "cardholderName": opt(&b("cardholder")),
-                "brand": opt(&b("brand")),
-                "number": opt(&b("number")),
-                "expMonth": opt(&m),
-                "expYear": opt(&y),
-                "code": opt(&b("cvv")),
-            });
+            let (y, m) = exp.split_once('-').map(|(y, m)| (y, m.trim_start_matches('0'))).unwrap_or_default();
+            let card = obj([
+                ("cardholderName", opt(b("cardholder"))),
+                ("brand", opt(b("brand"))),
+                ("number", opt(b("number"))),
+                ("expMonth", opt(m)),
+                ("expYear", opt(y)),
+                ("code", opt(b("cvv"))),
+            ]);
+            (3, "card", card)
         }
         ItemType::Identity => {
-            o["type"] = 4.into();
-            o["identity"] = json!({
-                "title": opt(&b("title")), "firstName": opt(&b("firstName")), "middleName": opt(&b("middleName")),
-                "lastName": opt(&b("lastName")), "address1": opt(&b("address1")), "address2": opt(&b("address2")),
-                "address3": null, "city": opt(&b("city")), "state": opt(&b("region")), "postalCode": opt(&b("postcode")),
-                "country": opt(&b("country")), "company": opt(&b("company")), "email": opt(&b("email")),
-                "phone": opt(&b("phone")), "ssn": null, "username": null, "passportNumber": null, "licenseNumber": null,
-            });
+            let identity = obj([
+                ("title", opt(b("title"))),
+                ("firstName", opt(b("firstName"))),
+                ("middleName", opt(b("middleName"))),
+                ("lastName", opt(b("lastName"))),
+                ("address1", opt(b("address1"))),
+                ("address2", opt(b("address2"))),
+                ("address3", Value::Null),
+                ("city", opt(b("city"))),
+                ("state", opt(b("region"))),
+                ("postalCode", opt(b("postcode"))),
+                ("country", opt(b("country"))),
+                ("company", opt(b("company"))),
+                ("email", opt(b("email"))),
+                ("phone", opt(b("phone"))),
+                ("ssn", Value::Null),
+                ("username", Value::Null),
+                ("passportNumber", Value::Null),
+                ("licenseNumber", Value::Null),
+            ]);
+            (4, "identity", identity)
         }
         ItemType::SshKey => {
-            o["type"] = 5.into();
-            o["sshKey"] = json!({
-                "privateKey": opt(&b("privateKey")),
-                "publicKey": opt(&b("publicKey")),
-                "keyFingerprint": opt(&b("fingerprint")),
-            });
+            let ssh = obj([("privateKey", opt(b("privateKey"))), ("publicKey", opt(b("publicKey"))), ("keyFingerprint", opt(b("fingerprint")))]);
+            (5, "sshKey", ssh)
         }
-        _ => {
-            o["type"] = 2.into();
-            o["secureNote"] = json!({ "type": 0 });
-        }
-    }
-    o
+        _ => (2, "secureNote", obj([("type", 0.into())])),
+    };
+    obj([
+        ("id", Value::String(i.id.to_string())),
+        ("organizationId", Value::Null),
+        ("folderId", Value::Null),
+        ("type", type_id.into()),
+        ("reprompt", reprompt.into()),
+        ("name", s(&i.title)),
+        ("notes", opt(&i.notes)),
+        ("favorite", i.favorite.into()),
+        ("fields", Value::Array(fields)),
+        ("collectionIds", Value::Null),
+        ("passwordHistory", history),
+        ("creationDate", s(&i.created_at)),
+        ("revisionDate", s(&i.updated_at)),
+        (key, body),
+    ])
 }
 
 /// Bitwarden unencrypted JSON of some items.
 pub fn bitwarden_json(items: &[&StoredItem]) -> Zeroizing<Vec<u8>> {
-    let doc = json!({
-        "encrypted": false,
-        "folders": [],
-        "items": items.iter().map(|i| bitwarden_item(i)).collect::<Vec<_>>(),
-    });
-    Zeroizing::new(serde_json::to_vec_pretty(&doc).expect("JSON serialisation cannot fail"))
+    let doc = WipeValue(obj([
+        ("encrypted", false.into()),
+        ("folders", Value::Array(Vec::new())),
+        ("items", Value::Array(items.iter().map(|i| bitwarden_item(i)).collect())),
+    ]));
+    encoding::json_secret(&doc.0, true).into_inner()
 }
 
 /// CSV with the Bitwarden personal headers.
@@ -295,20 +327,21 @@ pub fn bitwarden_json(items: &[&StoredItem]) -> Zeroizing<Vec<u8>> {
 /// # Errors
 /// `Io` when the CSV writer fails.
 pub fn bitwarden_csv(items: &[&StoredItem]) -> Result<Zeroizing<Vec<u8>>> {
-    let mut w = csv::Writer::from_writer(Vec::new());
+    let mut w = csv::Writer::from_writer(encoding::SecretBuf::with_capacity(4096));
     let io = |e: csv::Error| CoreError::Io(format!("CSV export failed: {e}"));
     w.write_record(["folder", "favorite", "type", "name", "notes", "fields", "reprompt", "login_uri", "login_username", "login_password", "login_totp"])
         .map_err(io)?;
     for i in items {
         let login_like = matches!(i.item_type, ItemType::Login | ItemType::Password | ItemType::ApiCredential | ItemType::Wifi);
         let consumed: &[&str] = if login_like { bw_consumed(i.item_type) } else { &[] };
-        let fields: Vec<String> = i
-            .fields
-            .iter()
-            .filter(|f| !f.builtin.as_deref().is_some_and(|b| consumed.contains(&b)))
-            .filter(|f| !f.value.is_empty())
-            .map(|f| format!("{}: {}", f.label, f.value))
-            .collect();
+        let fields: Zeroizing<Vec<String>> = Zeroizing::new(
+            i.fields
+                .iter()
+                .filter(|f| !f.builtin.as_deref().is_some_and(|b| consumed.contains(&b)))
+                .filter(|f| !f.value.is_empty())
+                .map(|f| format!("{}: {}", f.label, f.value))
+                .collect(),
+        );
         let b = |r: &str| i.builtin_value(r).to_owned();
         let (user, pass, totp) = match i.item_type {
             ItemType::Login => (b("username"), b("password"), b("totp")),
@@ -333,8 +366,8 @@ pub fn bitwarden_csv(items: &[&StoredItem]) -> Result<Zeroizing<Vec<u8>>> {
         ]);
         w.write_record(row.iter()).map_err(io)?;
     }
-    let bytes = w.into_inner().map_err(|e| CoreError::Io(format!("CSV export failed: {e}")))?;
-    Ok(Zeroizing::new(bytes))
+    let buf = w.into_inner().map_err(|e| CoreError::Io(format!("CSV export failed: {e}")))?;
+    Ok(buf.into_inner())
 }
 
 impl Vault {
@@ -349,7 +382,7 @@ impl Vault {
     pub fn export(&self, kind: ExportKind, export_password: Option<&str>) -> Result<Zeroizing<Vec<u8>>> {
         let mut items: Vec<&StoredItem> = self.stored_items().filter(|i| i.state != ItemState::Trashed).collect();
         items.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-        let now = crate::time_util::fmt(crate::time_util::now());
+        let now = crate::time_util::now_string();
         match kind {
             ExportKind::CofferJson => Ok(coffer_json(&items, &now)),
             ExportKind::CofferEncrypted => {

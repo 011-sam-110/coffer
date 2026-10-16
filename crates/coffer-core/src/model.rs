@@ -284,7 +284,7 @@ pub struct ItemView {
 
 /// One field of an [`ItemInput`]. For a secret kind, `value: None` keeps the
 /// stored value of the field with the same id.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldInput {
     /// Field id; empty or unknown = a new field.
@@ -308,7 +308,7 @@ pub struct FieldInput {
 }
 
 /// Create (no id) or update (id + baseRev) (contract `ItemInput`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemInput {
     /// Existing id for an update.
@@ -1032,7 +1032,7 @@ pub struct GeneratedValue {
 /// Breach-check result for one item and one password (SPEC 7: keyed by item
 /// id + SHA-256 of the password; a new password has no entry until the
 /// next check).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
 pub struct BreachCacheEntry {
     /// Item id.
     pub item_id: String,
@@ -1040,6 +1040,45 @@ pub struct BreachCacheEntry {
     pub password_sha256: String,
     /// Times found in Pwned Passwords (0 = not found).
     pub count: u64,
+}
+
+/// `Debug` prints no value: a field value can be a new password.
+impl std::fmt::Debug for FieldInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FieldInput")
+            .field("id", &self.id)
+            .field("label", &self.label)
+            .field("kind", &self.kind)
+            .field("value", &self.value.as_ref().map(|_| "<redacted>"))
+            .field("builtin", &self.builtin)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `Debug` prints no field value and no notes.
+impl std::fmt::Debug for ItemInput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ItemInput")
+            .field("id", &self.id)
+            .field("base_rev", &self.base_rev)
+            .field("item_type", &self.item_type)
+            .field("title", &self.title)
+            .field("fields", &self.fields)
+            .field("notes", &if self.notes.is_empty() { "" } else { "<redacted>" })
+            .field("reprompt", &self.reprompt)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `Debug` prints no password hash.
+impl std::fmt::Debug for BreachCacheEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BreachCacheEntry")
+            .field("item_id", &self.item_id)
+            .field("password_sha256", &"<redacted>")
+            .field("count", &self.count)
+            .finish()
+    }
 }
 
 #[cfg(test)]

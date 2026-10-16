@@ -2,19 +2,27 @@
 //! routing of single Dashlane CSVs. Headers match without case.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::{ParsedImport, custom, fallback_title, is_empty_item, new_item, set, strip_bom, tag, unix_to_str, url};
 use crate::error::{CoreError, Result};
 use crate::model::{FieldKind, ItemState, ItemType};
 
-/// A CSV row by lower-case header name.
+/// Most columns Coffer reads from one CSV.
+pub const MAX_CSV_COLUMNS: usize = 512;
+/// Most cells (rows x header columns) Coffer reads from one CSV.
+pub const MAX_CSV_CELLS: usize = 1_000_000;
+
+/// A CSV row by lower-case header name. Every row shares one
+/// header -> column map; the row holds only its cells.
 pub(crate) struct Row {
-    map: HashMap<String, String>,
+    pub(super) index: Rc<HashMap<String, usize>>,
+    cells: Vec<String>,
 }
 
 impl Row {
     pub(crate) fn get(&self, k: &str) -> &str {
-        self.map.get(k).map(String::as_str).unwrap_or("")
+        self.index.get(k).and_then(|i| self.cells.get(*i)).map(String::as_str).unwrap_or("")
     }
 
     /// The first non-empty value among several header names.
@@ -26,29 +34,37 @@ impl Row {
 impl Drop for Row {
     fn drop(&mut self) {
         use zeroize::Zeroize;
-        for v in self.map.values_mut() {
-            v.zeroize();
-        }
+        self.cells.zeroize();
     }
 }
 
-/// Reads every row of a CSV with a header line.
+/// Reads every row of a CSV with a header line. At most
+/// [`MAX_CSV_COLUMNS`] header columns and [`MAX_CSV_CELLS`] cells; cells
+/// past the header width are ignored.
 pub(crate) fn rows(bytes: &[u8]) -> Result<Vec<Row>> {
+    rows_limited(bytes, MAX_CSV_COLUMNS, MAX_CSV_CELLS)
+}
+
+pub(crate) fn rows_limited(bytes: &[u8], max_columns: usize, max_cells: usize) -> Result<Vec<Row>> {
+    let too_large = || CoreError::UnsupportedFormat("This CSV file is too large to import.".into());
     let mut r = csv::ReaderBuilder::new().has_headers(true).flexible(true).from_reader(strip_bom(bytes));
-    let headers: Vec<String> = r
-        .headers()
-        .map_err(|_| CoreError::UnsupportedFormat("This CSV file is not readable.".into()))?
-        .iter()
-        .map(|h| h.trim().to_lowercase())
-        .collect();
+    let headers = r.headers().map_err(|_| CoreError::UnsupportedFormat("This CSV file is not readable.".into()))?.clone();
+    if headers.len() > max_columns {
+        return Err(too_large());
+    }
+    let width = headers.len();
+    // A repeated header name: the last column wins (as before).
+    let index: Rc<HashMap<String, usize>> = Rc::new(headers.iter().enumerate().map(|(i, h)| (h.trim().to_lowercase(), i)).collect());
     let mut out = Vec::new();
+    let mut cells_total = 0usize;
     for rec in r.records() {
         let rec = rec.map_err(|_| CoreError::UnsupportedFormat("A line of this CSV file is not readable.".into()))?;
-        let mut map = HashMap::new();
-        for (h, v) in headers.iter().zip(rec.iter()) {
-            map.insert(h.clone(), v.to_owned());
+        let cells: Vec<String> = rec.iter().take(width).map(str::to_owned).collect();
+        cells_total += width.max(1);
+        if cells_total > max_cells {
+            return Err(too_large());
         }
-        out.push(Row { map });
+        out.push(Row { index: Rc::clone(&index), cells });
     }
     Ok(out)
 }

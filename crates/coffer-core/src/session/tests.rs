@@ -469,7 +469,7 @@ fn restore_backup_while_unlocked() {
     v.item_delete_forever(&a.id).unwrap();
     v.item_save(&login("later", "u", "p2"), None).unwrap();
     saved(&mut v);
-    v.restore_backup(&backup).unwrap();
+    v.restore_backup(&backup, None).unwrap();
     let titles: Vec<String> = v.items_list().into_iter().map(|s| s.title).collect();
     assert_eq!(titles, vec!["keep me".to_owned()]);
     let b = v.to_bytes(10);
@@ -477,7 +477,7 @@ fn restore_backup_while_unlocked() {
     // A backup of another vault is refused.
     let mut other = new_vault(&k);
     let ob = saved(&mut other);
-    assert!(v.restore_backup(&ob).is_err());
+    assert!(v.restore_backup(&ob, None).is_err());
 }
 
 // ---------------------------------------------------------------- password and key
@@ -802,4 +802,157 @@ fn debug_prints_no_secret() {
     v.item_save(&login("Visible", "u", "debug-secret-xyz"), None).unwrap();
     let d = format!("{v:?} {:?}", v.items.values().next().unwrap().item);
     assert!(!d.contains("debug-secret-xyz"));
+}
+
+// ---------------------------------------------------------------- review fixes (e62fd60)
+
+/// Review item 1: a save whose write did not land must not be dropped by
+/// a reload. Before: `to_bytes` filled the record caches, `is_dirty` was
+/// false and the decision was `Reload`, so the shell reloaded over the edit.
+#[test]
+fn failed_write_keeps_edit_and_turns_reload_into_conflict() {
+    let k = sk();
+    let mut v0 = new_vault(&k);
+    assert!(v0.is_dirty(), "a vault never saved is dirty");
+    let it = v0.item_save(&login("Mail", "u", "old-pw"), None).unwrap();
+    let b1 = saved(&mut v0);
+    assert!(!v0.is_dirty());
+    let mut a = open(&b1, PW, &k).unwrap();
+    let mut b = open(&b1, PW, &k).unwrap();
+    let clean = open(&b1, PW, &k).unwrap();
+    // PC B edits the notes and saves (generation 2).
+    let mut ib = as_input(&b.item_get(&it.id).unwrap());
+    ib.notes = "note from B".into();
+    b.item_save(&ib, None).unwrap();
+    let disk_b = b.to_bytes(1);
+    b.mark_saved();
+    // PC A changes the password; its write fails (the disk is B's file).
+    let mut ia = as_input(&a.item_get(&it.id).unwrap());
+    ia.fields.iter_mut().find(|f| f.builtin.as_deref() == Some("password")).unwrap().value = Some("NEW-pw-from-A".into());
+    a.item_save(&ia, None).unwrap();
+    assert!(a.is_dirty());
+    let _attempt = a.to_bytes(1);
+    assert!(a.is_dirty(), "a to_bytes whose write did not land leaves the vault dirty");
+    assert_eq!(a.check_external_change(&disk_b, 1), ExternalChange::Conflict);
+    assert_eq!(&*a.item_reveal(&it.id, "password", None).unwrap(), "NEW-pw-from-A");
+    // A vault with no open change still reloads.
+    assert!(!clean.is_dirty());
+    assert_eq!(clean.check_external_change(&disk_b, 1), ExternalChange::Reload);
+    // A change of the meta record alone counts too.
+    let mut m = open(&b1, PW, &k).unwrap();
+    m.generate(&GeneratorOptions::default()).unwrap();
+    let _attempt = m.to_bytes(1);
+    assert!(m.is_dirty());
+    assert_eq!(m.check_external_change(&disk_b, 1), ExternalChange::Conflict);
+}
+
+/// Review item 2: restoring a backup made before re-prompt was switched
+/// on must not switch it off without the master password.
+#[test]
+fn restore_backup_cannot_weaken_reprompt() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let it = v.item_save(&login("Bank", "u", "S3cret-bank-pw"), None).unwrap();
+    let backup = saved(&mut v);
+    let mut inp = as_input(&v.item_get(&it.id).unwrap());
+    inp.reprompt = true; // turning re-prompt on needs nothing
+    v.item_save(&inp, None).unwrap();
+    let guarded = saved(&mut v);
+    assert_eq!(v.item_reveal(&it.id, "password", None).unwrap_err(), CoreError::RepromptRequired);
+    assert_eq!(v.restore_backup(&backup, None).unwrap_err(), CoreError::RepromptRequired);
+    assert!(v.is_reprompt(&it.id).unwrap(), "a refused restore changes nothing");
+    assert!(!v.is_dirty());
+    assert_eq!(v.restore_backup(&backup, Some("not the master password ok")).unwrap_err(), CoreError::BadCredentials);
+    v.restore_backup(&backup, Some(PW)).unwrap();
+    assert!(!v.is_reprompt(&it.id).unwrap());
+    // A restore that does not weaken re-prompt needs nothing.
+    v.restore_backup(&guarded, None).unwrap();
+    assert!(v.is_reprompt(&it.id).unwrap());
+    v.restore_backup(&guarded, None).unwrap();
+    // A live grant for the item covers it.
+    v.item_reveal(&it.id, "password", Some(PW)).unwrap();
+    v.restore_backup(&backup, None).unwrap();
+    assert!(!v.is_reprompt(&it.id).unwrap());
+}
+
+/// Review item 5: a concealed username (of a re-prompt item) leaked
+/// through `ItemSummary.subtitle` and `ItemView.subtitle`.
+#[test]
+fn subtitle_never_shows_secret_fields() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let mut inp = login("Corp VPN", "acct-77421-SECRET", "pw");
+    inp.fields[0].kind = FieldKind::Concealed;
+    inp.reprompt = true;
+    let it = v.item_save(&inp, None).unwrap();
+    assert_eq!(it.subtitle, "");
+    assert_eq!(v.item_get(&it.id).unwrap().subtitle, "");
+    assert_eq!(v.items_list()[0].subtitle, "");
+    assert_eq!(v.item_reveal(&it.id, "username", None).unwrap_err(), CoreError::RepromptRequired);
+    // A plain username still shows; a card keeps its last 4 digits.
+    assert_eq!(v.item_save(&login("Plain", "visible-user", "pw"), None).unwrap().subtitle, "visible-user");
+    let card = ItemInput {
+        item_type: ItemType::Card,
+        title: "Card".into(),
+        fields: vec![field("number", FieldKind::CardNumber, "4111 1111 1111 1234")],
+        urls: vec![],
+        ..login("unused", "", "")
+    };
+    assert_eq!(v.item_save(&card, None).unwrap().subtitle, "\u{2022}\u{2022}\u{2022}\u{2022} 1234");
+}
+
+/// Review item 6: after a password change (or rotation) not yet saved,
+/// an unchanged disk file read as `HeaderChanged` (and, with rekey, its
+/// MAC failed under the new key).
+#[test]
+fn unsaved_password_change_keeps_disk_unchanged() {
+    let p2 = "a much longer new passphrase quartz falcon";
+    for rekey in [false, true] {
+        let k = sk();
+        let mut v = new_vault(&k);
+        v.item_save(&login("A", "u", "pw-a"), None).unwrap();
+        let disk = saved(&mut v);
+        assert_eq!(v.check_external_change(&disk, 1), ExternalChange::Unchanged);
+        v.change_password(PW, p2, rekey, "Personal").unwrap();
+        assert_eq!(v.check_external_change(&disk, 1), ExternalChange::Unchanged, "rekey={rekey}");
+        assert!(v.is_dirty(), "an unsaved password change is a change");
+        // Another PC saves meanwhile: our open change makes it a conflict;
+        // the reload returns to the disk's header and keys.
+        let mut other = open(&disk, PW, &k).unwrap();
+        other.item_save(&login("B", "u", "pw-b"), None).unwrap();
+        let disk2 = saved(&mut other);
+        assert_eq!(v.check_external_change(&disk2, 1), ExternalChange::Conflict, "rekey={rekey}");
+        v.reload(&disk2).unwrap();
+        assert_eq!(v.items_list().len(), 2);
+        assert!(v.verify_password(PW).is_ok());
+        assert!(!v.is_dirty());
+        // Once the save lands, the new file is the base.
+        v.change_password(PW, p2, rekey, "Personal").unwrap();
+        let disk3 = saved(&mut v);
+        assert_eq!(v.check_external_change(&disk3, 2), ExternalChange::Unchanged);
+        assert!(!v.is_dirty());
+        assert!(open(&disk3, p2, &k).is_ok());
+    }
+    // Secret Key rotation (always a rekey).
+    let k = sk();
+    let mut v = new_vault(&k);
+    let disk = saved(&mut v);
+    let k2 = v.rotate_secret_key(PW).unwrap();
+    assert_eq!(v.check_external_change(&disk, 1), ExternalChange::Unchanged);
+    let disk2 = saved(&mut v);
+    assert_eq!(v.check_external_change(&disk2, 2), ExternalChange::Unchanged);
+    assert!(open(&disk2, PW, &k2).is_ok());
+}
+
+/// Review item 7: `ItemInput` / `FieldInput` printed new passwords and
+/// `BreachCacheEntry` printed the password SHA-256.
+#[test]
+fn inputs_and_breach_cache_debug_print_no_secret() {
+    let mut inp = login("Visible", "u", "debug-new-pw-123");
+    inp.notes = "secret note text".into();
+    let d = format!("{inp:?} {:?}", inp.fields[1]);
+    assert!(!d.contains("debug-new-pw-123") && !d.contains("secret note text"), "{d}");
+    assert!(d.contains("Visible") && d.contains("<redacted>"));
+    let e = BreachCacheEntry { item_id: "i".into(), password_sha256: "abcdef0123456789".into(), count: 3 };
+    assert!(!format!("{e:?}").contains("abcdef0123456789"));
 }
