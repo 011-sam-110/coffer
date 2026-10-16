@@ -47,7 +47,7 @@ Source: `base-vault-export.service.ts`.
 - `{ "encrypted": true, "passwordProtected": true, "salt": <16 bytes base64>, "kdfType": 0|1, "kdfIterations": n, "kdfMemory": MiB (Argon2id only), "kdfParallelism": n (Argon2id only), "encKeyValidation_DO_NOT_EDIT": <EncString>, "data": <EncString of the clear JSON> }`.
 - KdfType: 0 PBKDF2-SHA256, 1 Argon2id.
 - EncString type 2 = AES-256-CBC + HMAC-SHA256, three parts: iv, ciphertext, mac. The text form `2.<iv b64>|<ct b64>|<mac b64>` is UNVERIFIED: read `enc-string.ts` in bitwarden/clients before relying on it.
-- Key derivation for this export (UNVERIFIED in detail): the password and the salt go through the KDF to a 32-byte key, then HKDF-Expand (SHA-256) with info "enc" and "mac" gives the two 32-byte keys. Check against the Bitwarden code before building it.
+- Key derivation for this export (checked by the security reviewer in default-key-generation.service.ts and sdk-internal kdf.rs): the KDF input is the password and the UTF-8 bytes of the `salt` STRING (the salt is NOT base64-decoded). For Argon2id the salt is SHA-256 hashed first and memory is kdfMemory (MiB) x 1024 KiB. The 32-byte KDF output goes through HKDF-Expand-SHA256 with info "enc" and "mac" (32 bytes each). EncString type 2 = AES-256-CBC + HMAC-SHA256 over iv || ct.
 - The account-restricted encrypted JSON (no `passwordProtected`) can only be opened by the same Bitwarden account. Coffer does not import it: tell the user to export the password-protected kind.
 
 ### Bitwarden CSV

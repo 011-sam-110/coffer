@@ -5,6 +5,10 @@
 //
 // Rules:
 // - A command returns its value, or rejects with a CofferError.
+// - The UI never passes a file path to a command that reads or writes secrets:
+//   Rust opens every file and folder dialog itself (SPEC 3.7).
+// - Re-prompt is enforced in Rust (SPEC 3.6): pass the master password, or get
+//   "repromptRequired" and ask for it.
 // - No command returns a secret except `item_reveal` (one value) and
 //   `vault_create` / `emergency_kit` (the Secret Key for the Emergency Kit).
 // - Times are ISO 8601 strings in UTC.
@@ -54,6 +58,7 @@ export interface EmergencyKit {
   vaultName: string;
   vaultPath: string;
   vaultId: string;
+  keyId: string; // the 6 id symbols, printed as "Key ID"
   secretKey: string; // C1-AAAAAA-XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX (id, 26 secret symbols, check)
   createdAt: string;
   computerName: string;
@@ -193,10 +198,11 @@ export interface Revision {
   title: string;
 }
 
+/** Masked: reveal or copy one entry with item_reveal / item_copy, field "history:<id>". */
 export interface PasswordHistoryEntry {
   id: string;
-  value: string; // only returned by item_password_history after reprompt rules pass
   changedAt: string;
+  length: number;
 }
 
 export interface TotpCode {
@@ -205,7 +211,8 @@ export interface TotpCode {
   remaining: number; // seconds left in this period
 }
 
-/** Field id shortcuts accepted by item_copy / item_reveal besides a real field id. */
+/** Field refs accepted by item_copy / item_reveal: a real field id, a built-in role,
+ * or "history:<password history entry id>". */
 export type FieldRef = string | "username" | "password" | "totp";
 
 // ---------- generator ----------
@@ -234,9 +241,12 @@ export interface Generated {
   label: "weak" | "fair" | "good" | "strong" | "excellent";
 }
 
+/** Masked: reveal with generator_history_reveal, copy with generator_history_copy. */
 export interface GeneratedHistoryEntry {
-  value: string;
+  id: string;
   createdAt: string;
+  length: number;
+  mode: GeneratorMode;
 }
 
 // ---------- health ----------
@@ -272,6 +282,13 @@ export interface ImportPreview {
   skipped: Array<{ title: string; reason: string }>;
   warnings: string[];
   needsPassword: boolean; // encrypted Bitwarden JSON: call import_preview again with password
+}
+
+export interface BackupEntry {
+  index: number;
+  savedAt: string;
+  size: number;
+  generation: number;
 }
 
 export interface ImportResult {
@@ -313,6 +330,7 @@ export interface AppInfo {
 }
 
 export interface FolderInfo {
+  path: string;
   exists: boolean;
   writable: boolean;
   synced: boolean;
@@ -330,17 +348,20 @@ export interface QuickContext {
 // name: [args, result]. The UI calls invoke(name, args).
 export interface Commands {
   app_info: [Record<string, never>, AppInfo];
-  folder_info: [{ folder: string }, FolderInfo];
+  folder_info: [{ folder: string | null }, FolderInfo]; // null = the default folder
+  folder_pick: [Record<string, never>, FolderInfo | null]; // Rust opens the folder dialog; null = cancelled
 
   vault_status: [Record<string, never>, VaultStatus];
   vault_create: [{ name: string; password: string; folder: string | null }, EmergencyKit];
-  vault_open: [{ path: string }, VaultStatus];
+  vault_open: [Record<string, never>, VaultStatus | null]; // Rust opens the file dialog; null = cancelled
   vault_unlock: [{ password: string; secretKey: string | null }, VaultStatus];
   vault_unlock_hello: [Record<string, never>, VaultStatus]; // tier 2
   vault_lock: [Record<string, never>, void];
-  vault_change_password: [{ current: string; next: string }, void];
-  vault_move: [{ folder: string }, VaultStatus];
-  vault_save_again: [{ path: string | null }, VaultStatus]; // file vanished while unlocked
+  vault_change_password: [{ current: string; next: string; rekey: boolean }, void]; // rekey = "My old password may be known"
+  vault_move: [Record<string, never>, VaultStatus | null]; // Rust opens the folder dialog
+  vault_save_again: [{ saveAs: boolean }, VaultStatus | null]; // file vanished while unlocked; saveAs opens a Rust dialog
+  vault_open_older: [Record<string, never>, VaultStatus]; // confirm opening a file with a lower generation
+  hello_set: [{ enabled: boolean; password: string | null }, VaultStatus]; // tier 2; enabling needs the master password
   secret_key_validate: [{ secretKey: string }, { valid: boolean; keyId: string | null }];
   emergency_kit: [{ password: string }, EmergencyKit];
   kdf_benchmark: [Record<string, never>, { millis: number; mKib: number; t: number; p: number }];
@@ -355,10 +376,11 @@ export interface Commands {
   items_bulk: [{ ids: string[]; action: "archive" | "trash" | "restore" | "addTag" | "removeTag"; tag: string | null }, number];
   item_delete_forever: [{ id: string }, void];
   trash_empty: [Record<string, never>, number];
-  item_revisions: [{ id: string }, Revision[]]; // tier 2 UI
+  item_revisions: [{ id: string; password: string | null }, Revision[]]; // tier 2 UI
   item_restore_revision: [{ id: string; rev: number }, ItemView]; // tier 2 UI
   item_password_history: [{ id: string; password: string | null }, PasswordHistoryEntry[]];
-  totp_code: [{ id: string; field: string | null }, TotpCode];
+  item_open_url: [{ id: string; urlIndex: number }, void]; // Rust opens only an http(s) URL stored in the item
+  totp_code: [{ id: string; field: string | null; password: string | null }, TotpCode];
   totp_parse: [{ input: string }, { issuer: string | null; account: string | null; valid: boolean }];
   totp_from_image: [{ path: string | null }, { uri: string }]; // tier 2; path null = scan the screen
   ssh_generate: [Record<string, never>, { privateKey: string; publicKey: string; fingerprint: string }]; // tier 2
@@ -366,29 +388,33 @@ export interface Commands {
   generate: [{ options: GeneratorOptions }, Generated];
   generator_copy: [{ value: string }, { clearsInSeconds: number | null }];
   generator_history: [Record<string, never>, GeneratedHistoryEntry[]];
+  generator_history_reveal: [{ id: string }, string];
+  generator_history_copy: [{ id: string }, { clearsInSeconds: number | null }];
   generator_history_clear: [Record<string, never>, void];
   password_strength: [{ password: string; userInputs: string[] }, { score: 0 | 1 | 2 | 3 | 4; crackTime: string; warning: string | null }];
 
   health_report: [Record<string, never>, HealthReport];
   health_check_breaches: [Record<string, never>, HealthReport];
 
-  import_preview: [{ path: string; password: string | null }, ImportPreview];
+  // Rust opens the file dialog unless reuseLast (then it re-reads the last picked file, e.g. with a password).
+  import_preview: [{ password: string | null; reuseLast: boolean }, ImportPreview | null];
   import_commit: [{ previewId: string }, ImportResult];
   import_undo: [{ tag: string }, number];
-  file_delete: [{ path: string }, void]; // only a path the user just imported from
-  export_vault: [{ kind: ExportKind; path: string; masterPassword: string; exportPassword: string | null }, { path: string }];
+  import_delete_source: [{ previewId: string }, void]; // deletes the plain file the user imported from
+  // Rust verifies masterPassword, then opens the save dialog; null = cancelled.
+  export_vault: [{ kind: ExportKind; masterPassword: string; exportPassword: string | null }, { path: string } | null];
 
-  backups_list: [Record<string, never>, Array<{ path: string; savedAt: string; size: number }>];
-  backup_restore: [{ path: string }, VaultStatus];
+  backups_list: [Record<string, never>, BackupEntry[]];
+  backup_restore: [{ index: number }, VaultStatus];
 
   settings_get: [Record<string, never>, Settings];
   settings_set: [{ patch: Partial<Settings> }, Settings];
 
   quick_context: [Record<string, never>, QuickContext];
   quick_hide: [Record<string, never>, void];
+  quick_set_modal: [{ modal: boolean }, void]; // true while a prompt or dialog of Quick Access is up: no close on blur
   main_show: [{ itemId: string | null; view: "item" | "settings" | "generator" | "health" | null }, void];
   autotype: [{ id: string; password: string | null }, void]; // tier 2
-  open_url: [{ url: string }, void]; // http and https only
   app_quit: [Record<string, never>, void];
 }
 

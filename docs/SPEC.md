@@ -1,6 +1,6 @@
 # Coffer: product and technical spec
 
-Status: **v2**, 2026-10-16. v1 had two independent reviews (security, product); v2 takes in the product review in full. The security review changes are in section 3 (marked "v2 security"). Research: [research/findings.md](research/findings.md), [research/import-formats.md](research/import-formats.md). The IPC contract is code: [`src/lib/contract.ts`](../src/lib/contract.ts).
+Status: **v2**, 2026-10-16. v1 had two independent reviews (security, product); v2 takes in both in full. Research: [research/findings.md](research/findings.md), [research/import-formats.md](research/import-formats.md). The IPC contract is code: [`src/lib/contract.ts`](../src/lib/contract.ts).
 
 ## 1. What Coffer is
 
@@ -38,7 +38,7 @@ Coffer is a password manager for Windows that lives in the system tray, next to 
 | Export: Coffer encrypted, Bitwarden JSON, CSV | Bitwarden | 1 |
 | Automatic encrypted backups and restore | KeePass-style | 1 |
 | Screen-capture protection | Bitwarden | 1 |
-| Windows Hello in-session unlock | 1Password, Bitwarden | 2 |
+| Windows Hello in-session unlock (a convenience gate, off by default) | 1Password, Bitwarden | 2 |
 | Auto-type into the previous window | Bitwarden autotype, KeePass | 2 |
 | Item revision history UI | 1Password | 2 |
 | SSH key items with Ed25519 generation | 1Password, Bitwarden | 2 |
@@ -61,20 +61,29 @@ Tier 1 is v1. Tier 2 is built tonight only after tier 1 passes QA, in the order 
 
 ## 3. Security design
 
+v2 security: this section takes in the security review in full (verdict "sound with fixes").
+
 ### 3.1 Threat model
 | Attacker has | Coffer must |
 |---|---|
 | A copy of the vault file (cloud folder, backup, stolen USB) | Keep every item secret. The file alone is not enough even with a weak password, because the Secret Key is not in it. |
 | The vault file and the Secret Key (Emergency Kit stolen) | Hold against guessing for a strong password: Argon2id with high memory cost. |
-| The ability to change the vault file | Detect a changed, deleted, added or rolled-back record and a changed KDF header, and refuse to open. A whole-file rollback to an older valid copy cannot be detected: the docs say so. |
-| Code running as the same Windows user while Coffer is locked | Best effort only. Such code can read the DPAPI-protected Secret Key and log keys. The docs say so; the UI claims no more. |
+| The ability to change the vault file | Detect a changed, deleted, added or rolled-back record and a changed KDF header, and refuse to open. A whole-file rollback is detected on any PC that saw the newer file (generation counter); a PC that never saw it cannot detect it. |
+| Old copies of the file plus old secrets, after the user changed them | "Change master password" with "My old password may be known" and "Rotate Secret Key" make a new vault key and re-encrypt everything, so old secrets do not open new versions. |
+| Code running as the same Windows user while Coffer is locked | Best effort only. Such code can read the DPAPI-protected Secret Key and log keys; with Hello on it can open the vault. The docs say so; the UI claims no more. |
 | Code running as the same user while Coffer is unlocked | Out of scope. No password manager can stop it. |
+| Script injected into the UI (for example from imported data) | Cannot reach more than its window's capability allows, cannot load remote code (CSP), cannot navigate away, cannot open arbitrary URLs or files. |
 | Shoulder-surfing, screen sharing, clipboard history | Mask by default; hide windows from most screen capture (setting, on by default); keep copies out of Windows clipboard history and cloud clipboard; clear the clipboard. |
 
 ### 3.2 Secrets and keys
 - **Master password**: normalise with Unicode NFKD and trim leading and trailing white space before use. Create and change refuse a zxcvbn score below 3 (zxcvbn gets the vault name as a user input).
-- **Secret Key**: 16 random bytes from the OS CSPRNG, once per vault. Text form `C1-AAAAAA-XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX` with alphabet `23456789ABCDEFGHJKLMNPQRSTVWXYZ` (31 symbols, no 0 1 I O U): `C1` is the format version; `AAAAAA` is the **key id**, 6 random symbols that are NOT part of the secret; then 26 secret symbols (31^26 > 2^128) and 1 check symbol. The check symbol is `sum(value_i * (i+1)) mod 31` over the 32 symbols of id and secret, so a typo is caught before the KDF runs.
-- The vault header stores only the key id. The device stores the Secret Key in `%LOCALAPPDATA%\Coffer\device.json`, DPAPI-encrypted (`CryptProtectData`, current user, with the vault id as optional entropy), keyed by vault id.
+- **Secret Key**: 16 random bytes (128 bits) from the OS CSPRNG, once per vault (and again on rotation). Text form `C1-AAAAAA-XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX`. Alphabet `23456789ABCDEFGHJKLMNPQRSTVWXYZ` (31 symbols, values 0 to 30 in that order; no 0, 1, I, O or U).
+  - `C1` = format version.
+  - `AAAAAA` = **key id**: 6 random symbols made with the key, NOT derived from it, not secret. The kit prints it as "Key ID"; the vault header stores it; `header_aad` binds it.
+  - Then 26 secret symbols: one big-endian base-31 integer (31^26 > 2^128). Decoding rejects a value of 2^128 or more.
+  - Then 1 check symbol: c = (sum of i * v_i for i = 1..26) mod 31 over the secret symbols. Because 31 is prime, this catches every single-symbol error and every swap of two symbols.
+  - Input ignores case, spaces and dashes. A character outside the alphabet shows "This character is not in a Secret Key" at once.
+- The device stores the Secret Key in `%LOCALAPPDATA%\Coffer\device.json` with `CryptProtectData` (current user, `CRYPTPROTECT_UI_FORBIDDEN`, optional entropy `coffer/v1/device-sk` + vault_id), keyed by vault id. The docs say an administrator password reset of the Windows account loses it (then the kit is needed).
 - Settings > Security > "Show Secret Key" (needs the master password) shows it and opens the Emergency Kit again.
 
 ### 3.3 Key derivation and wrapping
@@ -82,20 +91,32 @@ Tier 1 is v1. Tier 2 is built tonight only after tier 1 passes QA, in the order 
 pw_key   = Argon2id(password, salt = kdf.salt (16 B), m = kdf.m_kib, t = kdf.t, p = kdf.p, len = 32)
 sk_key   = HKDF-SHA256(ikm = secret_key (16 B), salt = vault_id (16 B), info = "coffer/v1/secret-key", len = 32)
 kek      = HKDF-SHA256(ikm = pw_key || sk_key, salt = kdf.salt, info = "coffer/v1/kek", len = 32)
-VK       = 32 random bytes per vault (the vault key)
+VK       = 32 random bytes (the vault key)
 wrapped  = XChaCha20-Poly1305(key = kek, nonce = 24 random bytes, aad = header_aad, plaintext = VK)
-item_key = HKDF-SHA256(ikm = VK, salt = vault_id, info = "coffer/v1/records")
-mac_key  = HKDF-SHA256(ikm = VK, salt = vault_id, info = "coffer/v1/manifest")
+item_key = HKDF-SHA256(ikm = VK, salt = vault_id, info = "coffer/v1/records", len = 32)
+mac_key  = HKDF-SHA256(ikm = VK, salt = vault_id, info = "coffer/v1/manifest", len = 32)
+blob_key = HKDF-SHA256(ikm = VK, salt = vault_id, info = "coffer/v1/attachments", len = 32)
 ```
-- **Default KDF**: Argon2id, m = 131072 KiB (128 MiB), t = 3, p = 4. Vault creation measures the time on this PC and shows it.
-- **Floor** (refuse to open below): m < 65536 KiB, t < 2, p < 1. **Ceiling** (refuse above, so a crafted header cannot freeze the app): m > 1048576 KiB, t > 10, p > 16.
-- **header_aad** = UTF-8 `coffer-vault/1` then vault_id bytes, then `alg`, `m_kib`, `t`, `p` as 4-byte big-endian numbers, then the salt, then the key id. A change to any of them breaks the unwrap.
+- Every encryption draws a new 24-byte nonce from the OS RNG (`getrandom`).
+- **Default KDF**: Argon2id with the `parallel` feature (so the 4 lanes use 4 threads), m = 131072 KiB (128 MiB), t = 3, p = 4. Vault creation measures the time on this PC and shows it.
+- **Floor** (refuse to open below): m < 65536 KiB, t < 2, p < 1. **Ceiling** (refuse BEFORE running Argon2, so a crafted header cannot freeze the app): m > 1048576 KiB, t > 10, p > 16.
 - Wrong password and wrong Secret Key give one error code (`badCredentials`). When the Secret Key came from this device, the UI says "Wrong master password." When the user typed it, the UI says "The master password or the Secret Key is wrong."
-- **Change master password**: new salt, same or new KDF settings, new wrap of VK. Items are not re-encrypted. The dialog says "Backups and old copies of the vault still open with the old password."
-- **Rotate Secret Key**: same, with a new Secret Key and a new Emergency Kit (tier 2).
-- Tests use a test-only KDF profile under the floor, allowed only by `#[cfg(test)]` code.
+- **Change master password**: a check box "My old password may be known" (on by default). On: make a new VK, re-encrypt every record (and attachment), new salt, new wrap, delete this PC's backups made under the old VK. Off: new salt and new wrap of the same VK. Either way the dialog says "Copies made before now (sync history, other backups) still open with the old password and Secret Key."
+- **Rotate Secret Key** (tier 2): always a new VK and full re-encryption, a new kit, backups under the old VK deleted.
+- Tests use a test-only KDF profile under the floor, reachable only from `#[cfg(test)]` code.
+- Not done (noted): key commitment (`HMAC(kek, "coffer/v1/kek-commit" || header_aad)`). An attack on its absence needs the Secret Key plus many unlocks of crafted files; revisit later.
 
-### 3.4 Vault file format (`.coffer`)
+### 3.4 Byte encodings (exact, for known-answer tests)
+- Every AAD and MAC input is a sequence of fields; each field is `u32 big-endian length || bytes`. The first field is a label.
+- Ids are the 16 raw UUID bytes. `kind` is 1 byte (1 = item, 2 = meta). `rev`, `generation` and counts are u64 big-endian. `m_kib`, `t`, `p` are u32 big-endian. `alg` is the UTF-8 text `argon2id`.
+- `header_aad` = fields: `"coffer/v1/header"`, vault_id, `"argon2id"`, m_kib, t, p, salt, key_id (UTF-8).
+- Record AAD = fields: `"coffer/v1/record"`, vault_id, id, kind, rev.
+- Manifest input = fields: `"coffer/v1/manifest"`, vault_id, generation, record count, then for each record sorted by id bytes: id, kind, rev, SHA-256(nonce || ct).
+- Attachment AAD (tier 3) = fields: `"coffer/v1/attachment"`, vault_id, item_id, attachment_id.
+- Record plaintext is UTF-8 JSON padded with spaces to a multiple of 256 bytes before encryption (hides exact lengths).
+- The parser rejects unknown top-level fields, duplicate keys, a wrong `format` or `version`, and a repeated record id.
+
+### 3.5 Vault file format (`.coffer`)
 One UTF-8 JSON file. Binary values are base64 (standard, padded).
 ```json
 {
@@ -103,43 +124,63 @@ One UTF-8 JSON file. Binary values are base64 (standard, padded).
   "version": 1,
   "vault_id": "uuid",
   "key_id": "AAAAAA",
+  "generation": 42,
   "kdf": { "alg": "argon2id", "m_kib": 131072, "t": 3, "p": 4, "salt": "b64" },
   "wrapped_vault_key": { "nonce": "b64", "ct": "b64" },
-  "records": [ { "id": "uuid", "kind": "item|meta", "rev": 7, "nonce": "b64", "ct": "b64" } ],
+  "records": [ { "id": "uuid", "kind": "item", "rev": 7, "nonce": "b64", "ct": "b64" } ],
   "manifest_mac": "b64"
 }
 ```
-- Each record: `ct = XChaCha20-Poly1305(item_key, nonce, aad = "coffer/v1/record" || vault_id || id || kind || rev(8-byte BE), plaintext = JSON)`.
-- `manifest_mac = HMAC-SHA256(mac_key, header_aad || for each record sorted by id: id || kind || rev || SHA-256(nonce || ct))`. Checked on open, before any record is used. A mismatch stops the open: "This vault file was changed outside Coffer. [Open the newest backup] [Choose a backup]".
-- The `meta` record holds vault-level data that must be secret: vault name, generator history, health exclusions, the breach-check cache, tag colours, trash purge log.
+- Record `ct = XChaCha20-Poly1305(item_key, nonce, aad = record AAD, plaintext = padded JSON)`.
+- `manifest_mac = HMAC-SHA256(mac_key, manifest input)`. Checked on open, right after the unwrap and before any record is used. A mismatch stops the open: "This vault file was changed outside Coffer. [Open the newest backup] [Choose a backup]".
+- **Generation**: +1 on every save, covered by the MAC. `device.json` keeps the highest generation this PC has seen per vault id. A lower generation on open shows "This file is older than the last version this PC saw (generation n, this file m)." and opens only on confirm.
+- The `meta` record holds vault-level data that must be secret: vault name, generator history, health exclusions, the breach-check cache, tag colours.
 - Item revisions (last 10 snapshots) are inside the item's own record.
-- **Atomic write**: write `<file>.tmp` in the same folder, flush to disk, then replace (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`). Retry the replace up to 10 times over 2 s when a sync tool holds the file. Then delete stale `.tmp` files.
-- **Backups**: after each save, copy the file to `%LOCALAPPDATA%\Coffer\backups\<vault_id>\<UTC time>.coffer`. Keep the last 20 saves and one per day for 30 days. Backups are as encrypted as the vault. Settings > Vault lists them with [Restore] (restore = make the current file a backup, then copy the chosen one in).
+- **Atomic write**: write a uniquely named `<stem>.<random>.tmp` in the same folder, `sync_all`, then re-read the `manifest_mac` of the file on disk: if it differs from what Coffer last loaded or wrote, do not replace it (go to the external-change rule). Else replace with `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`, retrying up to 10 times over 2 s while a sync tool holds the file. Delete stale `.tmp` files of this vault.
+- **Backups**: after each save, copy the file to `%LOCALAPPDATA%\Coffer\backups\<vault_id>\<UTC time>.coffer`. Keep the last 20 saves and one per day for 30 days. Settings > Vault lists them by index with [Restore] (restore = make the current file a backup, then copy the chosen one in).
 - **Default location**: `%USERPROFILE%\Coffer\<vault name>.coffer` (not Documents, which OneDrive Known Folder Move often syncs). If the chosen folder is under `%OneDrive%`, `%OneDriveCommercial%`, a Dropbox or a Google Drive folder, the create screen says: "This folder syncs to the cloud. The file is encrypted and useless without your Secret Key, but every copy that sync keeps can be attacked offline with it."
-- **External change** (Coffer saves at once, so the rule works on revs): Coffer keeps the (id, rev) list of what it last loaded or wrote. On a change on disk that passes the MAC, Coffer reloads if every record it wrote since then is in the new file at the same or a higher rev. If not, Coffer writes its own state to `<name> (conflict <date>).coffer`, loads the disk file, and shows: "This vault changed on another computer. Your changes since <time> are in <file>." An open edit whose base rev is stale shows "This item changed on disk. [Keep mine] [Keep theirs]".
+- **External change**: Coffer keeps the (id, rev) list and generation of what it last loaded or wrote. On a change on disk, reload only if the MAC verifies, the generation is higher, and every record Coffer wrote since its last load is in the new file at the same or a higher rev. If the MAC fails or the generation is not higher: keep the open state and show "The vault file on disk changed in a way Coffer did not expect. Coffer kept your open vault." If records of ours are missing: write our state to `<stem> (conflict <date>).coffer`, load the disk file, and show "This vault changed on another computer. Your changes since <time> are in <file>." An open edit whose base rev is stale shows "This item changed on disk. [Keep mine] [Keep theirs]".
 - **Missing file**: at start, `vault_status.state = "missing"`: "Coffer cannot find your vault at <path>. [Find vault file] [Restore from backup] [Create a new vault]". If the file goes while unlocked: "The vault file is gone from <path>. Your items are still open. [Save it here again] [Save as...]". Coffer never re-creates the file without asking.
+- **Attachments** (tier 3): each in `<vault file stem>.attachments\<id>.bin` (the folder name never shows the secret vault name), encrypted with `blob_key`; the item entry stores `sha256` (of nonce || ct) and `size`, checked on read.
 
-### 3.5 Memory and the UI boundary
+### 3.6 Memory, the UI boundary and re-prompt
 - Rust holds VK, the derived keys and the decrypted items in `zeroize`-on-drop types. Lock drops them all.
-- The UI gets `ItemSummary` (no secrets) and `ItemView` (secret fields masked). `item_reveal` returns one value. `item_copy` and `autotype` never send the value to the UI.
-- In an `ItemInput`, a secret field with `value: null` keeps the stored value. So an edit that does not touch the password never needs it in the UI.
-- **Re-prompt**: for an item with `reprompt = true`, Rust refuses `item_reveal`, `item_copy` of a secret field, `item_password_history` and `autotype` unless the call carries the correct master password. Rust checks it with a fresh KDF run (a constant-time compare of the unwrap result); a correct check is remembered for that item for 60 s.
-- The UI clears its item store on `vault://locked`.
-- **WebView hardening**: CSP `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost`; no remote URLs in any window; Tauri capabilities allow only Coffer's commands plus the dialog plugin's open and save; WebView2 `AreBrowserAcceleratorKeysEnabled = false` (Ctrl+P, Ctrl+R, F5 and the find bar do nothing); right-click shows no browser menu.
+- The UI gets `ItemSummary` (no secrets) and `ItemView` (secret fields masked). `item_reveal` returns one value. `item_copy` and `autotype` never send a secret to the UI.
+- Password history, revisions and generator history reach the UI masked. Each value has its own reveal and copy (`item_reveal` / `item_copy` with a `history:<entry id>` field ref; `generator_history_copy` / `generator_history_reveal` by id).
+- In an `ItemInput`, a secret field with `value: null` keeps the stored value. An edit that does not touch the password never needs it in the UI.
+- `health_report` returns item ids and plain-language details, never values or hashes.
+- **Re-prompt is enforced in Rust; the UI never decides.** For an item with `reprompt = true`, `item_reveal`, `item_copy` of a secret field, `totp_code`, `autotype`, `item_password_history` and `item_revisions` need either the master password in the call or a grant Rust holds for that item id. Rust checks the password by deriving the KEK again and unwrapping VK. A grant ends after 60 s or on lock. Without it the command fails with `repromptRequired`.
 
-### 3.6 Windows Hello (tier 2)
-- In-session quick unlock (Bitwarden's first path): with Hello on, when Coffer locks it keeps VK encrypted with `CryptProtectMemory` (same process) in memory. Unlock asks `UserConsentVerifier` through `IUserConsentVerifierInterop::RequestVerificationForWindowAsync` with Coffer's window handle, so the prompt is in front. A pass decrypts VK.
+### 3.7 WebView hardening
+- `build.rs`: `tauri_build::try_build(Attributes::new().app_manifest(AppManifest::new().commands(&[...every Coffer command...])))`, so only listed commands exist for permissions.
+- Capabilities per window: `capabilities/quick.json` (`"windows": ["quick"]`) allows only `app_info`, `settings_get`, `settings_set`, `vault_status`, `vault_unlock`, `vault_unlock_hello`, `vault_lock`, `items_list`, `item_copy`, `totp_code`, `autotype`, `quick_context`, `quick_hide`, `quick_set_modal`, `main_show`, `generate`, `generator_copy`. `capabilities/main.json` (`"windows": ["main"]`) allows the rest. No `remote` key. No shell plugin. No JS permissions for opener, dialog or fs: every file and folder dialog opens from Rust.
+- `tauri.conf.json`: `app.withGlobalTauri: false`; `app.security.freezePrototype: true`; `app.security.assetProtocol.enable: false`; `app.security.csp`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'` ('unsafe-inline' for styles only, for the motion library; it does not enable script).
+- `on_navigation` allows only the app origin; `on_new_window` denies all; release builds have no devtools.
+- WebView2 per webview (via `with_webview`): `AreBrowserAcceleratorKeysEnabled = false` (Ctrl+P, Ctrl+R, F5 and the find bar do nothing), `IsGeneralAutofillEnabled = false` and `IsPasswordAutosaveEnabled = false` (so a typed Secret Key is never saved in the WebView2 profile), default context menus off.
+- Every input has `autocomplete="off"` and `spellcheck={false}`.
+- Markdown in notes renders with no raw HTML (no `dangerouslySetInnerHTML`, no raw-HTML plugin).
+- "Open site" is `item_open_url({ id, urlIndex })`: Rust opens only an `http://` or `https://` URL stored in that item. The UI never sends a URL to open. This blocks imported `file:` and `ms-*:` URLs.
+- Import, export, open-vault, choose-folder and restore-backup use Rust-side dialogs. The UI never passes a file path to a command that reads or writes secrets.
+
+### 3.8 Windows Hello (tier 2)
+- In-session quick unlock (Bitwarden's first path): with Hello on, when Coffer locks it keeps VK encrypted with `CryptProtectMemory(CRYPTPROTECTMEMORY_SAME_PROCESS)` (buffer a multiple of 16 bytes). Unlock calls `UserConsentVerifier::CheckAvailabilityAsync`, then `IUserConsentVerifierInterop::RequestVerificationForWindowAsync(hwnd, "Unlock Coffer")` with Coffer's own window; only `Verified` passes. Quick Access does not close on blur while the prompt is up.
+- **Hello is a convenience gate, not encryption.** With it on, a program running as you can open the vault without your master password. It is off by default; turning it on needs the master password; the setting says this in one sentence.
 - The master password is still needed after an app restart, Windows sign-out, and after "Require master password every" N days (default 14). Then the UI hides the Hello button and says "Windows Hello works after one master-password unlock."
-- When `helloReady` is true, the unlock screen starts Hello at once. Cancel falls back to the password field.
+- When `helloReady` is true, the unlock screen starts Hello at once. Cancel falls back to the password field. Hello needs Windows 11 (build 22000) and does not work over Remote Desktop.
 
-### 3.7 Clipboard
-- Copy writes `CF_UNICODETEXT` plus the registered formats `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory` (DWORD 0) and `CanUploadToCloudClipboard` (DWORD 0). UI wording: "Not kept in Windows clipboard history" (third-party clipboard tools can ignore the flag).
-- Clear after the set time (default 90 s) only if `GetClipboardSequenceNumber` still matches the value after our write.
-- Lock, quit and Windows sign-out clear the clipboard if it still holds Coffer's copy.
-- The generator's Copy and the tray's "Copy a new password" use the same path.
+### 3.9 Clipboard
+- One `OpenClipboard` / `EmptyClipboard` / `SetClipboardData` (x4) / `CloseClipboard`: `CF_UNICODETEXT` plus the registered formats `ExcludeClipboardContentFromMonitorProcessing` (any data), `CanIncludeInClipboardHistory` (DWORD 0) and `CanUploadToCloudClipboard` (DWORD 0). Read `GetClipboardSequenceNumber` after `CloseClipboard`.
+- Clear: `OpenClipboard`, read the number again, `EmptyClipboard` only if unchanged, `CloseClipboard`. After the set time (default 90 s), and on lock, quit and Windows sign-out.
+- UI wording: "Not kept in Windows clipboard history." The docs add that Remote Desktop clipboard sharing and third-party clipboard tools can still copy the value.
 
-### 3.8 Breach check (opt-in)
-- Coffer sends the first 5 characters of each password's SHA-1 hash, never the password: `GET https://api.pwnedpasswords.com/range/<prefix>` with `Add-Padding: true`, then compares the suffixes locally. The result is cached per item revision in the meta record. Runs on "Check now", or weekly when that is on.
+### 3.10 Breach check (opt-in)
+- Coffer sends the first 5 characters of each password's SHA-1 hash, never the password: `GET https://api.pwnedpasswords.com/range/<prefix>` with `Add-Padding: true` and `User-Agent: Coffer`. It drops the padding lines (count 0) and compares the suffixes locally. The result is cached per item revision in the meta record. Runs on "Check now", or weekly when that is on.
+
+### 3.11 Lock signals
+- Idle: `GetLastInputInfo`, polled every 15 s.
+- Windows lock: `WTSRegisterSessionNotification`, `WTS_SESSION_LOCK`.
+- Sleep: `RegisterSuspendResumeNotification` (needed on Modern Standby PCs, where a desktop app gets suspend messages only after it opts in); lock on `PBT_APMSUSPEND`; also lock when `GUID_CONSOLE_DISPLAY_STATE` reports the display off while "lock on sleep" is on. Drop keys first (the budget is about 2 s).
+- Sign-out and shutdown: `WM_QUERYENDSESSION` / `WM_ENDSESSION`: lock, clear the clipboard, exit.
 
 ## 4. Item model
 
@@ -202,12 +243,12 @@ Field kinds and the secret kinds are listed in `src/lib/contract.ts`.
 - **Score** = floor(100 x healthy / total). total = active login and password items with a password, not excluded. healthy = not breached, not reused, not weak. 100 means no counted finding. Shown only when total is 5 or more; else "Add 5 or more logins to see a score."
 - Under the score: the formula in words ("18 of 20 passwords are not breached, reused or weak") and "Breached: not checked" or "Breached: checked <date>".
 - Tabs: Breached, Reused (grouped), Weak, Other (unsecured, old, expiring, duplicate), Excluded (n) with "Include again".
-- Actions per finding: "Change password" (edit mode with the generator open), "Open site", "Use HTTPS", "Exclude from health".
+- Actions per finding: "Change password" (edit mode with the generator open), "Open site" (`item_open_url`), "Use HTTPS", "Exclude from health".
 - With no issue: "No weak, reused or breached passwords found." Never "You are safe."
 
 ## 8. Import and export
 - **Import**: Coffer (`.cofferx`, Coffer JSON), 1Password (`.1pux`, CSV), Bitwarden (JSON, CSV), Dashlane (CSV ZIP, single CSV), Chrome / Edge / Brave CSV, Firefox CSV. Exact formats: [research/import-formats.md](research/import-formats.md). Encrypted Bitwarden JSON is tier 3: show "Export from Bitwarden as JSON (not encrypted), import it, then delete that file."
-- Flow: pick file; Coffer detects the format; preview (counts by type, duplicates to skip, skipped items with reasons, warnings); import in ONE write; every item gets the tag `Imported/<source>`; result screen with [Undo this import] (moves that batch to Trash) and "This file holds your passwords in plain text. [Delete it] [Keep it]".
+- Flow: pick file (a Rust-side dialog); Coffer detects the format; preview (counts by type, duplicates to skip, skipped items with reasons, warnings); import in ONE write; every item gets the tag `Imported/<source>`; result screen with [Undo this import] (moves that batch to Trash) and "This file holds your passwords in plain text. [Delete it] [Keep it]".
 - **Export**: Coffer encrypted (`.cofferx`: own password, Argon2id + XChaCha20-Poly1305, same header rules as the vault), Bitwarden JSON (plain, so a user can leave), CSV (logins and notes, Bitwarden headers). Any export needs the master password again. A plain export shows: "This file will hold your passwords in plain text. Anyone who opens it can read them."
 
 ## 9. Desktop shell
@@ -237,7 +278,7 @@ Field kinds and the secret kinds are listed in `src/lib/contract.ts`.
 
 ## 11. Screens and states
 1. **Welcome**: "Create a new vault" / "Open an existing vault".
-2. **Create vault**: name (default "Personal"); master password with strength meter and confirm; location (default, or choose; synced-folder note); KDF time shown. Then **Emergency Kit** (no skip): vault name, created date, computer name, file path, the Secret Key large in grouped monospace, an empty "Master password" box, and "If you lose this kit and this computer, nobody can open this vault, not even Coffer." [Save as PDF] (print with a print stylesheet) and a confirm step: type the last 4 symbols of the Secret Key. Then preferences (start with Windows, hotkey). Last: "Press Ctrl+Shift+Space now" (detected live).
+2. **Create vault**: name (default "Personal"); master password with strength meter and confirm; location (default, or choose; synced-folder note); KDF time shown. Then **Emergency Kit** (no skip): vault name, created date, computer name, file path, the Secret Key large in grouped monospace, an empty "Master password" box, and "If you lose this kit and this computer, nobody can open this vault, not even Coffer." [Save as PDF] (print with a print stylesheet; the screen says "Keep the kit off the cloud folder that holds your vault: together they leave only your password between an attacker and your data.") and a confirm step: type the last 4 symbols of the Secret Key. Then preferences (start with Windows, hotkey). Last: "Press Ctrl+Shift+Space now" (detected live).
 3. **Open existing vault** (new PC): pick file, enter master password and Secret Key. Help under the field: "No kit? On a computer where this vault opens: Settings > Security > Show Secret Key."
 4. **Unlock** (main window and Quick Access). After 3 failures: "Coffer cannot reset a master password. Check Caps Lock and your keyboard layout."
 5. **Missing vault** and **tampered vault** screens (section 3.4).
