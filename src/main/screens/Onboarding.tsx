@@ -5,9 +5,10 @@ import { useEffect, useId, useRef, useState } from "react";
 import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
 import { useToast } from "../../components/overlays";
-import { Button, cx, FormRow, Input, Keys, Notice, PasswordInput, Switch } from "../../components/ui";
+import { Button, cx, ErrorText, FormRow, Input, Keys, Notice, PasswordInput, Switch } from "../../components/ui";
 import type { EmergencyKit, FolderInfo } from "../../lib/contract";
-import { formatDate, secretKeyGroups, vaultStem } from "../../lib/format";
+import { formatDate, vaultStem } from "../../lib/format";
+import { lastSecretKeyGroup, SECRET_KEY_GROUPS } from "../../lib/secretKey";
 import { call, isCofferError, on } from "../../lib/ipc";
 import { useStore } from "../store";
 import { ScreenFrame, StepTitle } from "./Frame";
@@ -145,7 +146,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
   };
 
   return (
-    <ScreenFrame onBack={onCancel} width={460}>
+    <ScreenFrame steps onBack={onCancel}>
       <StepTitle step={stepLabel("details")} title="Create your vault">
         Coffer cannot reset a master password. Pick one you will remember; a few unrelated words work well.
       </StepTitle>
@@ -163,7 +164,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
           <PasswordInput id={ids.pw} value={pw} onChange={(e) => setPw(e.target.value)} autoFocus revealLabel="master password" />
           <div className="mt-1">
             <StrengthMeter score={strength?.score ?? null} crackTime={strength?.crackTime} warning={strength?.warning} busy={checking} />
-            {strength && !strongEnough && <p className="mt-1 text-xs text-danger-text">Choose a stronger master password. It needs at least "Good".</p>}
+            {strength && !strongEnough && <ErrorText alert={false} className="mt-1">Choose a stronger master password. It needs at least "Good".</ErrorText>}
           </div>
         </FormRow>
         <FormRow label="Type it again" htmlFor={ids.confirm} error={mismatch}>
@@ -186,7 +187,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
               This folder syncs to the cloud{folder.provider ? ` (${folder.provider})` : ""}. The file is encrypted and useless without your Secret Key, but every copy that sync keeps can be attacked offline with it.
             </Notice>
           )}
-          {folder && !folder.writable && <p className="text-xs text-danger-text">Coffer cannot write to this folder. Choose another.</p>}
+          {folder && !folder.writable && <ErrorText alert={false}>Coffer cannot write to this folder. Choose another.</ErrorText>}
         </FormRow>
         <p className="text-xs text-muted-foreground">
           {kdf
@@ -194,11 +195,10 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
             : "Measuring how long unlocking takes on this PC..."}
         </p>
         {error && (
-          <p role="alert" className="text-sm text-danger-text">
-            {error}
-          </p>
+          <ErrorText className="text-sm">{error}</ErrorText>
         )}
-        <div className="flex items-center gap-2">
+        {/* Pinned, so Create vault stays in view at 720 px (as on the kit step). */}
+        <div className="sticky bottom-0 z-10 flex items-center gap-2 border-t border-border bg-background py-4">
           <Button type="submit" variant="primary" loading={busy} disabled={!canCreate} aria-describedby={blocker ? `${ids.name}-why` : undefined}>
             {busy ? "Creating..." : "Create vault"}
           </Button>
@@ -218,13 +218,12 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
 
 /** The printable Emergency Kit. Print styles turn it black on white. */
 export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; /** False when the screen already says it above the sheet. */ lossLineOnScreen?: boolean }) {
-  const groups = secretKeyGroups(kit.secretKey);
   const rows: Array<[string, string]> = [
     ["Vault name", kit.vaultName],
     ["Created", formatDate(kit.createdAt)],
     ["Computer", kit.computerName],
     ["File", kit.vaultPath],
-    ["Key ID", kit.keyId],
+    ["Key ID (not secret)", kit.keyId],
   ];
   return (
     <article className="kit-sheet rounded-sm border border-border bg-card p-6" aria-label="Emergency Kit">
@@ -232,7 +231,7 @@ export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; 
         <h2 className="text-lg font-semibold">Coffer Emergency Kit</h2>
         <span className="text-xs text-muted-foreground">Keep it on paper, somewhere safe</span>
       </header>
-      <dl className="grid grid-cols-[96px_1fr] gap-x-4 gap-y-2 text-sm">
+      <dl className="grid grid-cols-[148px_1fr] gap-x-4 gap-y-2 text-sm">
         {rows.map(([k, v]) => (
           <div key={k} className="contents">
             <dt className="text-muted-foreground">{k}</dt>
@@ -244,12 +243,9 @@ export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; 
       </dl>
       <div className="mt-6">
         <p className="mb-2 text-xs font-medium text-muted-foreground">Secret Key</p>
-        <p className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-lg font-medium tracking-[0.04em]" data-selectable aria-label={`Secret Key ${kit.secretKey}`}>
-          {groups.map((g, i) => (
-            <span key={i} className={i === 0 ? "text-muted-foreground" : undefined}>
-              {g}
-            </span>
-          ))}
+        {/* One form everywhere: "C1" and the groups in one colour and weight, hyphens between them. */}
+        <p className="font-mono text-lg font-medium tracking-[0.04em] break-all" data-selectable>
+          {kit.secretKey}
         </p>
       </div>
       <div className="mt-6">
@@ -272,12 +268,14 @@ function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
     setPrinted(true);
   };
   return (
-    <ScreenFrame width={660}>
+    <ScreenFrame steps>
       <div className="no-print">
         <StepTitle step={stepLabel("kit")} title="Save your Emergency Kit">
           Your vault opens with your master password plus this Secret Key. If you lose this kit and this computer, nobody can open this vault, not even Coffer.
         </StepTitle>
       </div>
+      {/* The kit alone is 640 px wide, from the column's left edge. */}
+      <div className="w-[min(640px,calc(100vw-3rem))]">
       <KitSheet kit={kit} lossLineOnScreen={false} />
       <div className="no-print">
         <Notice tone="warning" icon={<CloudAlert />} className="mt-4">
@@ -300,10 +298,11 @@ function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
               Print or save the kit first.
             </p>
           )}
-          <Button size="lg" variant={printed ? "primary" : "secondary"} disabled={!printed} aria-describedby={printed ? undefined : "kit-why"} onClick={onNext}>
+          <Button size="lg" variant="primary" disabled={!printed} aria-describedby={printed ? undefined : "kit-why"} onClick={onNext}>
             Continue
           </Button>
         </div>
+      </div>
       </div>
     </ScreenFrame>
   );
@@ -313,15 +312,16 @@ function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => 
   const [v, setV] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const id = useId();
-  const last4 = kit.secretKey.replace(/[-\s]/g, "").slice(-4).toUpperCase();
+  const lastGroup = lastSecretKeyGroup(kit.secretKey);
+  const need = SECRET_KEY_GROUPS[SECRET_KEY_GROUPS.length - 1];
   const check = () => {
-    if (v.trim().toUpperCase() === last4) onNext();
+    if (v.trim().toUpperCase() === lastGroup) onNext();
     else setErr("That does not match. Look at the end of the Secret Key on your kit.");
   };
   return (
-    <ScreenFrame center onBack={onBack} backLabel="Back to the kit">
+    <ScreenFrame steps onBack={onBack} backLabel="Back to the kit">
       <StepTitle step={stepLabel("confirm")} title="Check your kit">
-        Type the last 4 symbols of the Secret Key, from the saved kit.
+        Type the last group of your Secret Key ({need} letters and digits), from the saved kit.
       </StepTitle>
       <form
         className="flex flex-col gap-5"
@@ -330,26 +330,26 @@ function ConfirmKit({ kit, onBack, onNext }: { kit: EmergencyKit; onBack: () => 
           check();
         }}
       >
-        <FormRow label="Last 4 symbols" htmlFor={id} error={err}>
+        <FormRow label="Last group" htmlFor={id} error={err}>
           <Input
             id={id}
             mono
             autoFocus
-            maxLength={4}
+            maxLength={need}
             value={v}
             invalid={!!err}
             onChange={(e) => {
               setV(e.target.value.toUpperCase());
               setErr(null);
             }}
-            className="w-32 text-lg tracking-[0.2em] uppercase"
+            className="w-[9ch] text-lg tracking-[0.2em] uppercase"
           />
         </FormRow>
         <div className="flex items-center gap-3">
-          <Button type="submit" variant="primary" disabled={v.trim().length !== 4}>
+          <Button type="submit" variant="primary" disabled={v.trim().length !== need}>
             Confirm
           </Button>
-          {v.trim().length !== 4 && <p className="text-xs text-muted-foreground">Type all 4 symbols.</p>}
+          {v.trim().length !== need && <p className="text-xs text-muted-foreground">Type all {need}.</p>}
         </div>
       </form>
     </ScreenFrame>
@@ -362,7 +362,7 @@ function Prefs({ onNext }: { onNext: () => void }) {
   const [hotkey, setHotkey] = useState(settings?.hotkeyQuick ?? "Ctrl+Shift+Space");
   const [busy, setBusy] = useState(false);
   return (
-    <ScreenFrame center>
+    <ScreenFrame steps>
       <StepTitle step={stepLabel("prefs")} title="Start-up and shortcut">
         You can change both later in Settings.
       </StepTitle>
@@ -427,7 +427,7 @@ function TryHotkey({ onDone }: { onDone: () => void }) {
     if (seen) doneRef.current?.focus();
   }, [seen]);
   return (
-    <ScreenFrame center>
+    <ScreenFrame steps>
       <StepTitle step={stepLabel("hotkey")} title={seen ? "It works" : "Try it now"} />
       {seen ? (
         <div className="flex flex-col gap-5">
@@ -459,7 +459,7 @@ function TryHotkey({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function OpenVault({ onCancel }: { onCancel: () => void }) {
+export function OpenVault({ onCancel, onDone }: { onCancel: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const { setStatus } = useStore();
   const { error } = useToast();
@@ -479,7 +479,10 @@ export function OpenVault({ onCancel }: { onCancel: () => void }) {
               setBusy(true);
               try {
                 const s = await call("vault_open");
-                if (s) setStatus(s);
+                if (s) {
+                  setStatus(s);
+                  onDone(); // the unlock form (password and, on a new PC, the Secret Key) comes next
+                }
               } catch (e) {
                 error(e);
               } finally {

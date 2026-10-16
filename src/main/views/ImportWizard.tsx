@@ -7,7 +7,7 @@ import { Button, FormRow, Input, Notice, PasswordInput, Spinner } from "../../co
 import type { ImportPreview, ImportResult, ItemType } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
 import { ITEM_TYPES } from "../../lib/itemTypes";
-import { secretKeyCharMessage } from "../../lib/secretKey";
+import { normalizeSecretKey, SECRET_KEY_INPUT_HINT, secretKeyCharMessage } from "../../lib/secretKey";
 import { PageShell } from "./PageShell";
 
 const SOURCES = [
@@ -25,7 +25,7 @@ const ENCRYPTED_EXPORT_FORMATS = ["coffer-cofferx"];
 
 type Stage = "intro" | "loading" | "password" | "preview" | "importing" | "result";
 
-export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "conflict"; onClose: () => void; embedded?: boolean }) {
+export function ImportWizard({ source, onClose, embedded, onImported }: { source: "pick" | "conflict"; onClose: () => void; embedded?: boolean; onImported?: () => void }) {
   const [stage, setStage] = useState<Stage>(source === "conflict" ? "loading" : "intro");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -41,7 +41,7 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
     setErr(null);
     setStage("loading");
     try {
-      const p = await call("import_preview", { source: src, password, secretKey });
+      const p = await call("import_preview", { source: src, password, secretKey: secretKey ? normalizeSecretKey(secretKey) : null });
       if (!p) return setStage(preview ? "preview" : "intro");
       setPreview(p);
       setStage(p.needsPassword || p.needsSecretKey ? "password" : "preview");
@@ -67,6 +67,7 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
     try {
       setResult(await call("import_commit", { previewId: preview.previewId }));
       setStage("result");
+      onImported?.();
     } catch (e) {
       setStage("preview");
       error(e);
@@ -132,7 +133,7 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
           <PasswordInput id={ids.pw} autoFocus value={pw} onChange={(e) => setPw(e.target.value)} invalid={!!err} />
         </FormRow>
         {preview.needsSecretKey && (
-          <FormRow label="Secret Key of that vault" htmlFor={ids.sk} error={skMsg} hint="It is on that vault's Emergency Kit.">
+          <FormRow label="Secret Key of that vault" htmlFor={ids.sk} error={skMsg} hint={`It is on that vault's Emergency Kit. ${SECRET_KEY_INPUT_HINT}`}>
             <Input id={ids.sk} mono value={sk} onChange={(e) => setSk(e.target.value.toUpperCase())} invalid={!!skMsg} placeholder="C1-XXXXXX-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX" />
           </FormRow>
         )}

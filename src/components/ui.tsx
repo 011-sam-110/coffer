@@ -18,16 +18,19 @@ import {
 /** Join classes; later Tailwind classes win over earlier ones (w-32 over w-full). */
 export const cx = (...v: ClassValue[]) => twMerge(clsx(v));
 
-type Variant = "primary" | "secondary" | "ghost" | "danger" | "quiet";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "quiet" | "strong";
 type Size = "sm" | "md" | "lg";
 
 const VARIANT: Record<Variant, string> = {
   // A crimson ring on a crimson fill is hard to see: filled buttons take a light ring.
-  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground focus-visible:outline-foreground",
+  // Disabled stays crimson at 35%: the main action is still where it will be.
+  primary: "bg-primary text-primary-foreground hover:bg-primary-hover font-semibold disabled:opacity-35 focus-visible:outline-foreground",
   secondary: "bg-secondary text-secondary-foreground hover:bg-secondary-hover",
   ghost: "text-foreground hover:bg-muted",
   danger: "bg-destructive text-destructive-foreground hover:bg-destructive-hover font-semibold disabled:bg-secondary disabled:text-muted-foreground focus-visible:outline-foreground",
   quiet: "text-muted-foreground hover:text-foreground hover:bg-muted",
+  // The main action on a danger surface: white, not crimson (crimson means go).
+  strong: "bg-foreground text-background hover:bg-foreground/85 font-semibold disabled:bg-secondary disabled:text-muted-foreground",
 };
 const SIZE: Record<Size, string> = {
   sm: "h-7 px-2.5 text-xs gap-1.5",
@@ -296,9 +299,7 @@ export function FormRow({
       </div>
       {children}
       {error ? (
-        <p role="alert" className="text-xs text-danger-text">
-          {error}
-        </p>
+        <ErrorText>{error}</ErrorText>
       ) : hint ? (
         <p className="text-xs text-muted-foreground">{hint}</p>
       ) : null}
@@ -356,6 +357,16 @@ export function SectionHeading({ children, action, id }: { children: ReactNode; 
 }
 
 /** Inline notice: neutral, warning (gold) or danger. Never a coloured side stripe. */
+/** An error line: the alert icon and the words, so colour is never the only sign. */
+export function ErrorText({ children, className, alert = true }: { children: ReactNode; className?: string; alert?: boolean }) {
+  return (
+    <p role={alert ? "alert" : undefined} className={cx("flex items-start gap-1.5 text-xs text-danger-text", className)}>
+      <CircleAlert aria-hidden className="mt-[0.15em] size-[1.1em] shrink-0" />
+      <span className="min-w-0">{children}</span>
+    </p>
+  );
+}
+
 export function Notice({
   tone = "neutral",
   icon,
@@ -378,19 +389,20 @@ export function Notice({
         "flex items-start gap-3 rounded-sm border px-3 py-2.5 text-sm",
         tone === "neutral" && "border-border bg-card",
         tone === "warning" && "border-gold/40 bg-card",
-        tone === "danger" && "border-destructive bg-accent/40",
+        // Danger: the normal surface with a 3 px red rule and a filled alert icon; red is not a fill here.
+        tone === "danger" && "border-border border-l-[3px] border-l-danger-text bg-card",
         className,
       )}
     >
-      {icon && (
+      {(icon || tone === "danger") && (
         <span
           aria-hidden
           className={cx(
             "mt-0.5 shrink-0 [&_svg]:size-4",
-            tone === "warning" ? "text-gold" : tone === "danger" ? "text-danger-text" : "text-muted-foreground",
+            tone === "warning" ? "text-gold" : tone === "danger" ? "text-card [&_svg]:fill-danger-text" : "text-muted-foreground",
           )}
         >
-          {icon}
+          {tone === "danger" ? <CircleAlert /> : icon}
         </span>
       )}
       <div className="min-w-0 flex-1">{children}</div>

@@ -546,10 +546,18 @@ export function RepromptProvider({ children, onModal }: { children: ReactNode; o
 /** Copy a field with the re-prompt flow. Returns false when it failed (a toast says why). */
 export function useCopy() {
   const { withReprompt } = useReprompt();
-  const { error } = useToast();
+  const { error, toast } = useToast();
   return useCallback(
-    async (id: string, field: string): Promise<boolean> => {
+    async (id: string, field: string, totp = false): Promise<boolean> => {
       try {
+        // A one-time code with under 5 s left: wait for the next one, so the pasted code still works.
+        if (totp) {
+          const c = await call("totp_code", { id, field: field === "totp" ? null : field, password: null }).catch(() => null);
+          if (c && c.remaining < 5) {
+            toast(`Waiting ${c.remaining} s for the next code.`);
+            await new Promise((r) => window.setTimeout(r, c.remaining * 1000 + 300));
+          }
+        }
         await withReprompt((password) => call("item_copy", { id, field, password }));
         return true;
       } catch (e) {
@@ -558,6 +566,6 @@ export function useCopy() {
         return false;
       }
     },
-    [withReprompt, error],
+    [withReprompt, error, toast],
   );
 }

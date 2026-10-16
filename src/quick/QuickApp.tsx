@@ -2,12 +2,12 @@
 // Search-first; Enter copies the item's main secret; Right arrow lists every
 // action; the window closes after a copy.
 import { MotionConfig } from "motion/react";
-import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, Lock, Search, Star, WandSparkles, X } from "lucide-react";
+import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, FolderPlus, KeyRound, Lock, Search, SearchX, Star, WandSparkles, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
 import { RepromptProvider, ToastProvider, useReprompt, useToast } from "../components/overlays";
-import { Button, cx, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
+import { Button, cx, ErrorText, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
 import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, TotpCode, VaultStatus } from "../lib/contract";
 import { call, isCofferError, on } from "../lib/ipc";
 import { isSecretKind } from "../lib/itemForm";
@@ -45,19 +45,6 @@ type Continuation = { itemId: string; role: ChainRole; fieldId: string; label: s
 
 const CONTINUE_MS = 60_000;
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
-
-/** Re-render once a second while `on` is true (countdown rings). */
-function useSecondTick(on: boolean) {
-  const [, setT] = useState(0);
-  useEffect(() => {
-    if (!on) return;
-    const t = window.setInterval(() => setT((x) => x + 1), 1000);
-    return () => window.clearInterval(t);
-  }, [on]);
-}
-
-/** Seconds left in the current period, from the clock (codes change on the period edge). */
-const secondsLeft = (period: number) => period - (Math.floor(Date.now() / 1000) % period);
 
 /** The simulated flyout frame in a browser; the real window is the frame itself. */
 function Frame({ children }: { children: ReactNode }) {
@@ -118,9 +105,7 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
         </label>
         <PasswordInput ref={ref} id="quick-pw" placeholder="Master password" value={pw} onChange={(e) => setPw(e.target.value)} invalid={!!err} disabled={busy} revealLabel="master password" />
         {err && (
-          <p role="alert" className="text-xs text-danger-text">
-            {err}
-          </p>
+          <ErrorText>{err}</ErrorText>
         )}
         {fails >= 3 && <p className="text-xs text-gold">Coffer cannot reset a master password. Check Caps Lock and your keyboard layout.</p>}
         <Button type="submit" variant="primary" loading={busy}>
@@ -131,13 +116,22 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
   );
 }
 
-function OpenCofferOnly({ text }: { text: string }) {
+/** The locked view's anatomy (icon tile, bold title, one line, full-width button) for the states Quick Access cannot handle. */
+function OpenCofferOnly({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
-    <div className="flex flex-1 flex-col items-start justify-center gap-4 px-8">
-      <AppWindow aria-hidden className="size-6 text-muted-foreground" />
-      <p className="text-base">{text}</p>
+    <div className="flex flex-1 flex-col justify-center px-8">
+      <div className="mb-6 flex items-center gap-3">
+        <span aria-hidden className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm border border-border bg-card [&_svg]:size-4 [&_svg]:text-muted-foreground">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-md font-semibold">{title}</h1>
+          <p className="text-xs text-muted-foreground">{text}</p>
+        </div>
+      </div>
       <Button
         variant="primary"
+        className="w-full"
         autoFocus
         onClick={async () => {
           await call("main_show", { itemId: null, view: null }).catch(() => undefined);
@@ -157,7 +151,6 @@ function ItemRow({
   onActions,
   id,
   enterLabel,
-  totpPeriod,
 }: {
   row: Row;
   selected: boolean;
@@ -166,8 +159,6 @@ function ItemRow({
   id: string;
   /** The field Enter copies on this row, e.g. "Password" (on the Continue row, the next field). */
   enterLabel: string;
-  /** Set for an item with a one-time code: the ring shows the seconds left. */
-  totpPeriod: number | null;
 }) {
   const i = row.item;
   return (
@@ -187,13 +178,14 @@ function ItemRow({
           </div>
           <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
         </div>
-        {totpPeriod !== null && (
-          <span className="shrink-0" title="Has a one-time code">
-            <CountdownRing remaining={secondsLeft(totpPeriod)} period={totpPeriod} size={14} />
+        {/* A static tag: a turning ring in a list read as loading. The ring shows next to the digits only. */}
+        {i.hasTotp && (
+          <span title="Has a one-time code" className="shrink-0 rounded-sm border border-border px-1.5 text-2xs leading-4 font-medium text-muted-foreground">
+            2FA
           </span>
         )}
         {selected && (
-          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <span role="img" aria-label={`Enter copies the ${enterLabel.toLowerCase()}`} className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             <CornerDownLeft aria-hidden className="size-3" />
             {enterLabel}
           </span>
@@ -248,7 +240,6 @@ function Quick() {
   // Quick Access is only hidden between opens, so this survives a close.
   const lastCopy = useRef<{ itemId: string; role: string | null; at: number } | null>(null);
   const [cont, setCont] = useState<Continuation | null>(null);
-  const [periods, setPeriods] = useState<Record<string, number>>({});
   const [actCode, setActCode] = useState<TotpCode | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -357,16 +348,6 @@ function Quick() {
     return { rows: out, hiddenCount: 0 };
   }, [query, items, ctx, byId, active, cont]);
 
-  // Code periods for the rings: one totp_code call per item with a code (a re-prompt item reports 30 s).
-  useEffect(() => {
-    const need = rows.filter((r) => r.item.hasTotp && periods[r.item.id] === undefined).slice(0, 15);
-    need.forEach((r) =>
-      call("totp_code", { id: r.item.id, field: null, password: null })
-        .then((c) => setPeriods((p) => ({ ...p, [r.item.id]: c.period })))
-        .catch(() => setPeriods((p) => ({ ...p, [r.item.id]: 30 }))),
-    );
-  }, [rows, periods]);
-  useSecondTick(mode.kind === "list" && rows.some((r) => r.item.hasTotp));
 
   useEffect(() => setSel(0), [query]);
   useEffect(() => {
@@ -559,9 +540,11 @@ function Quick() {
   if (!status || !info) return <Frame>{null}</Frame>;
 
   let body: ReactNode;
-  if (status.state === "noVault") body = <OpenCofferOnly text="No vault is set up yet." />;
-  else if (status.state === "missing") body = <OpenCofferOnly text="Coffer cannot find your vault file." />;
-  else if (status.state === "locked" && status.needsSecretKey) body = <OpenCofferOnly text="Open Coffer to finish setup." />;
+  // These states end in Coffer itself, so the footer's own "Open Coffer" would say it twice.
+  const openOnly = status.state === "noVault" || status.state === "missing" || (status.state === "locked" && status.needsSecretKey);
+  if (status.state === "noVault") body = <OpenCofferOnly icon={<FolderPlus />} title="No vault yet" text="Open Coffer to create one or open an existing vault." />;
+  else if (status.state === "missing") body = <OpenCofferOnly icon={<SearchX />} title="Coffer cannot find your vault" text="Open Coffer to find the file or restore a backup." />;
+  else if (status.state === "locked" && status.needsSecretKey) body = <OpenCofferOnly icon={<KeyRound />} title="This PC needs your Secret Key" text="Open Coffer and type it from your Emergency Kit." />;
   else if (status.state === "locked") body = <Locked status={status} onUnlocked={(s) => setStatus(s)} />;
   else if (mode.kind === "generator")
     body = (
@@ -604,14 +587,14 @@ function Quick() {
             aria-controls="quick-list"
             aria-activedescendant={mode.kind === "list" && current ? `q-${sel}` : mode.kind === "actions" ? `a-${actSel}` : undefined}
             aria-label="Search Coffer"
-            placeholder={mode.kind === "actions" ? mode.item.title : "Search Coffer"}
+            placeholder="Search Coffer"
             readOnly={mode.kind === "actions"}
-            value={mode.kind === "actions" ? "" : query}
+            value={mode.kind === "actions" ? mode.item.title : query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             autoComplete="off"
             spellCheck={false}
-            className="h-full min-w-0 flex-1 bg-transparent text-md outline-none placeholder:text-muted-foreground"
+            className={cx("h-full min-w-0 flex-1 bg-transparent text-md outline-none placeholder:text-muted-foreground", mode.kind === "actions" && "text-sm font-semibold caret-transparent")}
           />
           {query && mode.kind === "list" ? (
             <IconButton size="sm" label="Clear search" onClick={() => setQuery("")}>
@@ -646,9 +629,14 @@ function Quick() {
                         {a.label}
                       </span>
                       {a.detail && (
-                        <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground tabular-nums" aria-label={a.ring ? `${a.detail}, ${a.ring.remaining} seconds left` : a.detail}>
+                        <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground tabular-nums">
                           {a.detail}
-                          {a.ring && <CountdownRing remaining={a.ring.remaining} period={a.ring.period} size={14} />}
+                          {a.ring && (
+                            <span role="img" aria-label={`One-time code, ${a.ring.remaining} seconds left`} className="flex items-center gap-1 font-sans">
+                              <CountdownRing remaining={a.ring.remaining} period={a.ring.period} size={14} />
+                              <span aria-hidden>{a.ring.remaining} s</span>
+                            </span>
+                          )}
                         </span>
                       )}
                       {i === actSel && <Kbd>↵</Kbd>}
@@ -685,7 +673,6 @@ function Quick() {
                     row={r}
                     selected={i === sel}
                     enterLabel={rowEnterLabel(r.item)}
-                    totpPeriod={r.item.hasTotp ? (periods[r.item.id] ?? 30) : null}
                     onClick={() => (i === sel ? enter(r.item) : setSel(i))}
                     onActions={() => openActions(r.item)}
                   />
@@ -698,7 +685,7 @@ function Quick() {
 
         {hint && mode.kind === "list" && (
           <p className="shrink-0 border-t border-border px-4 py-1.5 text-xs text-muted-foreground" role="note">
-            Enter copies · Ctrl+U username · → more actions
+            Enter: copy · Ctrl+U: username · Right arrow: more actions
           </p>
         )}
       </>
@@ -713,9 +700,11 @@ function Quick() {
             Generator
           </Button>
         )}
-        <Button size="sm" variant="quiet" icon={<AppWindow className="size-3.5" />} onClick={() => openInCoffer(current && mode.kind !== "generator" ? current : null)}>
-          Open Coffer
-        </Button>
+        {!openOnly && (
+          <Button size="sm" variant="quiet" icon={<AppWindow className="size-3.5" />} onClick={() => openInCoffer(current && mode.kind !== "generator" ? current : null)}>
+            Open Coffer
+          </Button>
+        )}
         <span className="flex-1" />
         {info.demo && <DemoBadge />}
       </footer>

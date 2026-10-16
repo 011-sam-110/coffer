@@ -85,7 +85,7 @@ function FieldRow({
   else value = <span data-selectable>{displayValue(field)}</span>;
 
   return (
-    <div className="group grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 px-4 py-2.5 @min-[440px]:grid-cols-[148px_minmax(0,1fr)_auto]">
+    <div className="group grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-0.5 px-4 py-2.5 @min-[440px]:grid-cols-[160px_minmax(0,1fr)_auto]">
       <span className="col-span-2 pt-px text-xs text-muted-foreground @min-[440px]:col-span-1">{field.label}</span>
       <div className="min-w-0 text-sm break-words">{value}</div>
       <div className="flex items-center gap-0.5">
@@ -99,7 +99,7 @@ function FieldRow({
             {shown ? <EyeOff /> : <Eye />}
           </IconButton>
         )}
-        <CopyButton label={`Copy ${field.label.toLowerCase()}`} shortcut={field.builtin ? COPY_KEYS[field.builtin] : undefined} onCopy={() => copy(item.id, field.id)} />
+        <CopyButton label={`Copy ${field.label.toLowerCase()}`} shortcut={field.builtin ? COPY_KEYS[field.builtin] : undefined} onCopy={() => copy(item.id, field.id, field.kind === "totp")} />
       </div>
     </div>
   );
@@ -131,6 +131,16 @@ function Group({ title, children, action }: { title?: string; children: ReactNod
       )}
       <div className="divide-y divide-border rounded-sm border border-border bg-card">{children}</div>
     </section>
+  );
+}
+
+/** A row of the last card: label 160 px | value, the same columns as the fields. */
+function MetaRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid min-h-10 grid-cols-1 items-center gap-x-3 gap-y-0.5 px-4 py-2 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-sm">{children}</div>
+    </div>
   );
 }
 
@@ -200,7 +210,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
     if (!item) return;
     const has = item.fields.some((f) => f.builtin === role && fieldHasValue(f));
     if (!has) return toast(`This item has no ${SHORTCUT_WORDS[role]}.`);
-    await copy(item.id, role);
+    await copy(item.id, role, role === "totp");
   };
 
   const setState = async (state: "active" | "archived" | "trashed") => {
@@ -403,7 +413,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
           {item.urls.length > 0 && (
             <Group title={item.urls.length > 1 ? "Websites" : undefined}>
               {item.urls.map((u, i) => (
-                <div key={i} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 @min-[440px]:grid-cols-[148px_minmax(0,1fr)_auto]">
+                <div key={i} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 @min-[440px]:grid-cols-[160px_minmax(0,1fr)_auto]">
                   <span className="col-span-2 text-xs text-muted-foreground @min-[440px]:col-span-1">{u.label || "Website"}</span>
                   <span className="min-w-0 truncate text-sm" data-selectable title={u.url}>
                     {u.url}
@@ -439,7 +449,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
 
           {item.notes.trim() && (
             <Group>
-              <div className="grid grid-cols-1 items-start gap-x-3 gap-y-0.5 px-4 py-3 @min-[440px]:grid-cols-[148px_1fr]">
+              <div className="grid grid-cols-1 items-start gap-x-3 gap-y-0.5 px-4 py-3 @min-[440px]:grid-cols-[160px_1fr]">
                 <span className="pt-px text-xs text-muted-foreground">Notes</span>
                 <div className="min-w-0">
                   <Markdown text={item.notes} />
@@ -448,9 +458,10 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
             </Group>
           )}
 
+          {/* The last card: tags, old passwords and dates, on the same columns as the fields. */}
+          <Group>
           {item.tags.length > 0 && (
-            <section className="flex flex-col gap-1.5">
-              <h2 className="px-1 text-xs font-medium text-muted-foreground">Tags</h2>
+            <MetaRow label="Tags">
               <div className="flex flex-wrap gap-1.5">
                 {item.tags.map((t) => (
                   <button
@@ -463,22 +474,24 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
                   </button>
                 ))}
               </div>
-            </section>
+            </MetaRow>
           )}
 
           {item.passwordHistoryCount > 0 && (
-            <section className="flex flex-col gap-1.5">
-              <button
-                type="button"
-                aria-expanded={historyOpen}
-                onClick={loadHistory}
-                className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-sm px-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-              >
-                <History aria-hidden className="size-3.5" />
-                Password history ({item.passwordHistoryCount})
-              </button>
+            <>
+              <MetaRow label="Password history">
+                <button
+                  type="button"
+                  aria-expanded={historyOpen}
+                  onClick={loadHistory}
+                  className="-ml-1 inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-sm px-1 text-sm hover:bg-muted"
+                >
+                  <History aria-hidden className="size-3.5 text-muted-foreground" />
+                  {historyOpen ? "Hide" : "Show"} {item.passwordHistoryCount} old {item.passwordHistoryCount === 1 ? "password" : "passwords"}
+                </button>
+              </MetaRow>
               {historyOpen && (
-                <div className="divide-y divide-border rounded-sm border border-border bg-card">
+                <>
                   {!history ? (
                     <div className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
                       <Spinner /> Loading...
@@ -487,8 +500,8 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
                     history.map((h) => {
                       const v = historyShown[h.id];
                       return (
-                        <div key={h.id} className="grid min-h-10 grid-cols-[140px_1fr_auto] items-center gap-3 px-4 py-2">
-                          <span className="text-xs text-muted-foreground">Until {formatDate(h.changedAt)}</span>
+                        <div key={h.id} className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 @min-[440px]:grid-cols-[160px_minmax(0,1fr)_auto]">
+                          <span className="col-span-2 text-xs text-muted-foreground @min-[440px]:col-span-1">Until {formatDate(h.changedAt)}</span>
                           <span className="min-w-0 text-sm">
                             {v !== undefined ? <PasswordChars value={v} /> : <span className="text-muted-foreground">{h.length} characters, hidden</span>}
                           </span>
@@ -521,24 +534,23 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
                       );
                     })
                   )}
-                </div>
+                </>
               )}
-            </section>
+            </>
           )}
 
-          {/* 17 px: the cards' 16 px inset plus their 1 px border, so the columns line up. */}
-          <dl className="grid grid-cols-[148px_1fr] gap-x-3 gap-y-1 px-[17px] text-xs text-muted-foreground">
-            <dt>Created</dt>
-            <dd title={formatDateTime(item.createdAt)}>{formatDate(item.createdAt)}</dd>
-            <dt>Last changed</dt>
-            <dd title={formatDateTime(item.updatedAt)}>{relativeTime(item.updatedAt)}</dd>
-            {item.passwordChangedAt && (
-              <>
-                <dt>Password changed</dt>
-                <dd title={formatDateTime(item.passwordChangedAt)}>{formatDate(item.passwordChangedAt)}</dd>
-              </>
-            )}
-          </dl>
+          <MetaRow label="Created">
+            <span title={formatDateTime(item.createdAt)}>{formatDate(item.createdAt)}</span>
+          </MetaRow>
+          <MetaRow label="Last changed">
+            <span title={formatDateTime(item.updatedAt)}>{relativeTime(item.updatedAt)}</span>
+          </MetaRow>
+          {item.passwordChangedAt && (
+            <MetaRow label="Password changed">
+              <span title={formatDateTime(item.passwordChangedAt)}>{formatDate(item.passwordChangedAt)}</span>
+            </MetaRow>
+          )}
+          </Group>
         </div>
       </div>
       <ConfirmDialog

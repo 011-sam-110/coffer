@@ -1,12 +1,12 @@
 // Unlock, Missing vault, Tampered vault and Older file screens (SPEC 3.5, 11).
-import { FileWarning, FolderSearch, History, Lock, SearchX } from "lucide-react";
+import { CircleAlert, FolderSearch, History, Lock, SearchX } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialog, useReprompt, useToast } from "../../components/overlays";
 import { Button, FormRow, Input, Notice, PasswordInput, Spinner } from "../../components/ui";
 import type { BackupEntry, VaultStatus } from "../../lib/contract";
 import { formatBytes, formatDateTime } from "../../lib/format";
 import { call, isCofferError } from "../../lib/ipc";
-import { secretKeyCharMessage } from "../../lib/secretKey";
+import { normalizeSecretKey, SECRET_KEY_INPUT_HINT, secretKeyCharMessage } from "../../lib/secretKey";
 import { useStore } from "../store";
 import { ScreenFrame, StepTitle } from "./Frame";
 
@@ -39,7 +39,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
     setBusy(true);
     setError(null);
     try {
-      const s = await call("vault_unlock", { password: pw, secretKey: needsKey ? sk : null });
+      const s = await call("vault_unlock", { password: pw, secretKey: needsKey ? normalizeSecretKey(sk) : null });
       setStatus(s);
     } catch (e) {
       if (!isCofferError(e)) {
@@ -120,7 +120,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
             label="Secret Key"
             htmlFor={ids.sk}
             error={skChar}
-            hint="No kit? On a computer where this vault opens: Settings > Security > Show Secret Key."
+            hint={`${SECRET_KEY_INPUT_HINT} No kit? On a computer where this vault opens: Settings > Security > Show Secret Key.`}
           >
             <Input
               id={ids.sk}
@@ -270,15 +270,18 @@ export function Tampered({ onDone }: { onDone: () => void }) {
   const { withReprompt } = useReprompt();
   return (
     <ScreenFrame center width={480}>
-      <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-destructive bg-accent/40">
-        <FileWarning aria-hidden className="size-5 text-danger-text" />
+      {/* Danger without a red fill: the normal surface, a 3 px red rule and a filled alert icon. */}
+      <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-border bg-card">
+        <CircleAlert aria-hidden className="size-5 fill-danger-text text-card" />
       </div>
-      <StepTitle title="This vault file was changed outside Coffer">
-        Its check does not match, so Coffer did not open it. Something other than Coffer changed, removed or added data in the file. Your backups are safe copies.
-      </StepTitle>
+      <div className="border-l-[3px] border-danger-text pl-4">
+        <StepTitle title="This vault file was changed outside Coffer">
+          Its check does not match, so Coffer did not open it. Something other than Coffer changed, removed or added data in the file. Your backups are safe copies.
+        </StepTitle>
+      </div>
       <div className="flex flex-wrap gap-2">
         <Button
-          variant="primary"
+          variant="strong"
           loading={busy}
           onClick={async () => {
             setBusy(true);
@@ -315,10 +318,32 @@ export function Tampered({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function OlderFile({ message, onDone }: { message: string; onDone: () => void }) {
+// The safe path is the main one: the newest backup. Opening the older file is the risky choice.
+// (`message` holds Rust's generation numbers; the screen shows the newest backup's date instead.)
+export function OlderFile({ onDone }: { message: string; onDone: () => void }) {
   const { setStatus } = useStore();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"backup" | "older" | null>(null);
+  const [newest, setNewest] = useState<BackupEntry | null | undefined>(undefined);
   const { error } = useToast();
+  const { withReprompt } = useReprompt();
+  useEffect(() => {
+    call("backups_list")
+      .then((l) => setNewest(l[0] ?? null))
+      .catch(() => setNewest(null));
+  }, []);
+  const openNewest = async () => {
+    if (!newest) return;
+    setBusy("backup");
+    try {
+      const s = await withReprompt((password) => call("backup_restore", { index: newest.index, password }), "Restoring this backup turns off the master password question on some items. Enter your master password to go on.");
+      setStatus(s);
+      onDone();
+    } catch (e) {
+      if (!(isCofferError(e) && e.message === "Cancelled.")) error(e);
+    } finally {
+      setBusy(null);
+    }
+  };
   return (
     <ScreenFrame center width={480}>
       <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-gold/50 bg-card">
@@ -327,25 +352,33 @@ export function OlderFile({ message, onDone }: { message: string; onDone: () => 
       <StepTitle title="This file is older than the one this PC last saw">
         A sync tool may have put back an old copy. Items you added or changed since then are not in it. Open it only if you expected an older copy.
       </StepTitle>
-      <p className="mb-6 text-xs text-muted-foreground">{message}</p>
+      {newest && <p className="mb-6 text-sm text-muted-foreground">The newest backup on this PC was saved {formatDateTime(newest.savedAt)}.</p>}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={onDone}>Cancel</Button>
+        {newest && (
+          <Button variant="primary" size="lg" loading={busy === "backup"} disabled={busy !== null} onClick={openNewest}>
+            Open the newest backup
+          </Button>
+        )}
         <Button
-          variant="primary"
-          loading={busy}
+          size="lg"
+          loading={busy === "older"}
+          disabled={busy !== null}
           onClick={async () => {
-            setBusy(true);
+            setBusy("older");
             try {
               setStatus(await call("vault_open_older"));
               onDone();
             } catch (e) {
               error(e);
             } finally {
-              setBusy(false);
+              setBusy(null);
             }
           }}
         >
-          Open the older file
+          Open the older file anyway
+        </Button>
+        <Button size="lg" variant="ghost" onClick={onDone}>
+          Cancel
         </Button>
       </div>
     </ScreenFrame>

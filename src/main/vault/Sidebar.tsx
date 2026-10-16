@@ -1,15 +1,31 @@
 // Sidebar: All items, Favourites, Health, Archive, Trash; Tags (nested, expanded);
 // Types (collapsed by default, empty types hidden); footer: Generator, Import,
 // Settings, Shortcuts, Lock (SPEC 11 item 7).
-import { Archive, ChevronDown, ChevronRight, Download, Gauge, Keyboard, Layers, Lock, Settings, Star, Tag, Trash2, WandSparkles } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { Archive, ChevronDown, ChevronRight, CloudAlert, Download, Gauge, Keyboard, Layers, Lock, Settings, Star, Tag, Trash2, WandSparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DemoBadge, TYPE_ICONS } from "../../components/bits";
-import { cx } from "../../components/ui";
+import { cx, IconButton } from "../../components/ui";
 import type { ItemSummary } from "../../lib/contract";
 import { tagTree, type TagNode } from "../../lib/format";
 import { ITEM_TYPE_ORDER, ITEM_TYPES } from "../../lib/itemTypes";
 import { useStore } from "../store";
 import { filterKey, type Filter, type Nav, type View } from "./nav";
+
+/** A 32 px footer button; the tooltip says the label and its shortcut. */
+function FootButton({ label, shortcut, active, onClick, children }: { label: string; shortcut?: string; active?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <IconButton
+      label={label}
+      shortcut={shortcut}
+      active={active}
+      aria-current={active ? "page" : undefined}
+      onClick={onClick}
+      className={cx("size-8", active && "bg-sidebar-accent")}
+    >
+      {children}
+    </IconButton>
+  );
+}
 
 function Row({
   icon,
@@ -77,7 +93,7 @@ export function Sidebar({
   onLock: () => void;
   onShowShortcuts: () => void;
 }) {
-  const { items, status, info } = useStore();
+  const { items, status, info, banner, pendingConflict, setConflictDialog } = useStore();
   // Tags start expanded; a click collapses a branch.
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   // Types start collapsed (search and the type filters cover them); the choice is remembered.
@@ -116,6 +132,23 @@ export function Sidebar({
     }
   };
 
+  // The fade shows only while the list goes on below the visible part.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState(false);
+  const measure = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    Array.from(el.children).forEach((c) => ro.observe(c));
+    return () => ro.disconnect();
+  }, [measure, showTypes, tags.length, visibleTags.length]);
+
   return (
     <nav aria-label="Vault" className="flex h-full w-[220px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-3">
@@ -126,8 +159,20 @@ export function Sidebar({
         </div>
         {info?.demo && <DemoBadge />}
       </div>
+      {/* Changes from another computer wait in a conflict file until imported (the banner's "Later"). */}
+      {pendingConflict && banner?.kind !== "conflict" && (
+        <button
+          type="button"
+          onClick={() => setConflictDialog(true)}
+          title={pendingConflict.path}
+          className="mx-2 mb-2 flex shrink-0 cursor-pointer items-center gap-2 rounded-sm border border-gold/40 px-2.5 py-1.5 text-left text-xs hover:bg-muted"
+        >
+          <CloudAlert aria-hidden className="size-3.5 shrink-0 text-gold" />
+          <span className="min-w-0 flex-1">Changes to import from another computer</span>
+        </button>
+      )}
       <div className="relative min-h-0 flex-1">
-        <div className="h-full overflow-y-auto px-2 pb-6">
+        <div ref={scrollRef} onScroll={measure} className="h-full overflow-y-auto px-2 pb-3 [scrollbar-color:var(--muted-foreground)_transparent] [scrollbar-width:thin]">
           <ul>
             <Row icon={<Layers />} label="All items" count={active.length} active={isFilter({ kind: "all" })} onClick={() => pick({ kind: "all" })} />
             <Row
@@ -219,16 +264,27 @@ export function Sidebar({
             </>
           )}
         </div>
-        {/* A short fade says the list goes on under the footer. */}
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-4 bg-gradient-to-t from-sidebar to-transparent" />
+        {/* A 12 px fade, only while more of the list is below: it goes on under the footer. */}
+        {more && <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-3 bg-gradient-to-t from-sidebar to-transparent" />}
       </div>
-      <ul className="shrink-0 border-t border-sidebar-border px-2 py-2">
-        <Row icon={<WandSparkles />} label="Generator" shortcut="Ctrl+G" active={nav.view === "generator"} onClick={() => view("generator")} />
-        <Row icon={<Download />} label="Import" active={nav.view === "import"} onClick={() => view("import")} />
-        <Row icon={<Settings />} label="Settings" shortcut="Ctrl+," active={nav.view === "settings"} onClick={() => view("settings")} />
-        <Row icon={<Keyboard />} label="Shortcuts" shortcut="F1" onClick={onShowShortcuts} />
-        <Row icon={<Lock />} label="Lock" shortcut="Ctrl+L" onClick={onLock} />
-      </ul>
+      {/* One row of icon buttons, so the list above keeps its height; each tooltip names the shortcut. */}
+      <div className="flex shrink-0 items-center justify-between border-t border-sidebar-border px-3 py-2">
+        <FootButton label="Generator" shortcut="Ctrl+G" active={nav.view === "generator"} onClick={() => view("generator")}>
+          <WandSparkles />
+        </FootButton>
+        <FootButton label="Import" active={nav.view === "import"} onClick={() => view("import")}>
+          <Download />
+        </FootButton>
+        <FootButton label="Settings" shortcut="Ctrl+," active={nav.view === "settings"} onClick={() => view("settings")}>
+          <Settings />
+        </FootButton>
+        <FootButton label="Shortcuts" shortcut="F1" onClick={onShowShortcuts}>
+          <Keyboard />
+        </FootButton>
+        <FootButton label="Lock" shortcut="Ctrl+L" onClick={onLock}>
+          <Lock />
+        </FootButton>
+      </div>
     </nav>
   );
 }

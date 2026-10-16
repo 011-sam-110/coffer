@@ -1145,6 +1145,9 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
         state = "locked";
         fileGone = false;
         banners.missing = false;
+        // The highest seen generation is now the backup's: the file is no longer "older".
+        olderNext = false;
+        olderPending = null;
       }
       return status();
     },

@@ -21,6 +21,12 @@ interface Store {
   itemsLoaded: boolean;
   banner: Banner;
   lockedReason: Events["vault://locked"]["reason"] | null;
+  /** Changes in a conflict file that are not imported yet: the sidebar keeps a notice until they are. */
+  pendingConflict: { path: string; since: string } | null;
+  setPendingConflict: (c: { path: string; since: string } | null) => void;
+  /** The "Import my changes" dialog (opened from the banner or the sidebar notice). */
+  conflictDialog: boolean;
+  setConflictDialog: (open: boolean) => void;
   /** The conflict file that a keyChanged lock wrote our open changes to (SPEC 3.5); null otherwise. */
   keyChangedFile: string | null;
   /** Bumps on every vault://changed, so open views can reload. */
@@ -52,6 +58,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [banner, setBanner] = useState<Banner>(null);
   const [lockedReason, setLockedReason] = useState<Store["lockedReason"]>(null);
   const [keyChangedFile, setKeyChangedFile] = useState<string | null>(null);
+  const [pendingConflict, setPendingConflict] = useState<Store["pendingConflict"]>(null);
+  const [conflictDialog, setConflictDialog] = useState(false);
   // Rust writes the conflict file and emits vault://conflict just before a keyChanged lock.
   const lastConflict = useRef<{ path: string; at: number } | null>(null);
   // Bumps on each lock: an items_list answer that was asked for before the lock is dropped.
@@ -134,6 +142,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const c = lastConflict.current;
         setKeyChangedFile(p.reason === "keyChanged" && c && Date.now() - c.at < 10_000 ? c.path : null);
         setBanner(null);
+        setPendingConflict(null);
+        setConflictDialog(false);
         refreshStatus();
       }),
       on("vault://unlocked", (s) => {
@@ -152,6 +162,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       on("vault://conflict", (p) => {
         lastConflict.current = { path: p.conflictPath, at: Date.now() };
+        setPendingConflict({ path: p.conflictPath, since: p.since });
         refreshItems();
         setChangeTick((t) => t + 1);
         setBanner({ kind: "conflict", path: p.conflictPath, since: p.since });
@@ -173,6 +184,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       banner,
       lockedReason,
       keyChangedFile,
+      pendingConflict,
+      setPendingConflict,
+      conflictDialog,
+      setConflictDialog,
       changeTick,
       setBanner,
       setStatus,
@@ -182,7 +197,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateSettings,
       lock,
     }),
-    [info, status, settings, items, itemsLoaded, banner, lockedReason, keyChangedFile, changeTick, refreshStatus, refreshInfo, refreshItems, updateSettings, lock],
+    [info, status, settings, items, itemsLoaded, banner, lockedReason, keyChangedFile, pendingConflict, conflictDialog, changeTick, refreshStatus, refreshInfo, refreshItems, updateSettings, lock],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

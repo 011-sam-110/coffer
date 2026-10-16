@@ -1,6 +1,6 @@
 // Records a keyboard shortcut such as "Ctrl+Shift+Space".
 import { useState } from "react";
-import { Keys, cx } from "./ui";
+import { ErrorText, Keys, cx } from "./ui";
 
 const MOD_KEYS = new Set(["Control", "Shift", "Alt", "Meta", "OS"]);
 
@@ -48,7 +48,7 @@ export function HotkeyInput({
       >
         {recording ? <span className="text-xs text-muted-foreground">Press the new keys. Esc cancels.</span> : value ? <Keys combo={value} /> : <span className="text-muted-foreground">Off</span>}
       </button>
-      {status === "inUse" && <p className="text-xs text-danger-text">In use by another app. Choose other keys.</p>}
+      {status === "inUse" && <ErrorText alert={false}>In use by another app. Choose other keys.</ErrorText>}
     </div>
   );
 }
