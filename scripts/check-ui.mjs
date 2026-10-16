@@ -132,7 +132,7 @@ const STATES = [
   ["q10-quick-hello", "/quick.html?state=locked&hello=ready", QUICK],
   ["q11-quick-hello-wait", "/quick.html?state=locked&hello=ready", QUICK, [{ click: "text=Unlock with Windows Hello" }, { wait: 400 }]],
   ["q12-quick-hello-failed", "/quick.html?state=locked&hello=ready&helloResult=failed", QUICK, [{ click: "text=Unlock with Windows Hello" }, { wait: 2200 }]],
-  ["q13-quick-actions-autotype", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "ArrowRight", target: "input[role=combobox]" }, { wait: 400 }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }]],
+  ["q13-quick-actions-autotype", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "ArrowRight", target: "input[role=combobox]" }, { wait: 400 }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }, { press: "ArrowDown" }]],
   ["q14-quick-autotype-admin", "/quick.html?autotype=admin", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "Control+Enter", target: "input[role=combobox]" }, { wait: 600 }]],
   ["q15-quick-autotype-gone", "/quick.html?autotype=gone", QUICK, [{ fill: "input[role=combobox]", text: "github" }, { press: "Control+Shift+Enter", target: "input[role=combobox]" }, { wait: 600 }]],
   ["q09-quick-copied", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }, { press: "Enter", target: "input[role=combobox]" }, { wait: 700 }]],
