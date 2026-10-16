@@ -294,6 +294,37 @@ pub fn manifest_mac_of(bytes: &[u8]) -> Result<String> {
     Ok(VaultFile::parse(bytes)?.header().manifest_mac)
 }
 
+/// Makes the file stem from a vault name (SPEC 3.5): `\ / : * ? " < > |`
+/// and control characters become `_`, trailing dots and spaces are cut,
+/// at most 64 characters, and `_` follows a reserved device name (CON, PRN,
+/// AUX, NUL, COM1-9, LPT1-9). The vault name shown while locked is the stem.
+///
+/// # Errors
+/// `Invalid` when nothing is left.
+pub fn stem_from_name(name: &str) -> Result<String> {
+    let mapped: String = name
+        .chars()
+        .map(|c| if c.is_control() || "\\/:*?\"<>|".contains(c) { '_' } else { c })
+        .take(64)
+        .collect();
+    let mut stem = mapped.trim_end_matches(['.', ' ']).to_owned();
+    if stem.trim().is_empty() {
+        return Err(CoreError::invalid("A vault name needs at least one letter or digit."));
+    }
+    let first = stem.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    let reserved = matches!(first.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((first.starts_with("COM") || first.starts_with("LPT")) && first.len() == 4 && first.as_bytes()[3].is_ascii_digit() && first.as_bytes()[3] != b'0');
+    if reserved {
+        let at = stem.find('.').unwrap_or(stem.len());
+        stem.insert(at, '_');
+        // The `_` can push a 64-character stem to 65: cut again and re-trim.
+        if stem.chars().count() > 64 {
+            stem = stem.chars().take(64).collect::<String>().trim_end_matches(['.', ' ']).to_owned();
+        }
+    }
+    Ok(stem)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +399,25 @@ mod tests {
     fn rejects_bad_lengths() {
         assert!(VaultFile::parse(&mutate(|v| v["kdf"]["salt"] = B64.encode([0u8; 15]).into())).is_err());
         assert!(VaultFile::parse(&mutate(|v| v["manifest_mac"] = "!!".into())).is_err());
+    }
+
+    #[test]
+    fn stems() {
+        assert_eq!(stem_from_name("Personal").unwrap(), "Personal");
+        assert_eq!(stem_from_name("a/b\\c:d*e?f\"g<h>i|j").unwrap(), "a_b_c_d_e_f_g_h_i_j");
+        assert_eq!(stem_from_name("Work. . ").unwrap(), "Work");
+        assert_eq!(stem_from_name("con").unwrap(), "con_");
+        assert_eq!(stem_from_name("COM1").unwrap(), "COM1_");
+        assert_eq!(stem_from_name("LPT9.old").unwrap(), "LPT9_.old");
+        assert_eq!(stem_from_name("COM10").unwrap(), "COM10");
+        assert_eq!(stem_from_name("Console").unwrap(), "Console");
+        assert_eq!(stem_from_name(&"x".repeat(100)).unwrap().len(), 64);
+        let long_reserved = format!("CON.{}", "y".repeat(80));
+        let s = stem_from_name(&long_reserved).unwrap();
+        assert_eq!(s.chars().count(), 64);
+        assert!(s.starts_with("CON_."));
+        assert!(stem_from_name(" . ").is_err());
+        assert_eq!(stem_from_name("tab\there").unwrap(), "tab_here");
     }
 
     #[test]

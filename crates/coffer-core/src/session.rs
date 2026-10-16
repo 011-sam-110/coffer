@@ -347,6 +347,12 @@ fn decrypt_all(keys: &VaultKeys, f: &VaultFile) -> Result<Decrypted> {
     Ok(Decrypted { items, meta_id, meta_rev, meta, meta_enc })
 }
 
+/// The item records of a verified file (for the `.coffer` importer).
+pub(crate) fn decrypt_items(keys: &VaultKeys, f: &VaultFile) -> Result<Vec<StoredItem>> {
+    let d = decrypt_all(keys, f)?;
+    Ok(d.items.into_values().map(|s| s.item).collect())
+}
+
 fn header_of(f: &VaultFile) -> HeaderFacts {
     HeaderFacts {
         vault_id: f.vault_id,
@@ -1565,6 +1571,10 @@ impl Vault {
     }
 
     // ------------------------------------------------------------ crate-internal access
+
+    pub(crate) fn own_secret_key(&self) -> &SecretKey {
+        &self.secret_key
+    }
 
     pub(crate) fn stored_items(&self) -> impl Iterator<Item = &StoredItem> {
         self.items.values().map(|s| &s.item)

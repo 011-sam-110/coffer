@@ -1,0 +1,5 @@
+folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp
+Work,1,login,Work VPN,Synthetic note,"Employee ID: 4242
+Hidden PIN: 9876",0,https://vpn.example.com,erin,Bitwarden-Csv-1!,otpauth://totp/VPN:erin?secret=GEZDGNBVGY3TQOJQ
+,,note,Wifi notes,The guest network rotates monthly,,0,,,,
+,0,login,Two Sites,,,1,"https://a.example.com,https://b.example.com",frank,Bitwarden-Csv-2!,
