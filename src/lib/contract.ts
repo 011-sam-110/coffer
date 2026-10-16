@@ -466,7 +466,8 @@ export interface Commands {
   vault_lock: [Record<string, never>, void];
   vault_change_password: [{ current: string; next: string; rekey: boolean }, void]; // rekey = "My old password may be known"
   vault_move: [Record<string, never>, VaultStatus | null]; // Rust opens the folder dialog
-  // After the file vanished, or after diskDamaged / olderOnDisk: saveAs false rewrites the vault path at highest seen + 1; saveAs true opens a Rust dialog.
+  // After the file vanished, or after diskDamaged / olderOnDisk: saveAs false rewrites the vault path at highest seen + 1,
+  // taking the disk file the user was shown as the base (so the atomic re-read check passes); saveAs true opens a Rust dialog.
   vault_save_again: [{ saveAs: boolean }, VaultStatus | null];
   vault_open_older: [Record<string, never>, VaultStatus]; // after vault_unlock failed with "olderFile" (keys held 60 s)
   hello_set: [{ enabled: boolean; password: string | null }, VaultStatus]; // tier 2; enabling needs the master password
