@@ -32,7 +32,10 @@ export type ErrorCode =
   | "invalid"
   | "helloUnavailable"
   | "helloFailed"
-  | "network";
+  | "network"
+  | "olderFile" // the file's generation is lower than this PC has seen; vault_open_older completes the open
+  | "kdfTooStrong" // the header asks for KDF settings over the ceiling
+  | "exists"; // vault_create: that file already exists
 
 export interface CofferError {
   code: ErrorCode;
@@ -93,10 +96,110 @@ export type FieldKind =
   | "boolean" // "true" | "false"
   | "cardNumber"
   | "pin"
-  | "menu";
+  | "menu"
+  | "concealedMultiline"; // e.g. an SSH private key
 
 /** Kinds whose value is masked in ItemView and only leaves Rust via item_reveal. */
-export const SECRET_KINDS: FieldKind[] = ["concealed", "totp", "cardNumber", "pin"];
+export const SECRET_KINDS: FieldKind[] = ["concealed", "concealedMultiline", "totp", "cardNumber", "pin"];
+
+/** Built-in field roles per item type (SPEC section 4). Field ids are UUIDs; a role names a built-in field. */
+export const BUILTIN_FIELDS: Record<ItemType, Array<{ role: string; label: string; kind: FieldKind }>> = {
+  login: [
+    { role: "username", label: "Username", kind: "text" },
+    { role: "password", label: "Password", kind: "concealed" },
+    { role: "totp", label: "One-time code", kind: "totp" },
+  ],
+  password: [{ role: "password", label: "Password", kind: "concealed" }],
+  note: [],
+  card: [
+    { role: "cardholder", label: "Cardholder", kind: "text" },
+    { role: "number", label: "Number", kind: "cardNumber" },
+    { role: "expiry", label: "Expiry", kind: "monthYear" },
+    { role: "cvv", label: "CVV", kind: "pin" },
+    { role: "pin", label: "PIN", kind: "pin" },
+    { role: "brand", label: "Brand", kind: "menu" },
+  ],
+  identity: [
+    { role: "title", label: "Title", kind: "text" },
+    { role: "firstName", label: "First name", kind: "text" },
+    { role: "middleName", label: "Middle name", kind: "text" },
+    { role: "lastName", label: "Last name", kind: "text" },
+    { role: "birthDate", label: "Birth date", kind: "date" },
+    { role: "email", label: "Email", kind: "email" },
+    { role: "phone", label: "Phone", kind: "phone" },
+    { role: "address1", label: "Address line 1", kind: "text" },
+    { role: "address2", label: "Address line 2", kind: "text" },
+    { role: "city", label: "City", kind: "text" },
+    { role: "region", label: "Region", kind: "text" },
+    { role: "postcode", label: "Postcode", kind: "text" },
+    { role: "country", label: "Country", kind: "text" },
+    { role: "company", label: "Company", kind: "text" },
+  ],
+  bank: [
+    { role: "bankName", label: "Bank", kind: "text" },
+    { role: "holder", label: "Account holder", kind: "text" },
+    { role: "accountNumber", label: "Account number", kind: "concealed" },
+    { role: "sortCode", label: "Sort code / routing", kind: "text" },
+    { role: "iban", label: "IBAN", kind: "concealed" },
+    { role: "swift", label: "SWIFT / BIC", kind: "text" },
+    { role: "pin", label: "PIN", kind: "pin" },
+  ],
+  document: [
+    { role: "docKind", label: "Kind", kind: "menu" },
+    { role: "number", label: "Number", kind: "text" },
+    { role: "fullName", label: "Full name", kind: "text" },
+    { role: "issued", label: "Issued", kind: "date" },
+    { role: "expires", label: "Expires", kind: "date" },
+    { role: "country", label: "Country", kind: "text" },
+  ],
+  sshKey: [
+    { role: "privateKey", label: "Private key", kind: "concealedMultiline" },
+    { role: "publicKey", label: "Public key", kind: "multiline" },
+    { role: "fingerprint", label: "Fingerprint", kind: "text" },
+    { role: "passphrase", label: "Passphrase", kind: "concealed" },
+  ],
+  apiCredential: [
+    { role: "username", label: "Username", kind: "text" },
+    { role: "credential", label: "Credential", kind: "concealed" },
+    { role: "host", label: "Host", kind: "url" },
+    { role: "expires", label: "Expires", kind: "date" },
+  ],
+  wifi: [
+    { role: "ssid", label: "Network name", kind: "text" },
+    { role: "password", label: "Password", kind: "concealed" },
+    { role: "security", label: "Security", kind: "menu" },
+  ],
+  license: [
+    { role: "product", label: "Product", kind: "text" },
+    { role: "version", label: "Version", kind: "text" },
+    { role: "licenseKey", label: "Licence key", kind: "concealed" },
+    { role: "licensedTo", label: "Licensed to", kind: "text" },
+    { role: "email", label: "Email", kind: "email" },
+    { role: "purchaseDate", label: "Purchase date", kind: "date" },
+  ],
+};
+
+/** The role Enter copies in Quick Access; null = open the item in Coffer. A login with no password copies "totp". */
+export const ENTER_COPIES: Record<ItemType, string | null> = {
+  login: "password",
+  password: "password",
+  note: null,
+  card: "number",
+  identity: null,
+  bank: "accountNumber",
+  document: "number",
+  sshKey: "publicKey",
+  apiCredential: "credential",
+  wifi: "password",
+  license: "licenseKey",
+};
+
+/** Menu choices for built-in menu fields. */
+export const MENU_OPTIONS: Record<string, string[]> = {
+  brand: ["Visa", "Mastercard", "American Express", "Discover", "Diners Club", "JCB", "UnionPay", "Maestro", "Other"],
+  docKind: ["Passport", "Driving licence", "ID card", "Other"],
+  security: ["WPA3", "WPA2", "WPA", "WEP", "None"],
+};
 
 export interface Field {
   id: string;
@@ -106,7 +209,7 @@ export interface Field {
   value: string;
   masked?: boolean;
   section?: string | null;
-  /** Built-in role: "username" | "password" | "totp" | "number" | "cvv" ... */
+  /** Built-in role from BUILTIN_FIELDS, or null for a custom field. */
   builtin?: string | null;
   /** Choices for kind "menu". */
   options?: string[];
@@ -182,7 +285,8 @@ export interface ItemInput {
   title: string;
   favorite: boolean;
   tags: string[];
-  /** For a SECRET_KINDS field, value null means "keep the stored value". */
+  /** For a SECRET_KINDS field, value null means "keep the stored value". Valid only for an
+   * existing field id whose kind does not change; else the save fails with "invalid". */
   fields: Array<Omit<Field, "value" | "masked"> & { value: string | null }>;
   notes: string;
   urls: ItemUrl[];
@@ -292,12 +396,14 @@ export interface BackupEntry {
 }
 
 export interface ImportResult {
+  batchId: string;
   imported: number;
   skipped: number;
   tag: string; // "Imported/Bitwarden"
 }
 
 export type ExportKind = "cofferEncrypted" | "cofferJson" | "bitwardenJson" | "csv";
+// cofferEncrypted (.cofferx) and cofferJson formats: SPEC section 8.
 
 // ---------- settings ----------
 export interface Settings {
@@ -305,7 +411,6 @@ export interface Settings {
   lockOnSystemLock: boolean; // default true
   lockOnSleep: boolean; // default true
   clipboardClearSeconds: number | null; // 10, 30, 60, 90 (default), 120, 300, null = never
-  excludeFromClipboardHistory: boolean; // default true
   captureProtection: boolean; // default true
   helloEnabled: boolean;
   requirePasswordDays: number; // default 14
@@ -348,11 +453,12 @@ export interface QuickContext {
 // name: [args, result]. The UI calls invoke(name, args).
 export interface Commands {
   app_info: [Record<string, never>, AppInfo];
-  folder_info: [{ folder: string | null }, FolderInfo]; // null = the default folder
-  folder_pick: [Record<string, never>, FolderInfo | null]; // Rust opens the folder dialog; null = cancelled
+  folder_info: [Record<string, never>, FolderInfo]; // the default folder
+  folder_pick: [Record<string, never>, FolderInfo | null]; // Rust opens the folder dialog and KEEPS the pick; null = cancelled
 
   vault_status: [Record<string, never>, VaultStatus];
-  vault_create: [{ name: string; password: string; folder: string | null }, EmergencyKit];
+  vault_create: [{ name: string; password: string; usePickedFolder: boolean }, EmergencyKit]; // false = default folder; fails with "exists"
+  secret_key_rotate: [{ password: string }, EmergencyKit]; // tier 2
   vault_open: [Record<string, never>, VaultStatus | null]; // Rust opens the file dialog; null = cancelled
   vault_unlock: [{ password: string; secretKey: string | null }, VaultStatus];
   vault_unlock_hello: [Record<string, never>, VaultStatus]; // tier 2
@@ -360,7 +466,7 @@ export interface Commands {
   vault_change_password: [{ current: string; next: string; rekey: boolean }, void]; // rekey = "My old password may be known"
   vault_move: [Record<string, never>, VaultStatus | null]; // Rust opens the folder dialog
   vault_save_again: [{ saveAs: boolean }, VaultStatus | null]; // file vanished while unlocked; saveAs opens a Rust dialog
-  vault_open_older: [Record<string, never>, VaultStatus]; // confirm opening a file with a lower generation
+  vault_open_older: [Record<string, never>, VaultStatus]; // after vault_unlock failed with "olderFile" (keys held 60 s)
   hello_set: [{ enabled: boolean; password: string | null }, VaultStatus]; // tier 2; enabling needs the master password
   secret_key_validate: [{ secretKey: string }, { valid: boolean; keyId: string | null }];
   emergency_kit: [{ password: string }, EmergencyKit];
@@ -370,19 +476,19 @@ export interface Commands {
   item_get: [{ id: string }, ItemView];
   item_reveal: [{ id: string; field: FieldRef; password: string | null }, string];
   item_copy: [{ id: string; field: FieldRef; password: string | null }, { clearsInSeconds: number | null }];
-  item_save: [{ item: ItemInput }, ItemView];
+  item_save: [{ item: ItemInput; password: string | null }, ItemView]; // password needed to turn reprompt off or change a secret field's kind
   item_patch: [{ id: string; favorite?: boolean; tags?: string[]; healthExcluded?: boolean }, ItemSummary];
   item_set_state: [{ id: string; state: ItemState }, void];
   items_bulk: [{ ids: string[]; action: "archive" | "trash" | "restore" | "addTag" | "removeTag"; tag: string | null }, number];
   item_delete_forever: [{ id: string }, void];
   trash_empty: [Record<string, never>, number];
   item_revisions: [{ id: string; password: string | null }, Revision[]]; // tier 2 UI
-  item_restore_revision: [{ id: string; rev: number }, ItemView]; // tier 2 UI
+  item_restore_revision: [{ id: string; rev: number; password: string | null }, ItemView]; // tier 2 UI
   item_password_history: [{ id: string; password: string | null }, PasswordHistoryEntry[]];
   item_open_url: [{ id: string; urlIndex: number }, void]; // Rust opens only an http(s) URL stored in the item
   totp_code: [{ id: string; field: string | null; password: string | null }, TotpCode];
   totp_parse: [{ input: string }, { issuer: string | null; account: string | null; valid: boolean }];
-  totp_from_image: [{ path: string | null }, { uri: string }]; // tier 2; path null = scan the screen
+  totp_from_image: [{ source: "file" | "screen" }, { uri: string } | null]; // tier 2; Rust opens the file dialog
   ssh_generate: [Record<string, never>, { privateKey: string; publicKey: string; fingerprint: string }]; // tier 2
 
   generate: [{ options: GeneratorOptions }, Generated];
@@ -399,7 +505,7 @@ export interface Commands {
   // Rust opens the file dialog unless reuseLast (then it re-reads the last picked file, e.g. with a password).
   import_preview: [{ password: string | null; reuseLast: boolean }, ImportPreview | null];
   import_commit: [{ previewId: string }, ImportResult];
-  import_undo: [{ tag: string }, number];
+  import_undo: [{ batchId: string }, number];
   import_delete_source: [{ previewId: string }, void]; // deletes the plain file the user imported from
   // Rust verifies masterPassword, then opens the save dialog; null = cancelled.
   export_vault: [{ kind: ExportKind; masterPassword: string; exportPassword: string | null }, { path: string } | null];
@@ -408,7 +514,9 @@ export interface Commands {
   backup_restore: [{ index: number }, VaultStatus];
 
   settings_get: [Record<string, never>, Settings];
-  settings_set: [{ patch: Partial<Settings> }, Settings];
+  settings_set: [{ patch: Partial<Settings> }, Settings]; // main window only; rejects helloEnabled (use hello_set)
+  quick_hint_seen: [Record<string, never>, void]; // quick window: count one hint showing
+  edit_state: [{ title: string | null; dirty: boolean }, void]; // main window reports an open edit
 
   quick_context: [Record<string, never>, QuickContext];
   quick_hide: [Record<string, never>, void];
@@ -431,4 +539,5 @@ export interface Events {
   "quick://shown": QuickContext;
   "main://navigate": { itemId: string | null; view: "item" | "settings" | "generator" | "health" | null };
   "edit://discarded": { title: string }; // lock dropped an unsaved edit
+  "app://quitRequested": Record<string, never>; // main asks Save / Discard / Cancel, then calls app_quit
 }
