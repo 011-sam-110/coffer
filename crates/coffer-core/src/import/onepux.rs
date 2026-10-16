@@ -205,6 +205,9 @@ pub(crate) fn parse(files: &[(String, Vec<u8>)]) -> Result<ParsedImport> {
         .find(|(n, _)| n == "export.data")
         .map(|(_, b)| b)
         .ok_or_else(|| CoreError::UnsupportedFormat("This .1pux file has no export.data.".into()))?;
+    if data.len() > super::MAX_JSON_BYTES {
+        return Err(CoreError::invalid("This .1pux file is too large to import: its export.data is over 16 MiB."));
+    }
     let doc: Value = serde_json::from_slice(data).map_err(|_| CoreError::UnsupportedFormat("The export.data of this .1pux is not readable.".into()))?;
     let accounts = doc
         .get("accounts")

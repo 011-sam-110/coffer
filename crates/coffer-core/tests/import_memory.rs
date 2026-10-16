@@ -79,6 +79,41 @@ fn import_memory_is_bounded() {
     eprintln!("zip, 2 x 33 MiB CSV entries: peak {peak} MiB");
     assert!(peak < 80, "zip over the total cap: peak {peak} MiB");
 
+    // The reviewer's 1PUX: a small zip whose export.data is over 16 MiB
+    // of `[],` (before: parsed into a JSON tree, about 25x its size).
+    let mut data = Vec::with_capacity(17 * MIB + 8);
+    data.push(b'[');
+    while data.len() < 17 * MIB {
+        data.extend_from_slice(b"[],");
+    }
+    data.extend_from_slice(b"[]]");
+    let z = {
+        let mut cur = std::io::Cursor::new(Vec::new());
+        let mut w = zip::ZipWriter::new(&mut cur);
+        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated).compression_level(Some(1));
+        w.start_file("export.data", opts).unwrap();
+        w.write_all(&data).unwrap();
+        w.finish().unwrap();
+        drop(data);
+        cur.into_inner()
+    };
+    let (peak, err) = measure("x.1pux", &z);
+    eprintln!("1PUX, export.data 17 MiB of `[],` in a {} KiB zip: peak {peak} MiB", z.len() / 1024);
+    assert_eq!(err, Some("unsupportedFormat"));
+    assert!(peak < 24, "1PUX with a large export.data: peak {peak} MiB");
+
+    // The same shape as a plain JSON file: refused before parsing.
+    let mut json = Vec::with_capacity(17 * MIB + 16);
+    json.extend_from_slice(b"{\"items\":[");
+    while json.len() < 17 * MIB {
+        json.extend_from_slice(b"[],");
+    }
+    json.extend_from_slice(b"[]]}");
+    let (peak, err) = measure("x.json", &json);
+    eprintln!("JSON, 17 MiB of `[],`: peak {peak} MiB");
+    assert_eq!(err, Some("invalid"));
+    assert!(peak < 2, "large JSON: peak {peak} MiB");
+
     // The reviewer's CSV: 200 columns with 1000-character names, 1000
     // empty rows (394 KiB; before: 203 MiB peak).
     let mut s = String::from("type,name,login_uri,login_password");

@@ -422,7 +422,7 @@ fn zip_of(entries: &[(&str, usize)]) -> Vec<u8> {
     cur.into_inner()
 }
 
-const SMALL: ZipLimits = ZipLimits { entry_bytes: 1000, total_bytes: 2500, read_entries: 3, listed_entries: 8 };
+const SMALL: ZipLimits = ZipLimits { entry_bytes: 1000, json_entry_bytes: 500, total_bytes: 2500, read_entries: 3, listed_entries: 8 };
 
 /// The reviewer's case scaled down: big entries an importer never reads
 /// (`f0.txt`...) are not unpacked at all.
@@ -483,4 +483,28 @@ fn csv_rows_share_headers_and_are_capped() {
     assert_eq!(parse_import(&req("w.csv", wide.as_bytes()), None).unwrap_err().code(), "unsupportedFormat");
     // Too many cells: 24 columns x 30 rows = 720 > 700.
     assert_eq!(super::csv_formats::rows_limited(ok.as_bytes(), 512, 700).err().map(|e| e.code()), Some("unsupportedFormat"));
+}
+
+/// Review item 4, second pass: the whole file is capped before anything
+/// else, and JSON (a plain file or a 1PUX `export.data`) before parsing.
+#[test]
+fn file_and_json_caps_refuse_before_parsing() {
+    let big = vec![b' '; MAX_IMPORT_FILE_BYTES + 1];
+    let e = parse_import(&req("x.csv", &big), None).unwrap_err();
+    assert_eq!(e.code(), "invalid");
+    assert!(e.to_string().contains("64 MiB"));
+    // Plain JSON over 16 MiB: `[],` repeated (the reviewer's shape).
+    let json = format!("{{\"items\":[{}[]]}}", "[],".repeat(MAX_JSON_BYTES / 3 + 1));
+    assert!(json.len() > MAX_JSON_BYTES);
+    let e = parse_import(&req("b.json", json.as_bytes()), None).unwrap_err();
+    assert_eq!(e.code(), "invalid");
+    assert!(e.to_string().contains("16 MiB"));
+    // A 1PUX JSON entry stops at its own cap while it is read.
+    let z = zip_of(&[("export.data", 501)]);
+    assert_eq!(read_zip_limited(&z, SMALL).unwrap_err().code(), "unsupportedFormat");
+    assert_eq!(read_zip_limited(&zip_of(&[("export.data", 500), ("a.csv", 900)]), SMALL).unwrap().len(), 2);
+    // The 1PUX parser checks it too.
+    let files = vec![("export.data".to_owned(), vec![b' '; MAX_JSON_BYTES + 1])];
+    assert_eq!(super::onepux::parse(&files).unwrap_err().code(), "invalid");
+    assert!(!crate::export::is_cofferx(json.as_bytes()));
 }

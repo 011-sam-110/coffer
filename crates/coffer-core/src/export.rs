@@ -134,7 +134,8 @@ pub fn cofferx_seal(coffer_json: &[u8], export_password: &str, kdf: KdfParams) -
 
 /// `true` when the bytes look like a `.cofferx` file (format field only).
 pub fn is_cofferx(bytes: &[u8]) -> bool {
-    serde_json::from_slice::<Value>(bytes).ok().and_then(|v| v.get("format").and_then(Value::as_str).map(|s| s == COFFERX_FORMAT)).unwrap_or(false)
+    bytes.len() <= crate::import::MAX_JSON_BYTES
+        && serde_json::from_slice::<Value>(bytes).ok().and_then(|v| v.get("format").and_then(Value::as_str).map(|s| s == COFFERX_FORMAT)).unwrap_or(false)
 }
 
 /// Opens a `.cofferx` file; returns the Coffer JSON bytes (padding trimmed).
