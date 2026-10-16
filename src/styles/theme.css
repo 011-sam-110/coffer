@@ -94,8 +94,11 @@
   /* derived: a focused text field. A crimson field reads as an error, so fields use a light neutral edge and halo. */
   --focus-field: oklch(0.72 0 0);
   --focus-halo: oklch(0.985 0 0 / 0.16);
-  /* derived: a control border on hover, one step above --input. */
-  --input-hover: oklch(0.4 0 0);
+  /* derived: the edge of a text field, number field or select (3:1 on the background, WCAG 1.4.11).
+     --input (0.321) stays for dividers and quiet surfaces. */
+  --input-border: oklch(0.55 0 0);
+  /* derived: a control edge on hover, one step above --input-border. */
+  --input-hover: oklch(0.63 0 0);
   /* derived: scrim behind dialogs. */
   --scrim: oklch(0.12 0 0 / 0.66);
 
@@ -146,6 +149,7 @@
   --color-secondary-hover: var(--secondary-hover);
   --color-destructive-hover: var(--destructive-hover);
   --color-input-hover: var(--input-hover);
+  --color-input-border: var(--input-border);
   --color-char-digit: var(--char-digit);
   --color-char-symbol: var(--char-symbol);
 
@@ -304,7 +308,7 @@
   /* A form control: filled, 1 px border, 4 px radius. */
   .control {
     background: var(--muted);
-    border: 1px solid var(--input);
+    border: 1px solid var(--input-border);
     border-radius: var(--radius);
     min-height: 2rem;
     padding: 0 0.625rem;
@@ -377,6 +381,20 @@
     margin-top: -8px;
     border-radius: 2px;
     background: var(--primary);
+  }
+
+  /* A key badge inside a button (New Ctrl+N): drawn in the button's own text colour. */
+  .kbd-inline {
+    display: inline-flex;
+    align-items: center;
+    height: 1.125rem;
+    padding: 0 0.25rem;
+    border: 1px solid color-mix(in oklch, currentColor 35%, transparent);
+    border-radius: var(--radius);
+    font-size: var(--text-2xs);
+    font-weight: 500;
+    opacity: 0.85;
+    white-space: nowrap;
   }
 
   .kbd {
