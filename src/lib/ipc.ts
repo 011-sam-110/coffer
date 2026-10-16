@@ -58,6 +58,7 @@ function tauriBackend(): Promise<Backend> {
 }
 
 function demoBackend(): Promise<Backend> {
+  if (!__COFFER_DEMO__) return Promise.reject(new Error("This build has no demo backend; run it inside Coffer."));
   return import("./demo").then((m) => m.createDemoBackend({ page: currentPage(), startState: demoStartState() }));
 }
 
