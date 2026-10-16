@@ -57,7 +57,7 @@ const STATES = [
   ["m13-older-file", "/?state=locked&screen=older", MAIN],
   ["m14-vault", "/", MAIN],
   ["m15-item-login", "/?item=GitHub", MAIN],
-  ["m16-item-card", "/?item=first&filter=all", MAIN, [{ click: "text=Credit Cards" }, { wait: 300 }, { press: "ArrowDown", target: "[role=listbox] [role=option]" }]],
+  ["m16-item-card", "/?item=first&filter=all", MAIN, [{ click: "button[aria-controls=sidebar-types]" }, { click: "text=Credit Cards" }, { wait: 300 }, { press: "ArrowDown", target: "[role=listbox] [role=option]" }]],
   ["m17-edit-login", "/?item=GitHub&edit=1", MAIN],
   ["m18-change-password", "/?item=GitHub&edit=generator", MAIN],
   ["m19-new-identity", "/?new=identity", MAIN],
