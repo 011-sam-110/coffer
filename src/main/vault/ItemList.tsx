@@ -1,17 +1,19 @@
-// The item list: search, sort, type filter, bulk select (tag, archive, trash),
-// and the empty states of SPEC 11 item 12.
-import { Archive, ArchiveRestore, Plus, Search, ShieldAlert, Star, Tag, Trash2, TriangleAlert, X } from "lucide-react";
+// The item list: search, sort, bulk select (tag, archive, trash), flag chips that
+// link to Health, two densities, and the empty states of SPEC 11 item 12.
+// Type filters live in the sidebar.
+import { Archive, ArchiveRestore, Plus, Search, Star, Tag, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Monogram } from "../../components/bits";
+import { Monogram, TYPE_ICONS } from "../../components/bits";
 import { ConfirmDialog, Dialog, Menu, useToast } from "../../components/overlays";
-import { Button, cx, IconButton, Input, Select } from "../../components/ui";
+import { Button, cx, IconButton, Input, KeyBadge, Select } from "../../components/ui";
 import type { ItemSummary, ItemType } from "../../lib/contract";
 import { hasTag } from "../../lib/format";
 import { call } from "../../lib/ipc";
 import { ITEM_TYPE_ORDER, ITEM_TYPES } from "../../lib/itemTypes";
 import { searchItems, sortItems, type SortKey } from "../../lib/search";
+import { useListDensity } from "../prefs";
 import { useStore } from "../store";
-import { useKeyHandlers, type Filter, type Nav } from "./nav";
+import { useKeyHandlers, type Filter, type HealthTab, type Nav } from "./nav";
 
 export function filterItems(items: ItemSummary[], f: Filter): ItemSummary[] {
   switch (f.kind) {
@@ -47,13 +49,14 @@ export function filterTitle(f: Filter): string {
   }
 }
 
-function flagLabel(i: ItemSummary): string | null {
+/** The one-word chip for an item's most serious health flag, and the Health tab it opens. */
+function flagChip(i: ItemSummary): { word: string; label: string; tab: HealthTab; danger: boolean } | null {
   const f = i.flags;
-  if (f.breached) return "Found in a data breach";
-  if (f.reused) return "Reused password";
-  if (f.weak) return "Weak password";
-  if (f.unsecured) return "Unsecured website";
-  if (f.expiring) return "Expires soon";
+  if (f.breached) return { word: "Breached", label: "Found in a data breach. Open Health.", tab: "breached", danger: true };
+  if (f.reused) return { word: "Reused", label: "This password is in other items too. Open Health.", tab: "reused", danger: false };
+  if (f.weak) return { word: "Weak", label: "Easy to guess. Open Health.", tab: "weak", danger: false };
+  if (f.unsecured) return { word: "http", label: "A website address uses http://, not https://. Open Health.", tab: "unsecured", danger: false };
+  if (f.expiring) return { word: "Expiring", label: "Expires soon. Open Health.", tab: "expiring", danger: false };
   return null;
 }
 
@@ -63,8 +66,9 @@ export function NewItemMenu({ onPick, variant = "primary", label = "New" }: { on
       label="New item"
       items={ITEM_TYPE_ORDER.map((t) => ({ label: ITEM_TYPES[t].label, onSelect: () => onPick(t) }))}
       trigger={(p) => (
-        <Button variant={variant} size="md" icon={<Plus className="size-4" />} {...p} title="New item (Ctrl+N)">
+        <Button variant={variant} size="md" icon={<Plus className="size-4" />} {...p} title="New item (Ctrl+N)" aria-keyshortcuts="Control+N">
           {label}
+          <KeyBadge>Ctrl+N</KeyBadge>
         </Button>
       )}
     />
@@ -84,7 +88,8 @@ export function ItemList({
   const { toast, error } = useToast();
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("title");
-  const [typeFilter, setTypeFilter] = useState<ItemType | "">("");
+  const [density] = useListDensity();
+  const compact = density === "compact";
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
   const [tagDialog, setTagDialog] = useState(false);
@@ -96,11 +101,11 @@ export function ItemList({
   const fkey = JSON.stringify(nav.filter);
   useEffect(() => {
     setSelected(new Set());
-    setTypeFilter("");
   }, [fkey]);
 
   const base = useMemo(() => filterItems(items, nav.filter), [items, nav.filter]);
-  const typed = typeFilter ? base.filter((i) => i.type === typeFilter) : base;
+  const typed = base;
+  const noActive = !items.some((i) => i.state === "active");
   const { shown, hiddenCount } = useMemo(() => {
     if (!query.trim()) return { shown: sortItems(typed, sort), hiddenCount: 0 };
     if (nav.filter.kind === "archive" || nav.filter.kind === "trash") {
@@ -204,7 +209,7 @@ export function ItemList({
               ref={searchRef}
               type="search"
               aria-label={`Search ${title}`}
-              placeholder={`Search ${title.toLowerCase() === "all items" ? "all items" : title}`}
+              placeholder={`Search ${base.length} ${base.length === 1 ? "item" : "items"}`}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -236,7 +241,8 @@ export function ItemList({
           {!inTrash && !inArchive && (
             <NewItemMenu
               // One crimson action at a time: Save while editing, the banner's action while a banner is up.
-              variant={nav.editing || (banner && banner.kind !== "reloaded") ? "secondary" : "primary"}
+              // Grey while the vault is empty too: the empty state's Import is the main action then.
+              variant={nav.editing || noActive || (banner && banner.kind !== "reloaded") ? "secondary" : "primary"}
               onPick={(t) => go({ editing: "new", newType: t, newTitle: "", itemId: null })}
             />
           )}
@@ -274,19 +280,9 @@ export function ItemList({
               <option value="updated">Last changed</option>
               <option value="lastUsed">Last used</option>
             </Select>
-            {(nav.filter.kind === "all" || nav.filter.kind === "favorites" || nav.filter.kind === "tag") && (
-              <Select aria-label="Type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as ItemType | "")} className="!h-7 !min-h-7 text-xs">
-                <option value="">All types</option>
-                {ITEM_TYPE_ORDER.map((t) => (
-                  <option key={t} value={t}>
-                    {ITEM_TYPES[t].plural}
-                  </option>
-                ))}
-              </Select>
-            )}
-            <span className="ml-auto text-xs text-muted-foreground tabular-nums">{shown.length}</span>
+            {query.trim() && <span className="text-xs text-muted-foreground tabular-nums">{shown.length} found</span>}
             {inTrash && base.length > 0 && (
-              <Button size="sm" variant="ghost" className="text-danger-text" onClick={() => setConfirmEmpty(true)}>
+              <Button size="sm" variant="ghost" className="ml-auto text-danger-text" onClick={() => setConfirmEmpty(true)}>
                 Empty Trash
               </Button>
             )}
@@ -304,7 +300,8 @@ export function ItemList({
             {shown.map((i) => {
               const isSel = nav.itemId === i.id;
               const checked = selected.has(i.id);
-              const flag = flagLabel(i);
+              const flag = flagChip(i);
+              const TypeIcon = TYPE_ICONS[i.type];
               return (
                 <li key={i.id} role="presentation" className="group relative px-1.5">
                   <button
@@ -317,28 +314,49 @@ export function ItemList({
                     onClick={(e) => clickRow(e, i.id)}
                     onKeyDown={onRowKey}
                     className={cx(
-                      "flex h-[52px] w-full cursor-pointer items-center gap-3 rounded-sm pr-2 pl-2 text-left transition-colors duration-100",
+                      "flex w-full cursor-pointer items-center rounded-sm pr-2 pl-2 text-left transition-colors duration-100",
+                      compact ? "h-[30px] gap-2" : "h-[52px] gap-3",
                       "focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-foreground/60",
                       isSel ? "row-selected" : checked ? "bg-muted" : "hover:bg-muted",
                     )}
                   >
-                    <span className="relative">
-                      <Monogram title={i.title} size={32} className={cx((bulk || checked) && "opacity-0")} />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium">{i.title}</span>
+                    {compact ? (
+                      <>
+                        <TypeIcon aria-hidden className={cx("size-3.5 shrink-0 text-muted-foreground", (bulk || checked) && "opacity-0")} />
+                        <span className="min-w-0 shrink truncate text-sm font-medium">{i.title}</span>
                         {i.favorite && <Star aria-label="Favourite" className="size-3 shrink-0 fill-gold text-gold" />}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
-                    </span>
+                        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{i.subtitle}</span>
+                        {i.urlHost && <span className="max-w-[96px] shrink-0 truncate text-right text-xs text-muted-foreground">{i.urlHost}</span>}
+                      </>
+                    ) : (
+                      <>
+                        <span className="relative">
+                          <Monogram title={i.title} size={32} className={cx((bulk || checked) && "opacity-0")} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate text-sm font-medium">{i.title}</span>
+                            {i.favorite && <Star aria-label="Favourite" className="size-3 shrink-0 fill-gold text-gold" />}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
+                        </span>
+                      </>
+                    )}
                     {flag && (
-                      <span title={flag} className="shrink-0">
-                        {i.flags.breached ? (
-                          <ShieldAlert aria-label={flag} className="size-3.5 text-danger-text" />
-                        ) : (
-                          <TriangleAlert aria-label={flag} className="size-3.5 text-muted-foreground" />
+                      // A mouse shortcut to the matching Health tab; the row itself stays the keyboard target.
+                      <span
+                        aria-label={flag.label}
+                        title={flag.label}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          go({ view: "health", healthTab: flag.tab, editing: null });
+                        }}
+                        className={cx(
+                          "shrink-0 rounded-sm border px-1.5 text-2xs leading-4 font-medium hover:bg-secondary",
+                          flag.danger ? "border-destructive text-danger-text" : "border-border text-muted-foreground",
                         )}
+                      >
+                        {flag.word}
                       </span>
                     )}
                   </button>
@@ -351,7 +369,8 @@ export function ItemList({
                     checked={checked}
                     onChange={() => toggle(i.id)}
                     className={cx(
-                      "absolute top-1/2 left-[22px] size-3.5 -translate-y-1/2 cursor-pointer accent-foreground",
+                      "absolute top-1/2 size-3.5 -translate-y-1/2 cursor-pointer accent-foreground",
+                      compact ? "left-[14px]" : "left-[22px]",
                       bulk || checked ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
                     )}
                   />
