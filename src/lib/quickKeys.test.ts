@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Field, ItemType } from "./contract";
 import { ITEM_TYPE_ORDER } from "./itemTypes";
-import { enterPlan, quickKey, resolveCopyTarget } from "./quickKeys";
+import { enterPlan, enterWords, groupCode, nextChainField, quickKey, resolveCopyTarget } from "./quickKeys";
 
 type Mods = Partial<{ ctrlKey: boolean; shiftKey: boolean; altKey: boolean; caretAtEnd: boolean }>;
 const k = (key: string, mods: Mods = {}) =>
@@ -73,5 +73,41 @@ describe("resolveCopyTarget", () => {
   it("says which field is missing", () => {
     const r = resolveCopyTarget({ fields: [f("username", "alex")] }, "password", null, "password");
     expect(r).toEqual({ ok: false, message: "This item has no password." });
+  });
+});
+
+describe("enterWords", () => {
+  it("names what Enter does on a row", () => {
+    expect(enterWords("login")).toBe("Password");
+    expect(enterWords("sshKey")).toBe("Public key");
+    expect(enterWords("card")).toBe("Card number");
+    expect(enterWords("note")).toBe("Open");
+    expect(enterWords("identity")).toBe("Open");
+  });
+});
+
+describe("nextChainField (one field per open: username, password, one-time code)", () => {
+  const f = (builtin: string, value: string, masked = false): Field => ({ id: `id-${builtin}`, label: builtin, kind: "text", value, masked, builtin });
+  const login = { fields: [f("username", "alex"), f("password", "", true), f("totp", "", true)] };
+  it("goes username, then password, then the code", () => {
+    expect(nextChainField(login, "username")?.role).toBe("password");
+    expect(nextChainField(login, "password")?.role).toBe("totp");
+    expect(nextChainField(login, "totp")).toBeNull();
+  });
+  it("skips a field with no value", () => {
+    const noPw = { fields: [f("username", "alex"), f("password", ""), f("totp", "", true)] };
+    expect(nextChainField(noPw, "username")).toEqual({ role: "totp", fieldId: "id-totp", label: "totp" });
+  });
+  it("starts no chain from a field outside it", () => {
+    expect(nextChainField(login, null)).toBeNull();
+    expect(nextChainField(login, "number")).toBeNull();
+  });
+});
+
+describe("groupCode", () => {
+  it("splits 6 and 8 digit codes in the middle", () => {
+    expect(groupCode("261749")).toBe("261 749");
+    expect(groupCode("12345678")).toBe("1234 5678");
+    expect(groupCode("12345")).toBe("12345");
   });
 });

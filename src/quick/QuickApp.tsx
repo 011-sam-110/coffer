@@ -4,15 +4,15 @@
 import { MotionConfig } from "motion/react";
 import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, Lock, Search, Star, WandSparkles, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DemoBadge, Monogram } from "../components/bits";
+import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
 import { RepromptProvider, ToastProvider, useReprompt, useToast } from "../components/overlays";
 import { Button, cx, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
-import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, VaultStatus } from "../lib/contract";
+import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, TotpCode, VaultStatus } from "../lib/contract";
 import { call, isCofferError, on } from "../lib/ipc";
 import { isSecretKind } from "../lib/itemForm";
 import { ITEM_TYPES } from "../lib/itemTypes";
-import { enterPlan, fieldHasValue, quickKey, resolveCopyTarget, SHORTCUT_WORDS } from "../lib/quickKeys";
+import { enterPlan, enterWords, fieldHasValue, groupCode, nextChainField, quickKey, resolveCopyTarget, SHORTCUT_WORDS, type ChainRole } from "../lib/quickKeys";
 import { recentlyUsed, searchItems } from "../lib/search";
 
 const APP_NAMES: Record<string, string> = {
@@ -40,6 +40,24 @@ export function appName(process: string | null): string | null {
 
 type Row = { item: ItemSummary; section: string };
 type Mode = { kind: "list" } | { kind: "actions"; item: ItemSummary } | { kind: "generator" };
+/** A login being copied one field per open: what Enter copies next. */
+type Continuation = { itemId: string; role: ChainRole; fieldId: string; label: string };
+
+const CONTINUE_MS = 60_000;
+const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
+
+/** Re-render once a second while `on` is true (countdown rings). */
+function useSecondTick(on: boolean) {
+  const [, setT] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const t = window.setInterval(() => setT((x) => x + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [on]);
+}
+
+/** Seconds left in the current period, from the clock (codes change on the period edge). */
+const secondsLeft = (period: number) => period - (Math.floor(Date.now() / 1000) % period);
 
 /** The simulated flyout frame in a browser; the real window is the frame itself. */
 function Frame({ children }: { children: ReactNode }) {
@@ -138,12 +156,18 @@ function ItemRow({
   onClick,
   onActions,
   id,
+  enterLabel,
+  totpPeriod,
 }: {
   row: Row;
   selected: boolean;
   onClick: () => void;
   onActions: () => void;
   id: string;
+  /** What Enter does on this row, e.g. "Password" or "Password · next". */
+  enterLabel: string;
+  /** Set for an item with a one-time code: the ring shows the seconds left. */
+  totpPeriod: number | null;
 }) {
   const i = row.item;
   return (
@@ -163,10 +187,15 @@ function ItemRow({
           </div>
           <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
         </div>
+        {totpPeriod !== null && (
+          <span className="shrink-0" title="Has a one-time code">
+            <CountdownRing remaining={secondsLeft(totpPeriod)} period={totpPeriod} size={14} />
+          </span>
+        )}
         {selected && (
-          <span className="flex shrink-0 items-center gap-1 text-2xs text-muted-foreground">
+          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             <CornerDownLeft aria-hidden className="size-3" />
-            {enterPlan(i.type).kind === "open" ? "Open" : "Copy"}
+            {enterLabel}
           </span>
         )}
         <button
@@ -191,7 +220,10 @@ function ItemRow({
 
 interface Action {
   label: string;
+  /** The action's own shortcut (Ctrl+P, Ctrl+U, Ctrl+T, Ctrl+O). */
   hint?: string;
+  /** Live text on the row, such as the one-time code and the seconds left. */
+  detail?: string;
   icon: ReactNode;
   run: () => void;
 }
@@ -209,6 +241,11 @@ function Quick() {
   const [actSel, setActSel] = useState(0);
   const [hint, setHint] = useState(false);
   const [hidden, setHidden] = useState(false);
+  // Quick Access is only hidden between opens, so this survives a close.
+  const lastCopy = useRef<{ itemId: string; role: string | null; at: number } | null>(null);
+  const [cont, setCont] = useState<Continuation | null>(null);
+  const [periods, setPeriods] = useState<Record<string, number>>({});
+  const [actCode, setActCode] = useState<TotpCode | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const { toast, error } = useToast();
@@ -227,6 +264,16 @@ function Quick() {
       setQuery("");
       setSel(0);
       setMode({ kind: "list" });
+      setCont(null);
+      const lc = lastCopy.current;
+      if (lc && Date.now() - lc.at < CONTINUE_MS) {
+        call("item_get", { id: lc.itemId })
+          .then((view) => {
+            const next = nextChainField(view, lc.role);
+            if (next) setCont({ itemId: view.id, ...next });
+          })
+          .catch(() => undefined);
+      }
       call("vault_status").then(setStatus).catch(() => undefined);
       if (c) setCtx(c);
       else call("quick_context").then(setCtx).catch(() => setCtx(null));
@@ -260,7 +307,10 @@ function Quick() {
   }, [shown, loadItems]);
 
   useEffect(() => {
-    if (status?.state === "unlocked") loadItems();
+    if (status?.state !== "unlocked") return;
+    loadItems();
+    // After an unlock here, stay open with the cursor in the search.
+    requestAnimationFrame(() => searchRef.current?.focus());
   }, [status?.state, loadItems]);
 
   const hide = useCallback(async () => {
@@ -285,11 +335,24 @@ function Quick() {
         out.push({ item, section });
       });
     const app = appName(ctx?.process ?? null);
+    const contItem = cont ? byId.get(cont.itemId) : undefined;
+    if (contItem) add([contItem], "Continue");
     add((ctx?.suggestions ?? []).map((id) => byId.get(id)).filter((x): x is ItemSummary => !!x).slice(0, 5), `Suggested for ${app ?? "this app"}`);
-    add(active.filter((i) => i.favorite).sort((a, b) => a.title.localeCompare(b.title)), "Favourites");
     add(recentlyUsed(items, 6), "Recently used");
+    add(active.filter((i) => i.favorite).sort((a, b) => a.title.localeCompare(b.title)), "Favourites");
     return { rows: out, hiddenCount: 0 };
-  }, [query, items, ctx, byId, active]);
+  }, [query, items, ctx, byId, active, cont]);
+
+  // Code periods for the rings: one totp_code call per item with a code (a re-prompt item reports 30 s).
+  useEffect(() => {
+    const need = rows.filter((r) => r.item.hasTotp && periods[r.item.id] === undefined).slice(0, 15);
+    need.forEach((r) =>
+      call("totp_code", { id: r.item.id, field: null, password: null })
+        .then((c) => setPeriods((p) => ({ ...p, [r.item.id]: c.period })))
+        .catch(() => setPeriods((p) => ({ ...p, [r.item.id]: 30 }))),
+    );
+  }, [rows, periods]);
+  useSecondTick(mode.kind === "list" && rows.some((r) => r.item.hasTotp));
 
   useEffect(() => setSel(0), [query]);
   useEffect(() => {
@@ -298,9 +361,28 @@ function Quick() {
 
   const current = rows[sel]?.item ?? null;
 
+  const remember = (item: ItemSummary, role: string | null) => {
+    lastCopy.current = { itemId: item.id, role, at: Date.now() };
+  };
+
+  /** With under 5 s left, wait for the next code so the pasted code is still good. */
+  const waitForFreshCode = async (item: ItemSummary, fieldId: string | null) => {
+    try {
+      const c = await call("totp_code", { id: item.id, field: fieldId, password: null });
+      if (c.remaining < 5) {
+        toast(`Waiting ${c.remaining} s for the next code.`);
+        await sleep(c.remaining * 1000 + 300);
+      }
+    } catch {
+      /* re-prompt or no code: the copy below reports it */
+    }
+  };
+
   const copyRole = async (item: ItemSummary, role: "username" | "password" | "totp") => {
     try {
+      if (role === "totp") await waitForFreshCode(item, null);
       await withReprompt((password) => call("item_copy", { id: item.id, field: role, password }), `${item.title} asks for your master password.`);
+      remember(item, role);
       hide();
     } catch (e) {
       if (isCofferError(e) && e.code === "notFound") toast(`This item has no ${SHORTCUT_WORDS[role]}.`);
@@ -308,9 +390,11 @@ function Quick() {
     }
   };
 
-  const copyField = async (item: ItemSummary, field: string) => {
+  const copyField = async (item: ItemSummary, field: string, role: string | null = null, isTotp = false) => {
     try {
+      if (isTotp) await waitForFreshCode(item, field);
       await withReprompt((password) => call("item_copy", { id: item.id, field, password }), `${item.title} asks for your master password.`);
+      remember(item, role);
       hide();
     } catch (e) {
       if (!(isCofferError(e) && e.message === "Cancelled.")) error(e);
@@ -323,17 +407,21 @@ function Quick() {
   };
 
   const enter = async (item: ItemSummary) => {
+    if (cont && cont.itemId === item.id) return copyField(item, cont.fieldId, cont.role, cont.role === "totp");
     const plan = enterPlan(item.type);
     if (plan.kind === "open") return openInCoffer(item);
     try {
       const view = await call("item_get", { id: item.id });
       const target = resolveCopyTarget(view, plan.role, plan.fallbackRole, plan.words);
       if (!target.ok) return toast(target.message);
-      await copyField(item, target.fieldId);
+      const f = view.fields.find((x) => x.id === target.fieldId);
+      await copyField(item, target.fieldId, f?.builtin ?? null, f?.kind === "totp");
     } catch (e) {
       error(e);
     }
   };
+
+  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? `${cont.label} · next` : enterWords(item.type));
 
   const openActions = async (item: ItemSummary) => {
     setMode({ kind: "actions", item });
@@ -350,16 +438,20 @@ function Quick() {
     if (mode.kind !== "actions") return [];
     const item = mode.item;
     const list: Action[] = [];
-    const fields = (detail?.fields ?? []).filter(fieldHasValue);
     const plan = enterPlan(item.type);
+    const mainRole = plan.kind === "copy" ? plan.role : null;
+    // The field Enter copies comes first (it opens highlighted), then username, password, code.
+    const rank = (b: string | null | undefined) => (b && b === mainRole ? 0 : b === "username" ? 1 : b === "password" ? 2 : b === "totp" ? 3 : 4);
+    const fields = (detail?.fields ?? []).filter(fieldHasValue).sort((a, b) => rank(a.builtin) - rank(b.builtin));
     const shortcut: Record<string, string> = { username: "Ctrl+U", password: "Ctrl+P", totp: "Ctrl+T" };
     for (const f of fields) {
-      const isMain = plan.kind === "copy" && f.builtin === plan.role;
+      const isTotp = f.kind === "totp";
       list.push({
         label: `Copy ${f.label.toLowerCase()}`,
-        hint: isMain ? "Enter" : f.builtin ? shortcut[f.builtin] : undefined,
+        hint: f.builtin ? shortcut[f.builtin] : undefined,
+        detail: isTotp && actCode ? `${groupCode(actCode.code)} · ${actCode.remaining} s` : undefined,
         icon: <Copy className={cx(isSecretKind(f.kind) ? "text-primary-text" : "")} />,
-        run: () => copyField(item, f.id),
+        run: () => copyField(item, f.id, f.builtin ?? null, isTotp),
       });
     }
     (detail?.urls ?? []).forEach((u, i) =>
@@ -382,7 +474,26 @@ function Quick() {
     list.push({ label: "Open in Coffer", hint: "Ctrl+O", icon: <AppWindow />, run: () => openInCoffer(item) });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, detail]);
+  }, [mode, detail, actCode]);
+
+  // The live code on the action row: refetched each second while the list is open.
+  const totpFieldId = mode.kind === "actions" ? (detail?.fields.find((f) => f.kind === "totp" && fieldHasValue(f))?.id ?? null) : null;
+  useEffect(() => {
+    setActCode(null);
+    if (mode.kind !== "actions" || !totpFieldId) return;
+    const id = mode.item.id;
+    let stop = false;
+    const tick = () =>
+      call("totp_code", { id, field: totpFieldId, password: null })
+        .then((c) => !stop && setActCode(c))
+        .catch(() => !stop && setActCode(null));
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => {
+      stop = true;
+      window.clearInterval(t);
+    };
+  }, [mode, totpFieldId]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const input = e.currentTarget;
@@ -394,6 +505,11 @@ function Quick() {
       metaKey: e.metaKey,
       caretAtEnd: input.selectionStart === input.value.length && input.selectionEnd === input.value.length,
     });
+    if (mode.kind === "actions" && !e.ctrlKey && !e.altKey && !e.metaKey && /^[1-6]$/.test(e.key)) {
+      e.preventDefault();
+      actions[Number(e.key) - 1]?.run();
+      return;
+    }
     if (!k) return;
     if (mode.kind === "actions") {
       e.preventDefault();
@@ -456,7 +572,7 @@ function Quick() {
   else
     body = (
       <>
-        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border pr-2 pl-3 focus-within:shadow-[inset_0_-2px_0_var(--ring)]" data-focus-ring>
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border pr-2 pl-3 focus-within:shadow-[inset_0_-1px_0_var(--focus-field)]" data-focus-ring>
           {mode.kind === "actions" ? (
             <IconButton label="Back to the list" onClick={() => setMode({ kind: "list" })}>
               <ChevronLeft />
@@ -505,8 +621,13 @@ function Quick() {
                         i === actSel ? "row-selected" : "hover:bg-muted",
                       )}
                     >
+                      <span aria-hidden className="w-2.5 text-center text-2xs text-muted-foreground tabular-nums">
+                        {i < 6 ? i + 1 : ""}
+                      </span>
                       {a.icon}
                       <span className="flex-1 truncate">{a.label}</span>
+                      {a.detail && <span className="font-mono text-xs text-muted-foreground tabular-nums">{a.detail}</span>}
+                      {i === actSel && <Kbd>↵</Kbd>}
                       {a.hint && <Kbd>{a.hint}</Kbd>}
                     </div>
                   </li>
@@ -535,7 +656,15 @@ function Quick() {
                       {r.section}
                     </li>
                   )}
-                  <ItemRow id={`q-${i}`} row={r} selected={i === sel} onClick={() => (i === sel ? enter(r.item) : setSel(i))} onActions={() => openActions(r.item)} />
+                  <ItemRow
+                    id={`q-${i}`}
+                    row={r}
+                    selected={i === sel}
+                    enterLabel={rowEnterLabel(r.item)}
+                    totpPeriod={r.item.hasTotp ? (periods[r.item.id] ?? 30) : null}
+                    onClick={() => (i === sel ? enter(r.item) : setSel(i))}
+                    onActions={() => openActions(r.item)}
+                  />
                 </Fragment>
               ))}
               {hiddenCount > 0 && <li className="px-4 pt-2 pb-1 text-xs text-muted-foreground">{hiddenCount} more in Archive or Trash</li>}
