@@ -209,7 +209,7 @@ mod tests {
         for _ in 0..50 {
             let sk = SecretKey::generate();
             let text = sk.to_text();
-            assert_eq!(text.len(), "C1-AAAAAA-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXK".len(), "{}", &*text);
+            assert_eq!(text.len(), "C1-AAAAAA-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXK".len(), "{}", *text);
             assert!(text.starts_with(&format!("C1-{}-", sk.key_id())));
             let back = SecretKey::parse(&text).unwrap();
             assert_eq!(back, sk);

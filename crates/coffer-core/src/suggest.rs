@@ -62,7 +62,7 @@ pub fn suggest(
         let mut score = 0u8;
         if item.apps.iter().any(|a| exe_stem(a) == stem) {
             score = 3;
-        } else if !browser && learned.iter().any(|l| *l == id) {
+        } else if !browser && learned.contains(&id) {
             score = 2;
         } else if browser && !title_words.is_empty() {
             let host_hit = item.urls.iter().filter_map(|u| url_host(&u.url)).any(|h| {

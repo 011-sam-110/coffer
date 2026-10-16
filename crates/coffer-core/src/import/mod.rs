@@ -36,6 +36,12 @@ use crate::time_util;
 
 /// Largest uncompressed ZIP entry Coffer reads (guards against zip bombs).
 pub const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+/// Largest import file Coffer reads at all, checked before anything else
+/// (it also bounds the ZIP central directory, which is read whole).
+pub const MAX_IMPORT_FILE_BYTES: usize = 64 * 1024 * 1024;
+/// Largest JSON document Coffer parses: a parsed JSON tree can take about
+/// 25 times its size in memory, so JSON has a lower cap than other files.
+pub const MAX_JSON_BYTES: usize = 16 * 1024 * 1024;
 
 /// What to import.
 pub struct ImportRequest<'a> {
@@ -131,7 +137,7 @@ impl ImportPlan {
 
 /// A new item of a type with its built-in fields.
 pub(crate) fn new_item(t: ItemType, title: &str) -> StoredItem {
-    StoredItem::new(t, title.trim(), &time_util::fmt(time_util::now()))
+    StoredItem::new(t, title.trim(), &time_util::now_string())
 }
 
 /// Sets a built-in field (adds it when absent) when `value` is not empty.
@@ -175,19 +181,20 @@ pub(crate) fn tag(item: &mut StoredItem, t: &str) {
     }
 }
 
-/// Sets created/updated from RFC 3339 text when it parses.
+/// Sets created/updated from RFC 3339 text when it parses (a year outside
+/// 0..=9999 is dropped).
 pub(crate) fn set_times(item: &mut StoredItem, created: Option<&str>, updated: Option<&str>) {
-    if let Some(c) = created.and_then(time_util::parse) {
-        item.created_at = time_util::fmt(c);
+    if let Some(s) = created.and_then(time_util::parse).and_then(time_util::fmt) {
+        item.created_at = s;
     }
-    if let Some(u) = updated.and_then(time_util::parse) {
-        item.updated_at = time_util::fmt(u);
+    if let Some(s) = updated.and_then(time_util::parse).and_then(time_util::fmt) {
+        item.updated_at = s;
     }
 }
 
 /// A Unix time (seconds) as RFC 3339.
 pub(crate) fn unix_to_str(secs: i64) -> Option<String> {
-    time_util::from_unix(secs).map(time_util::fmt)
+    time_util::from_unix(secs).and_then(time_util::fmt)
 }
 
 /// A title for an item without one: the URL host, else the username, else "Untitled".
@@ -209,21 +216,83 @@ pub(crate) fn is_empty_item(item: &StoredItem) -> bool {
     item.fields.iter().all(|f| f.value.trim().is_empty()) && item.urls.is_empty() && item.notes.trim().is_empty()
 }
 
-/// Reads the files of a ZIP archive: (name, bytes), each capped at [`MAX_ENTRY_BYTES`].
+/// Most bytes Coffer unpacks from one ZIP, all entries together.
+pub const MAX_ZIP_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+/// Most entries Coffer reads from one ZIP.
+pub const MAX_ZIP_READ_ENTRIES: usize = 256;
+/// Most entries a ZIP may list at all (a 1PUX lists one per attachment,
+/// which Coffer does not read).
+pub const MAX_ZIP_LISTED_ENTRIES: usize = 10_000;
+
+/// Limits of [`read_zip_limited`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ZipLimits {
+    pub(crate) entry_bytes: u64,
+    pub(crate) json_entry_bytes: u64,
+    pub(crate) total_bytes: u64,
+    pub(crate) read_entries: usize,
+    pub(crate) listed_entries: usize,
+}
+
+const ZIP_LIMITS: ZipLimits = ZipLimits {
+    entry_bytes: MAX_ENTRY_BYTES,
+    json_entry_bytes: MAX_JSON_BYTES as u64,
+    total_bytes: MAX_ZIP_TOTAL_BYTES,
+    read_entries: MAX_ZIP_READ_ENTRIES,
+    listed_entries: MAX_ZIP_LISTED_ENTRIES,
+};
+
+/// `true` for the entries an importer reads: 1PUX `export.data` /
+/// `export.attributes` and CSV files (Dashlane).
+fn zip_entry_wanted(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n == "export.data" || n == "export.attributes" || n.ends_with(".csv")
+}
+
+/// Reads the importable files of a ZIP archive: (name, bytes). Only the
+/// entries of [`zip_entry_wanted`] are unpacked, each capped at
+/// [`MAX_ENTRY_BYTES`], all together at [`MAX_ZIP_TOTAL_BYTES`], at most
+/// [`MAX_ZIP_READ_ENTRIES`] of them (zip-bomb guards).
 pub(crate) fn read_zip(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>> {
+    read_zip_limited(bytes, ZIP_LIMITS)
+}
+
+pub(crate) fn read_zip_limited(bytes: &[u8], lim: ZipLimits) -> Result<Vec<(String, Vec<u8>)>> {
+    let too_large = || CoreError::UnsupportedFormat("This ZIP file is too large to import.".into());
+    let unreadable = || CoreError::Io("A file in this ZIP is not readable.".into());
     let mut z = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| CoreError::UnsupportedFormat("This ZIP file is not readable.".into()))?;
+    if z.len() > lim.listed_entries {
+        return Err(too_large());
+    }
     let mut out = Vec::new();
+    let mut total: u64 = 0;
     for i in 0..z.len() {
-        let mut f = z.by_index(i).map_err(|_| CoreError::Io("A file in this ZIP is not readable.".into()))?;
+        let mut f = z.by_index(i).map_err(|_| unreadable())?;
         if f.is_dir() {
             continue;
         }
-        let name = f.name().map_err(|_| CoreError::Io("A file in this ZIP is not readable.".into()))?.into_owned();
-        let mut buf = Vec::new();
-        (&mut f).take(MAX_ENTRY_BYTES + 1).read_to_end(&mut buf).map_err(|_| CoreError::Io("A file in this ZIP is not readable.".into()))?;
-        if buf.len() as u64 > MAX_ENTRY_BYTES {
-            return Err(CoreError::UnsupportedFormat("A file in this ZIP is too large to import.".into()));
+        let name = f.name().map_err(|_| unreadable())?.into_owned();
+        if !zip_entry_wanted(&name) {
+            continue;
         }
+        if out.len() >= lim.read_entries {
+            return Err(too_large());
+        }
+        // The JSON entries of a 1PUX are parsed into a tree: a lower cap.
+        let entry_cap = if name.to_ascii_lowercase().starts_with("export.") { lim.entry_bytes.min(lim.json_entry_bytes) } else { lim.entry_bytes };
+        let cap = entry_cap.min(lim.total_bytes - total);
+        // Reserve what the entry claims (bounded by the cap) so an honest
+        // entry is read without the Vec doubling past it.
+        let mut buf = Vec::with_capacity(usize::try_from(f.size().min(cap) + 1).unwrap_or(0));
+        (&mut f).take(cap + 1).read_to_end(&mut buf).map_err(|_| unreadable())?;
+        if buf.len() as u64 > cap {
+            return Err(if cap == entry_cap {
+                CoreError::UnsupportedFormat("A file in this ZIP is too large to import.".into())
+            } else {
+                too_large()
+            });
+        }
+        total += buf.len() as u64;
         out.push((name, buf));
     }
     Ok(out)
@@ -250,6 +319,9 @@ pub(crate) fn csv_headers(bytes: &[u8]) -> Option<Vec<String>> {
 /// `UnsupportedFormat` with a plain sentence; `BadCredentials`,
 /// `BadSecretKey`, `Tampered`, KDF errors for Coffer files.
 pub fn parse_import(req: &ImportRequest<'_>, own_key: Option<&SecretKey>) -> Result<ParsedImport> {
+    if req.bytes.len() > MAX_IMPORT_FILE_BYTES {
+        return Err(CoreError::invalid("This file is too large to import. Coffer imports files up to 64 MiB."));
+    }
     let bytes = strip_bom(req.bytes);
     let name = req.file_name.to_ascii_lowercase();
     if bytes.starts_with(b"PK\x03\x04") || name.ends_with(".1pux") || name.ends_with(".zip") {
@@ -264,6 +336,9 @@ pub fn parse_import(req: &ImportRequest<'_>, own_key: Option<&SecretKey>) -> Res
     }
     let first = bytes.iter().copied().find(|b| !b.is_ascii_whitespace());
     if first == Some(b'{') {
+        if bytes.len() > MAX_JSON_BYTES {
+            return Err(CoreError::invalid("This JSON file is too large to import. Coffer reads JSON files up to 16 MiB."));
+        }
         let v: serde_json::Value = serde_json::from_slice(bytes)
             .map_err(|_| CoreError::UnsupportedFormat("This JSON file is not readable.".into()))?;
         match v.get("format").and_then(serde_json::Value::as_str) {
@@ -351,7 +426,7 @@ impl Vault {
             tag(&mut it, &tag_name);
             it.import_batch = Some(batch_id.clone());
             if it.state == ItemState::Trashed && it.trashed_at.is_none() {
-                it.trashed_at = Some(time_util::fmt(time_util::now()));
+                it.trashed_at = Some(time_util::now_string());
             }
             out.push(it);
         }

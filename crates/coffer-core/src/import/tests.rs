@@ -56,6 +56,26 @@ fn firefox_csv() {
     assert_eq!(f.password_changed_at.as_deref(), Some("2023-11-14T22:13:20Z"));
 }
 
+/// Review item 3b: import times outside years 0..=9999 used to panic.
+#[test]
+fn out_of_range_import_times_are_dropped() {
+    let ff = b"url,username,password,httpRealm,formActionOrigin,guid,timeCreated,timeLastUsed,timePasswordChanged
+https://a.example,u,p,,,{1},-62167219201000,0,0
+";
+    let p = parse_import(&req("f.csv", ff), None).unwrap();
+    assert_eq!(p.items.len(), 1);
+    assert_ne!(p.items[0].created_at, "");
+    assert!(!p.items[0].created_at.starts_with('-'));
+    let bw = br#"{"encrypted":false,"items":[{"type":1,"name":"x","login":{"username":"u","password":"p"},"creationDate":"0000-01-01T00:00:00+00:01","passwordHistory":[{"lastUsedDate":"-0001-01-01T00:00:00Z","password":"old"}]}]}"#;
+    let p = parse_import(&req("b.json", bw), None).unwrap();
+    assert_eq!(p.items.len(), 1);
+    assert!(!p.items[0].created_at.starts_with('-') && !p.items[0].created_at.starts_with("0000"));
+    // 1PUX times go through unix_to_str.
+    assert!(unix_to_str(-62_167_219_201).is_none());
+    assert!(unix_to_str(253_402_300_800).is_none()); // year 10000
+    assert_eq!(unix_to_str(253_402_300_799).as_deref(), Some("9999-12-31T23:59:59Z"));
+}
+
 #[test]
 fn bitwarden_csv() {
     let p = parse("synthetic-bitwarden.csv", fixture!("synthetic-bitwarden.csv"));
@@ -383,4 +403,108 @@ fn import_coffer_vault_file() {
         assert_eq!(dst.import_preview(&r).unwrap_err().code(), "badSecretKey");
     }
     let _ = same.import_preview(&req("other.coffer", &file));
+}
+
+// ---------------------------------------------------------------- review item 4: memory limits
+
+fn zip_of(entries: &[(&str, usize)]) -> Vec<u8> {
+    use std::io::Write;
+    let mut cur = std::io::Cursor::new(Vec::new());
+    {
+        let mut z = zip::ZipWriter::new(&mut cur);
+        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, size) in entries {
+            z.start_file(*name, opts).unwrap();
+            z.write_all(&vec![b'a'; *size]).unwrap();
+        }
+        z.finish().unwrap();
+    }
+    cur.into_inner()
+}
+
+const SMALL: ZipLimits = ZipLimits { entry_bytes: 1000, json_entry_bytes: 500, total_bytes: 2500, read_entries: 3, listed_entries: 8 };
+
+/// The reviewer's case scaled down: big entries an importer never reads
+/// (`f0.txt`...) are not unpacked at all.
+#[test]
+fn zip_reads_only_import_entries() {
+    let z = zip_of(&[("f0.txt", 5000), ("f1.txt", 5000), ("files/a.bin", 5000), ("export.data", 10)]);
+    let files = read_zip_limited(&z, SMALL).unwrap();
+    let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, vec!["export.data"]);
+}
+
+#[test]
+fn zip_caps_entry_total_and_count() {
+    // One entry over the per-entry cap.
+    let e = read_zip_limited(&zip_of(&[("a.csv", 1001)]), SMALL).unwrap_err();
+    assert_eq!(e.code(), "unsupportedFormat");
+    // Entries within the per-entry cap but over the total (4 x 1000 > 2500).
+    let z = zip_of(&[("a.csv", 1000), ("b.csv", 1000), ("c.csv", 1000)]);
+    assert_eq!(read_zip_limited(&z, SMALL).unwrap_err().code(), "unsupportedFormat");
+    assert_eq!(read_zip_limited(&zip_of(&[("a.csv", 1000), ("b.csv", 1000), ("c.csv", 500)]), SMALL).unwrap().len(), 3);
+    // More importable entries than the read cap.
+    let z = zip_of(&[("a.csv", 1), ("b.csv", 1), ("c.csv", 1), ("d.csv", 1)]);
+    assert_eq!(read_zip_limited(&z, SMALL).unwrap_err().code(), "unsupportedFormat");
+    // More listed entries than the listing cap, even if none is read.
+    let many: Vec<(String, usize)> = (0..9).map(|i| (format!("f{i}.txt"), 1)).collect();
+    let refs: Vec<(&str, usize)> = many.iter().map(|(n, s)| (n.as_str(), *s)).collect();
+    assert_eq!(read_zip_limited(&zip_of(&refs), SMALL).unwrap_err().code(), "unsupportedFormat");
+    // The real limits.
+    assert_eq!(MAX_ZIP_TOTAL_BYTES, 64 * 1024 * 1024);
+    assert_eq!(MAX_ZIP_READ_ENTRIES, 256);
+}
+
+/// The reviewer's CSV shape (Bitwarden headers plus wide, long-named
+/// columns): rows share one header map, columns and cells are capped.
+#[test]
+fn csv_rows_share_headers_and_are_capped() {
+    let csv_with = |cols: usize, rows: usize| {
+        let mut s = String::from("type,name,login_uri,login_password");
+        for c in 0..cols {
+            s.push_str(&format!(",{c:0100}"));
+        }
+        s.push('\n');
+        for _ in 0..rows {
+            s.push_str("login,n,https://a.example,pw");
+            s.push_str(&",".repeat(cols));
+            s.push('\n');
+        }
+        s
+    };
+    let ok = csv_with(20, 30);
+    let rows = super::csv_formats::rows_limited(ok.as_bytes(), 512, 1_000_000).unwrap();
+    assert_eq!(rows.len(), 30);
+    assert_eq!(rows[0].get("login_password"), "pw");
+    assert!(std::rc::Rc::ptr_eq(&rows[0].index, &rows[29].index));
+    // Too many columns.
+    let wide = csv_with(600, 1);
+    assert_eq!(super::csv_formats::rows_limited(wide.as_bytes(), 512, 1_000_000).err().map(|e| e.code()), Some("unsupportedFormat"));
+    assert_eq!(parse_import(&req("w.csv", wide.as_bytes()), None).unwrap_err().code(), "unsupportedFormat");
+    // Too many cells: 24 columns x 30 rows = 720 > 700.
+    assert_eq!(super::csv_formats::rows_limited(ok.as_bytes(), 512, 700).err().map(|e| e.code()), Some("unsupportedFormat"));
+}
+
+/// Review item 4, second pass: the whole file is capped before anything
+/// else, and JSON (a plain file or a 1PUX `export.data`) before parsing.
+#[test]
+fn file_and_json_caps_refuse_before_parsing() {
+    let big = vec![b' '; MAX_IMPORT_FILE_BYTES + 1];
+    let e = parse_import(&req("x.csv", &big), None).unwrap_err();
+    assert_eq!(e.code(), "invalid");
+    assert!(e.to_string().contains("64 MiB"));
+    // Plain JSON over 16 MiB: `[],` repeated (the reviewer's shape).
+    let json = format!("{{\"items\":[{}[]]}}", "[],".repeat(MAX_JSON_BYTES / 3 + 1));
+    assert!(json.len() > MAX_JSON_BYTES);
+    let e = parse_import(&req("b.json", json.as_bytes()), None).unwrap_err();
+    assert_eq!(e.code(), "invalid");
+    assert!(e.to_string().contains("16 MiB"));
+    // A 1PUX JSON entry stops at its own cap while it is read.
+    let z = zip_of(&[("export.data", 501)]);
+    assert_eq!(read_zip_limited(&z, SMALL).unwrap_err().code(), "unsupportedFormat");
+    assert_eq!(read_zip_limited(&zip_of(&[("export.data", 500), ("a.csv", 900)]), SMALL).unwrap().len(), 2);
+    // The 1PUX parser checks it too.
+    let files = vec![("export.data".to_owned(), vec![b' '; MAX_JSON_BYTES + 1])];
+    assert_eq!(super::onepux::parse(&files).unwrap_err().code(), "invalid");
+    assert!(!crate::export::is_cofferx(json.as_bytes()));
 }

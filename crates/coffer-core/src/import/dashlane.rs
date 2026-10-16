@@ -146,7 +146,7 @@ fn id_doc(r: &Row) -> crate::model::StoredItem {
         "tax_number" => "Tax number",
         _ => "ID document",
     };
-    let mut i = new_item(ItemType::Document, &format!("{title} {}", r.get("name")).trim().to_owned());
+    let mut i = new_item(ItemType::Document, format!("{title} {}", r.get("name")).trim());
     set(&mut i, "docKind", kind);
     set(&mut i, "number", r.get("number"));
     set(&mut i, "fullName", r.get("name"));
