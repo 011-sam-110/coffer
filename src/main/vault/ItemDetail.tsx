@@ -20,7 +20,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Markdown } from "../../components/Markdown";
 import { Monogram, PasswordChars, SecretText, TotpCode } from "../../components/bits";
 import { ConfirmDialog, Menu, useCopy, useReprompt, useToast } from "../../components/overlays";
-import { Button, cx, IconButton, Notice, Spinner } from "../../components/ui";
+import { Button, cx, IconButton, KeyBadge, Notice, Spinner } from "../../components/ui";
 import type { Field, ItemView, PasswordHistoryEntry } from "../../lib/contract";
 import { formatDate, formatDateTime, groupCard, relativeTime } from "../../lib/format";
 import { call, isCofferError } from "../../lib/ipc";
@@ -47,16 +47,21 @@ function displayValue(f: Field): ReactNode {
   }
 }
 
+const COPY_KEYS: Record<string, string> = { username: "Ctrl+U", password: "Ctrl+P", totp: "Ctrl+T" };
+
 function FieldRow({
   item,
   field,
   revealed,
   onToggleReveal,
+  revealKey,
 }: {
   item: ItemView;
   field: Field;
   revealed: string | null;
   onToggleReveal: () => void;
+  /** This field's eye answers Ctrl+R (the first secret of the item). */
+  revealKey?: boolean;
 }) {
   const copy = useCopy();
   const secret = isSecretKind(field.kind);
@@ -80,23 +85,28 @@ function FieldRow({
   else value = <span data-selectable>{displayValue(field)}</span>;
 
   return (
-    <div className="group grid min-h-10 grid-cols-[140px_1fr_auto] items-start gap-3 px-4 py-2.5">
+    <div className="group grid min-h-10 grid-cols-[148px_1fr_auto] items-start gap-3 px-4 py-2.5">
       <span className="pt-px text-xs text-muted-foreground">{field.label}</span>
       <div className="min-w-0 text-sm break-words">{value}</div>
       <div className="flex items-center gap-0.5">
         {secret && field.kind !== "totp" && (
-          <IconButton size="sm" label={shown ? `Hide ${field.label.toLowerCase()}` : `Reveal ${field.label.toLowerCase()}`} onClick={onToggleReveal}>
+          <IconButton
+            size="sm"
+            label={shown ? `Hide ${field.label.toLowerCase()}` : `Reveal ${field.label.toLowerCase()}`}
+            shortcut={revealKey ? "Ctrl+R" : undefined}
+            onClick={onToggleReveal}
+          >
             {shown ? <EyeOff /> : <Eye />}
           </IconButton>
         )}
-        <CopyButton label={`Copy ${field.label.toLowerCase()}`} onCopy={() => copy(item.id, field.id)} />
+        <CopyButton label={`Copy ${field.label.toLowerCase()}`} shortcut={field.builtin ? COPY_KEYS[field.builtin] : undefined} onCopy={() => copy(item.id, field.id)} />
       </div>
     </div>
   );
 }
 
 /** A copy icon that turns into a check for 1.5 s after a copy, so the click confirms where it happened. */
-function CopyButton({ label, onCopy }: { label: string; onCopy: () => Promise<boolean> }) {
+function CopyButton({ label, onCopy, shortcut }: { label: string; onCopy: () => Promise<boolean>; shortcut?: string }) {
   const [done, setDone] = useState(false);
   useEffect(() => {
     if (!done) return;
@@ -104,7 +114,7 @@ function CopyButton({ label, onCopy }: { label: string; onCopy: () => Promise<bo
     return () => window.clearTimeout(t);
   }, [done]);
   return (
-    <IconButton size="sm" label={label} active={done} onClick={() => onCopy().then((ok) => ok && setDone(true))}>
+    <IconButton size="sm" label={label} shortcut={shortcut} active={done} onClick={() => onCopy().then((ok) => ok && setDone(true))}>
       {done ? <Check /> : <Copy />}
     </IconButton>
   );
@@ -247,6 +257,8 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
     sections.set(k, [...(sections.get(k) ?? []), f]);
   }
   const flags = FLAG_TEXT.filter(([k]) => item.flags[k]);
+  // Ctrl+R reveals the first secret (see the key handlers above); its eye says so.
+  const revealKeyId = withValue.find((x) => isSecretKind(x.kind) && x.kind !== "totp")?.id;
   const hasPassword = item.fields.some((f) => f.builtin === "password");
 
   const loadHistory = async () => {
@@ -311,8 +323,9 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
             </IconButton>
           )}
           {item.state !== "trashed" && (
-            <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => go({ editing: "edit" })} title="Edit (Ctrl+E)">
+            <Button size="sm" icon={<Pencil className="size-3.5" />} onClick={() => go({ editing: "edit" })} title="Edit (Ctrl+E)" aria-keyshortcuts="Control+E">
               Edit
+              <KeyBadge>Ctrl+E</KeyBadge>
             </Button>
           )}
           <Menu
@@ -374,23 +387,23 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
           {builtins.length > 0 && (
             <Group>
               {builtins.map((f) => (
-                <FieldRow key={f.id} item={item} field={f} revealed={revealed[f.id] ?? null} onToggleReveal={() => reveal(f)} />
+                <FieldRow key={f.id} item={item} field={f} revealed={revealed[f.id] ?? null} onToggleReveal={() => reveal(f)} revealKey={f.id === revealKeyId} />
               ))}
             </Group>
           )}
 
           {[...sections.entries()].map(([name, fields]) => (
-            <Group key={name || "_"} title={name || (builtins.length ? "More fields" : undefined)}>
+            <Group key={name || "_"} title={fields.length > 1 ? name || (builtins.length ? "More fields" : undefined) : undefined}>
               {fields.map((f) => (
-                <FieldRow key={f.id} item={item} field={f} revealed={revealed[f.id] ?? null} onToggleReveal={() => reveal(f)} />
+                <FieldRow key={f.id} item={item} field={f} revealed={revealed[f.id] ?? null} onToggleReveal={() => reveal(f)} revealKey={f.id === revealKeyId} />
               ))}
             </Group>
           ))}
 
           {item.urls.length > 0 && (
-            <Group title={item.urls.length === 1 ? "Website" : "Websites"}>
+            <Group title={item.urls.length > 1 ? "Websites" : undefined}>
               {item.urls.map((u, i) => (
-                <div key={i} className="grid min-h-10 grid-cols-[140px_1fr_auto] items-center gap-3 px-4 py-2">
+                <div key={i} className="grid min-h-10 grid-cols-[148px_1fr_auto] items-center gap-3 px-4 py-2">
                   <span className="text-xs text-muted-foreground">{u.label || "Website"}</span>
                   <span className="min-w-0 truncate text-sm" data-selectable title={u.url}>
                     {u.url}
@@ -425,9 +438,12 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
           )}
 
           {item.notes.trim() && (
-            <Group title="Notes">
-              <div className="px-4 py-3">
-                <Markdown text={item.notes} />
+            <Group>
+              <div className="grid grid-cols-[148px_1fr] items-start gap-3 px-4 py-3">
+                <span className="pt-px text-xs text-muted-foreground">Notes</span>
+                <div className="min-w-0">
+                  <Markdown text={item.notes} />
+                </div>
               </div>
             </Group>
           )}
@@ -510,7 +526,8 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
             </section>
           )}
 
-          <dl className="grid grid-cols-[140px_1fr] gap-y-1 px-1 text-xs text-muted-foreground">
+          {/* 17 px: the cards' 16 px inset plus their 1 px border, so the columns line up. */}
+          <dl className="grid grid-cols-[148px_1fr] gap-x-3 gap-y-1 px-[17px] text-xs text-muted-foreground">
             <dt>Created</dt>
             <dd title={formatDateTime(item.createdAt)}>{formatDate(item.createdAt)}</dd>
             <dt>Last changed</dt>

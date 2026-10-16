@@ -75,8 +75,8 @@ export function DemoBadge({ className }: { className?: string }) {
 export function SecretText({ value, revealed, className }: { value: string | null; revealed: boolean; className?: string }) {
   if (!revealed || value === null) {
     return (
-      <span className={cx("font-mono tracking-[0.2em] text-muted-foreground", className)} aria-label="Hidden">
-        ••••••••••
+      <span className={cx("font-mono text-base tracking-[0.12em] text-foreground", className)} aria-label="Hidden">
+        ••••••••••••
       </span>
     );
   }

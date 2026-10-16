@@ -5,7 +5,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Generator } from "../../components/Generator";
 import { Monogram } from "../../components/bits";
 import { ConfirmDialog, Menu, useReprompt, useToast } from "../../components/overlays";
-import { Button, Checkbox, cx, IconButton, Input, Notice, Select, Spinner, Textarea } from "../../components/ui";
+import { Button, Checkbox, cx, IconButton, Input, KeyBadge, Notice, Select, Spinner, Textarea } from "../../components/ui";
 import type { FieldKind, ItemType, ItemView } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
 import {
@@ -492,7 +492,7 @@ export function ItemEditor({
             aria-invalid={!!errors.title || undefined}
             onChange={(e) => patch({ title: e.target.value })}
             className={cx(
-              "field-focus -mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 text-lg font-semibold hover:border-input",
+              "field-focus -mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 text-lg font-semibold hover:border-input-border",
               errors.title && "border-danger-text",
             )}
           />
@@ -508,8 +508,9 @@ export function ItemEditor({
           <Button onClick={cancel} title="Cancel (Esc)">
             Cancel
           </Button>
-          <Button type="submit" variant="primary" loading={saving} title="Save (Ctrl+S)">
+          <Button type="submit" variant="primary" loading={saving} title="Save (Ctrl+S)" aria-keyshortcuts="Control+S">
             Save
+            <KeyBadge>Ctrl+S</KeyBadge>
           </Button>
         </div>
       </header>
