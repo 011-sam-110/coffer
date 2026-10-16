@@ -86,10 +86,18 @@
   --mono-bg-c: 0.06;
   --mono-fg-l: 0.9;
   --mono-fg-c: 0.07;
+  /* derived: hover steps for the secondary and destructive fills. */
+  --secondary-hover: oklch(0.36 0 0);
+  --destructive-hover: oklch(0.53 0.17 25.94);
   /* derived: a control border on hover, one step above --input. */
   --input-hover: oklch(0.4 0 0);
   /* derived: scrim behind dialogs. */
   --scrim: oklch(0.12 0 0 / 0.66);
+
+  /* derived: Emergency Kit on paper. */
+  --print-ink: oklch(0 0 0);
+  --print-paper: oklch(1 0 0);
+  --print-rule: oklch(0.6 0 0);
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -130,6 +138,11 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-gold: var(--gold);
   --color-scrim: var(--scrim);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-input-hover: var(--input-hover);
+  --color-char-digit: var(--char-digit);
+  --color-char-symbol: var(--char-symbol);
 
   --radius-sm: var(--radius);
   --radius-md: var(--radius);
@@ -171,6 +184,15 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes clip-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
   }
 }
 
@@ -353,6 +375,42 @@
     background: var(--foreground);
     border: 3px solid var(--primary);
     cursor: pointer;
+  }
+}
+
+dialog::backdrop {
+  background: var(--scrim);
+}
+dialog {
+  color: var(--foreground);
+}
+
+/* Emergency Kit print: only the kit, black on white. */
+@media print {
+  @page {
+    margin: 16mm;
+  }
+  html,
+  body,
+  #root {
+    height: auto;
+    overflow: visible;
+    background: var(--print-paper);
+  }
+  body * {
+    visibility: hidden;
+  }
+  .kit-sheet,
+  .kit-sheet * {
+    visibility: visible;
+    color: var(--print-ink) !important;
+    border-color: var(--print-rule) !important;
+  }
+  .kit-sheet {
+    position: absolute;
+    inset: 0 0 auto 0;
+    background: var(--print-paper) !important;
+    border: 0 !important;
   }
 }
 

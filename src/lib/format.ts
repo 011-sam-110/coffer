@@ -147,3 +147,12 @@ export function hasTag(tags: string[], path: string): boolean {
 }
 
 export const pluralize = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+
+/** The vault file stem made from a name (SPEC 3.5). Rust makes the real one; this is the preview. */
+export function vaultStem(name: string): string {
+  let s = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/[. ]+$/, "");
+  if (!s) s = "Vault";
+  s = s.slice(0, 64);
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(s)) s += "_";
+  return s;
+}
