@@ -386,7 +386,7 @@ pub async fn totp_from_image(source: TotpSource) -> CofferResult<Option<TotpImag
 
 #[tauri::command]
 pub async fn ssh_generate() -> CofferResult<SshKeyPair> {
-    later()
+    blocking(crate::ssh::generate).await?
 }
 
 // ---------- generator ----------

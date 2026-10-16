@@ -30,6 +30,7 @@ mod placement;
 mod selftest;
 mod settings;
 mod shell;
+mod ssh;
 mod state;
 mod tray;
 mod usage;

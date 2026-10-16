@@ -29,6 +29,8 @@ zeroize = { version = "1.9.1", features = ["serde"] }
 base64 = "0.23.1"
 # Same versions as coffer-core uses (no second copy).
 sha2 = "0.11"
+# ssh_generate: Ed25519 from ring (already in the build for TLS).
+ring = "0.17"
 time = "0.3.55"
 # The one network client: the opt-in breach check (SPEC 3.10). rustls + ring + webpki roots.
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
