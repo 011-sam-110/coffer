@@ -6,7 +6,7 @@ members = ["crates/coffer-core", "src-tauri"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-authors = ["Sampo"]
+authors = ["011-sam-110"]
 
 # Small, fast release build (https://tauri.app/concept/size/#cargo-configuration)
 [profile.release]

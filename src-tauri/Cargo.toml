@@ -6,22 +6,64 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+# The `_lib` suffix keeps the lib name apart from the bin name on Windows
+# (https://github.com/rust-lang/cargo/issues/8519). Coffer is desktop-only, so
+# the lib is a plain rlib: no staticlib or cdylib (they cost link time and disk).
 name = "coffer_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
+tauri = { version = "2", features = ["image-png", "tray-icon"] }
+tauri-plugin-global-shortcut = "2.4.1"
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-single-instance = "2.5.4"
+# Rust-side file and folder dialogs (SPEC 3.7). Same features as Tauri's dialog plugin uses.
+rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+zeroize = { version = "1.9.1", features = ["serde"] }
+base64 = "0.23.1"
+# Same versions as coffer-core uses (no second copy).
+sha2 = "0.11"
+# ssh_generate: Ed25519 from ring (already in the build for TLS).
+ring = "0.17"
+# totp_from_image: a pure-Rust QR reader and the image decoders (PNG is already in the build).
+rqrr = { version = "0.11", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
+time = "0.3.55"
+# The one network client: the opt-in breach check (SPEC 3.10). rustls + ring + webpki roots.
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 coffer-core = { path = "../crates/coffer-core" }
 
+[target.'cfg(windows)'.dependencies]
+# Same versions as Tauri 2.12 / wry 0.57 use, so there is one copy of each.
+webview2-com = "0.39"
+# IAsyncOperation for the Windows Hello prompt; the version the windows crate uses.
+windows-future = "0.3"
+windows = { version = "0.62", features = [
+  "Foundation",
+  "Security_Credentials_UI",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Graphics_Gdi",
+  "Win32_Security_Cryptography",
+  "Win32_Storage_FileSystem",
+  "Win32_System_DataExchange",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_Power",
+  "Win32_System_RemoteDesktop",
+  "Win32_System_SystemInformation",
+  "Win32_System_SystemServices",
+  "Win32_System_Threading",
+  "Win32_System_WinRT",
+  "Win32_UI_Accessibility",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }

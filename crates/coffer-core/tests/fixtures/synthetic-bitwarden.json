@@ -1,0 +1,89 @@
+{
+  "encrypted": false,
+  "folders": [
+    { "id": "f0000000-0000-4000-8000-000000000001", "name": "Personal" }
+  ],
+  "items": [
+    {
+      "id": "b0000000-0000-4000-8000-000000000001",
+      "organizationId": null,
+      "folderId": "f0000000-0000-4000-8000-000000000001",
+      "type": 1,
+      "reprompt": 1,
+      "name": "Synthetic Login",
+      "notes": "Hand-made test entry",
+      "favorite": true,
+      "fields": [
+        { "name": "Security answer", "value": "Bitwarden-Hidden-1", "type": 1, "linkedId": null },
+        { "name": "Remember me", "value": "true", "type": 2, "linkedId": null },
+        { "name": "Linked user", "value": null, "type": 3, "linkedId": 100 }
+      ],
+      "login": {
+        "uris": [ { "match": null, "uri": "https://login.example.com" }, { "match": 3, "uri": "https://alt.example.com" } ],
+        "username": "kate",
+        "password": "Bitwarden-Json-1!",
+        "totp": "otpauth://totp/Example:kate?secret=GEZDGNBVGY3TQOJQ",
+        "fido2Credentials": [
+          { "credentialId": "synthetic", "rpId": "login.example.com", "userName": "kate", "counter": "0", "discoverable": "true", "creationDate": "2026-01-02T03:04:05.000Z" }
+        ]
+      },
+      "passwordHistory": [ { "lastUsedDate": "2025-05-06T07:08:09.000Z", "password": "Bitwarden-Old-1!" } ],
+      "collectionIds": null,
+      "creationDate": "2024-01-01T10:00:00.000Z",
+      "revisionDate": "2025-06-01T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000002",
+      "type": 2,
+      "reprompt": 0,
+      "name": "Synthetic Note",
+      "notes": "Locker code is written on the back of the door.",
+      "favorite": false,
+      "secureNote": { "type": 0 },
+      "creationDate": "2024-02-01T10:00:00.000Z",
+      "revisionDate": "2024-02-01T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000003",
+      "type": 3,
+      "reprompt": 0,
+      "name": "Synthetic Card",
+      "notes": null,
+      "favorite": false,
+      "card": { "cardholderName": "Kate Example", "brand": "Visa", "number": "4111111111111111", "expMonth": "7", "expYear": "2029", "code": "123" },
+      "creationDate": "2024-03-01T10:00:00.000Z",
+      "revisionDate": "2024-03-01T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000004",
+      "type": 4,
+      "reprompt": 0,
+      "name": "Synthetic Identity",
+      "favorite": false,
+      "identity": {
+        "title": "Ms", "firstName": "Kate", "middleName": null, "lastName": "Example",
+        "address1": "1 Test Street", "address2": null, "address3": null, "city": "Testville", "state": "Testshire",
+        "postalCode": "TE1 1ST", "country": "GB", "company": "Example Ltd", "email": "kate@example.com",
+        "phone": "+44 0000 000000", "ssn": "Synthetic-SSN-000", "username": "kate", "passportNumber": "X0000000", "licenseNumber": null
+      },
+      "creationDate": "2024-04-01T10:00:00.000Z",
+      "revisionDate": "2024-04-01T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000005",
+      "type": 5,
+      "reprompt": 0,
+      "name": "Synthetic SSH",
+      "favorite": false,
+      "sshKey": { "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nsynthetic\n-----END OPENSSH PRIVATE KEY-----", "publicKey": "ssh-ed25519 AAAAsynthetic test@example", "keyFingerprint": "SHA256:synthetic" },
+      "creationDate": "2024-05-01T10:00:00.000Z",
+      "revisionDate": "2024-05-01T10:00:00.000Z"
+    },
+    {
+      "id": "b0000000-0000-4000-8000-000000000006",
+      "type": 99,
+      "name": "Unknown kind",
+      "favorite": false
+    }
+  ]
+}
