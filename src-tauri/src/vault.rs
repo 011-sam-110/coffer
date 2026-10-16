@@ -1154,7 +1154,13 @@ pub fn import_preview(app: &AppHandle, file: PathBuf, picked: bool, password: Op
     };
     let file_name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let request = coffer_core::import::ImportRequest { file_name: &file_name, bytes: &bytes, password, secret_key: typed.as_ref().or(stored.as_ref()) };
-    let plan = with_vault(app, |v| v.import_preview(&request))?;
+    // badCredentials here is the file's password, not this vault's.
+    let plan = with_session(app, |s| {
+        s.vault.import_preview(&request).map_err(|e| match e {
+            CoreError::BadCredentials => CofferError::new(ErrorCode::BadCredentials, "The password for this file is wrong. For a .coffer vault, check its Secret Key too."),
+            other => unlocked_err(other),
+        })
+    })?;
     let preview = plan.preview().clone();
     let mut im = state.import.lck();
     im.last = Some((file.clone(), picked));
