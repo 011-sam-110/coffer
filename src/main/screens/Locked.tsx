@@ -1,5 +1,5 @@
 // Unlock, Missing vault, Tampered vault and Older file screens (SPEC 3.5, 11).
-import { FileWarning, FolderSearch, History, Lock, SearchX } from "lucide-react";
+import { CircleAlert, FolderSearch, History, Lock, SearchX } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialog, useReprompt, useToast } from "../../components/overlays";
 import { Button, FormRow, Input, Notice, PasswordInput, Spinner } from "../../components/ui";
@@ -270,15 +270,18 @@ export function Tampered({ onDone }: { onDone: () => void }) {
   const { withReprompt } = useReprompt();
   return (
     <ScreenFrame center width={480}>
-      <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-destructive bg-accent/40">
-        <FileWarning aria-hidden className="size-5 text-danger-text" />
+      {/* Danger without a red fill: the normal surface, a 3 px red rule and a filled alert icon. */}
+      <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-border bg-card">
+        <CircleAlert aria-hidden className="size-5 fill-danger-text text-card" />
       </div>
-      <StepTitle title="This vault file was changed outside Coffer">
-        Its check does not match, so Coffer did not open it. Something other than Coffer changed, removed or added data in the file. Your backups are safe copies.
-      </StepTitle>
+      <div className="border-l-[3px] border-danger-text pl-4">
+        <StepTitle title="This vault file was changed outside Coffer">
+          Its check does not match, so Coffer did not open it. Something other than Coffer changed, removed or added data in the file. Your backups are safe copies.
+        </StepTitle>
+      </div>
       <div className="flex flex-wrap gap-2">
         <Button
-          variant="primary"
+          variant="strong"
           loading={busy}
           onClick={async () => {
             setBusy(true);

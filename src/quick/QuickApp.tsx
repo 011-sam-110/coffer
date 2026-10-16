@@ -7,7 +7,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
 import { RepromptProvider, ToastProvider, useReprompt, useToast } from "../components/overlays";
-import { Button, cx, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
+import { Button, cx, ErrorText, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
 import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, TotpCode, VaultStatus } from "../lib/contract";
 import { call, isCofferError, on } from "../lib/ipc";
 import { isSecretKind } from "../lib/itemForm";
@@ -105,9 +105,7 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
         </label>
         <PasswordInput ref={ref} id="quick-pw" placeholder="Master password" value={pw} onChange={(e) => setPw(e.target.value)} invalid={!!err} disabled={busy} revealLabel="master password" />
         {err && (
-          <p role="alert" className="text-xs text-danger-text">
-            {err}
-          </p>
+          <ErrorText>{err}</ErrorText>
         )}
         {fails >= 3 && <p className="text-xs text-gold">Coffer cannot reset a master password. Check Caps Lock and your keyboard layout.</p>}
         <Button type="submit" variant="primary" loading={busy}>

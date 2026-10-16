@@ -285,7 +285,7 @@ export function ItemList({
               {query.trim() ? `${shown.length} found` : `${base.length} ${base.length === 1 ? "item" : "items"}`}
             </span>
             {inTrash && base.length > 0 && (
-              <Button size="sm" variant="ghost" className="ml-auto text-danger-text" onClick={() => setConfirmEmpty(true)}>
+              <Button size="sm" variant="ghost" className="ml-auto" icon={<Trash2 className="size-3.5" />} onClick={() => setConfirmEmpty(true)}>
                 Empty Trash
               </Button>
             )}
