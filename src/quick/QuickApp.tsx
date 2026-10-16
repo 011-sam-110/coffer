@@ -164,7 +164,7 @@ function ItemRow({
   onClick: () => void;
   onActions: () => void;
   id: string;
-  /** What Enter does on this row, e.g. "Password" or "Password · next". */
+  /** The field Enter copies on this row, e.g. "Password" (on the Continue row, the next field). */
   enterLabel: string;
   /** Set for an item with a one-time code: the ring shows the seconds left. */
   totpPeriod: number | null;
@@ -242,6 +242,8 @@ function Quick() {
   const [detail, setDetail] = useState<ItemView | null>(null);
   const [actSel, setActSel] = useState(0);
   const [hint, setHint] = useState(false);
+  /** This open still owes one count of the first-3-opens hint (SPEC 9); it is paid when the hint is in view. */
+  const hintDue = useRef(false);
   const [hidden, setHidden] = useState(false);
   // Quick Access is only hidden between opens, so this survives a close.
   const lastCopy = useRef<{ itemId: string; role: string | null; at: number } | null>(null);
@@ -257,6 +259,14 @@ function Quick() {
     call("items_list")
       .then(setItems)
       .catch(() => setItems([]));
+  }, []);
+
+  // The hint is in view only while unlocked, so only an unlocked open counts (once per open).
+  const showHint = useCallback(() => {
+    if (!hintDue.current) return;
+    hintDue.current = false;
+    setHint(true);
+    call("quick_hint_seen").catch(() => undefined);
   }, []);
 
   /** Called each time Quick Access is shown: fresh state, focused search. */
@@ -276,21 +286,22 @@ function Quick() {
           })
           .catch(() => undefined);
       }
-      call("vault_status").then(setStatus).catch(() => undefined);
+      hintDue.current = false;
+      const vs = call("vault_status");
+      vs.then(setStatus).catch(() => undefined);
       if (c) setCtx(c);
       else call("quick_context").then(setCtx).catch(() => setCtx(null));
-      call("settings_get")
-        .then((s) => {
+      Promise.all([vs, call("settings_get")])
+        .then(([v, s]) => {
           setSettings(s);
-          if (s.quickHintsShown < 3) {
-            setHint(true);
-            call("quick_hint_seen").catch(() => undefined);
-          } else setHint(false);
+          hintDue.current = s.quickHintsShown < 3;
+          if (v.state === "unlocked" && hintDue.current) showHint();
+          else setHint(false); // locked: an unlock in this open shows it (the effect below)
         })
         .catch(() => undefined);
       requestAnimationFrame(() => searchRef.current?.focus());
     },
-    [],
+    [showHint],
   );
 
   useEffect(() => {
@@ -311,9 +322,10 @@ function Quick() {
   useEffect(() => {
     if (status?.state !== "unlocked") return;
     loadItems();
+    showHint();
     // After an unlock here, stay open with the cursor in the search.
     requestAnimationFrame(() => searchRef.current?.focus());
-  }, [status?.state, loadItems]);
+  }, [status?.state, loadItems, showHint]);
 
   const hide = useCallback(async () => {
     await call("quick_hide").catch(() => undefined);
@@ -425,7 +437,7 @@ function Quick() {
     }
   };
 
-  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? `${cont.label} · next` : enterWords(item.type));
+  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? cont.label : enterWords(item.type));
 
   const openActions = async (item: ItemSummary) => {
     setMode({ kind: "actions", item });
