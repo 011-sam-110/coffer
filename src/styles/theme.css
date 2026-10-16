@@ -1,0 +1,460 @@
+/* Coffer design tokens. Every colour in the UI comes from this file.
+   Theme: "Red Dark" by kartman.sms on 21st.dev, dark-mode tokens, exact values
+   (Sam's choice). Dark only in v1. Derived tokens are marked "derived" and say why. */
+
+@import "tailwindcss";
+
+/* ---------- fonts ---------- */
+/* Switzer (ITF FFL): fetched by scripts/fetch-fonts.mjs into public/fonts/itf/, never committed. */
+@font-face {
+  font-family: "Switzer";
+  src: url("/fonts/itf/switzer/fonts/Switzer-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Switzer";
+  src: url("/fonts/itf/switzer/fonts/Switzer-VariableItalic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+/* JetBrains Mono (SIL OFL 1.1, licence in public/fonts/ofl/jetbrains-mono/OFL.txt). */
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/ofl/jetbrains-mono/fonts/JetBrainsMono-Variable.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------- Red Dark (dark mode), exact ---------- */
+:root {
+  color-scheme: dark;
+
+  --background: oklch(0.216 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.238 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.216 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.584 0.235 20.651);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.321 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.27 0 0);
+  --muted-foreground: oklch(0.724 0 0);
+  --accent: oklch(0.324 0.13 17.463);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.478 0.163 25.94);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.321 0 0);
+  --input: oklch(0.321 0 0);
+  --ring: oklch(0.584 0.235 20.651);
+  --chart-1: oklch(0.584 0.235 20.651);
+  --chart-2: oklch(0.758 0.123 183.363);
+  --chart-3: oklch(0.876 0.091 88.827);
+  --chart-4: oklch(0.833 0.096 60.229);
+  --chart-5: oklch(0.744 0.119 34.856);
+  --sidebar: oklch(0.193 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.584 0.235 20.651);
+  --sidebar-accent: oklch(0.266 0.106 15.6);
+  --sidebar-border: oklch(0.27 0 0);
+  --sidebar-ring: oklch(0.584 0.235 20.651);
+  --radius: 4px;
+  --shadow: 0 10px 25px 0 hsl(0 0% 0% / 0.5);
+  --tracking: 0.025em;
+
+  /* The theme's light mode has a gold secondary; used sparingly (favourite stars, "fair"). */
+  --gold: oklch(0.766 0.14 91.239);
+
+  /* derived: primary as TEXT on the background is 3.67:1 (fails AA); this lighter crimson is 5.5:1. */
+  --primary-text: oklch(0.68 0.2 20.651);
+  /* derived: destructive as text is 2.4:1; a lighter red at 6:1 for error text. */
+  --danger-text: oklch(0.72 0.16 25.94);
+  /* derived: hover on a primary fill. */
+  --primary-hover: oklch(0.62 0.235 20.651);
+  /* derived: window frame of Windows 11 flyouts (8 px); everything inside uses --radius. */
+  --radius-window: 8px;
+  /* derived: password character classes (digits, symbols), from the theme's chart colours. */
+  --char-digit: var(--chart-2);
+  --char-symbol: var(--chart-4);
+  /* derived: monogram tiles share one lightness and chroma; the hue comes from the title. */
+  --mono-bg-l: 0.33;
+  --mono-bg-c: 0.06;
+  --mono-fg-l: 0.9;
+  --mono-fg-c: 0.07;
+  /* derived: hover steps for the secondary and destructive fills. */
+  --secondary-hover: oklch(0.36 0 0);
+  --destructive-hover: oklch(0.53 0.17 25.94);
+  /* derived: the ring token at 45 % for the halo around a focused text field. */
+  --ring-halo: oklch(0.584 0.235 20.651 / 0.45);
+  /* derived: a focused text field. A crimson field reads as an error, so fields use a light neutral edge and halo. */
+  --focus-field: oklch(0.72 0 0);
+  --focus-halo: oklch(0.985 0 0 / 0.16);
+  /* derived: a control border on hover, one step above --input. */
+  --input-hover: oklch(0.4 0 0);
+  /* derived: scrim behind dialogs. */
+  --scrim: oklch(0.12 0 0 / 0.66);
+
+  /* derived: Emergency Kit on paper. */
+  --print-ink: oklch(0 0 0);
+  --print-paper: oklch(1 0 0);
+  --print-rule: oklch(0.6 0 0);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-text: var(--primary-text);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-danger-text: var(--danger-text);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-gold: var(--gold);
+  --color-scrim: var(--scrim);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-destructive-hover: var(--destructive-hover);
+  --color-input-hover: var(--input-hover);
+  --color-char-digit: var(--char-digit);
+  --color-char-symbol: var(--char-symbol);
+
+  --radius-sm: var(--radius);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-window: var(--radius-window);
+  --shadow-pop: var(--shadow);
+
+  --font-sans: "Switzer", "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  /* Product type scale, ratio about 1.15. Fixed rem, never fluid. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.05rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-md: 1rem;
+  --text-md--line-height: 1.5rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.75rem;
+  --text-xl--line-height: 2.125rem;
+  --text-2xl: 2.5rem;
+  --text-2xl--line-height: 2.75rem;
+
+  --tracking-ui: var(--tracking);
+
+  --animate-toast-in: toast-in 180ms var(--ease-out);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes clip-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ---------- base ---------- */
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+    letter-spacing: var(--tracking);
+    font-feature-settings: "tnum" 1;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    user-select: none;
+  }
+  input,
+  textarea,
+  [data-selectable] {
+    user-select: text;
+  }
+  ::selection {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted-foreground);
+    opacity: 1;
+  }
+  input,
+  textarea {
+    caret-color: var(--primary-text);
+  }
+  /* One visible focus ring for every interactive element (ring token, 2 px, offset). */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+    letter-spacing: 0;
+  }
+  a {
+    color: var(--primary-text);
+    text-underline-offset: 3px;
+  }
+  /* Scrollbars: thin, from the palette. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--secondary) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--secondary);
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .font-mono,
+  code,
+  kbd {
+    letter-spacing: 0;
+    font-variant-ligatures: none;
+  }
+}
+
+/* ---------- components that are easier in CSS ---------- */
+@layer components {
+  /* A form control: filled, 1 px border, 4 px radius. */
+  .control {
+    background: var(--muted);
+    border: 1px solid var(--input);
+    border-radius: var(--radius);
+    min-height: 2rem;
+    padding: 0 0.625rem;
+    transition: border-color 120ms, background-color 120ms;
+  }
+  .control:hover {
+    border-color: var(--input-hover);
+  }
+  /* A focused field: a light neutral edge plus a soft halo. Crimson stays for actions and errors. */
+  .control:focus-visible,
+  .control:focus-within:has(:focus-visible),
+  .control:focus-within {
+    outline: 2px solid var(--focus-halo);
+    outline-offset: 0;
+    border-color: var(--focus-field);
+  }
+  /* An invalid field: a red edge and a faint red fill, focused or not. */
+  .control[aria-invalid="true"],
+  .control[aria-invalid="true"]:focus-within {
+    border-color: var(--danger-text);
+    background-color: color-mix(in oklch, var(--danger-text) 9%, var(--muted));
+  }
+  .control:disabled,
+  .control[aria-disabled="true"] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  input.control,
+  select.control {
+    height: 2rem;
+  }
+  select.control {
+    appearance: none;
+    padding-right: 1.75rem;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+      linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+    background-position:
+      calc(100% - 14px) 52%,
+      calc(100% - 10px) 52%;
+    background-size:
+      4px 4px,
+      4px 4px;
+    background-repeat: no-repeat;
+  }
+  select.control option {
+    background: var(--popover);
+    color: var(--popover-foreground);
+  }
+
+  /* A borderless field (the item title): the same neutral edge and halo as .control. */
+  .field-focus:focus-visible {
+    outline: 2px solid var(--focus-halo);
+    outline-offset: 0;
+    border-color: var(--focus-field);
+  }
+
+  /* The selected row of a list or a nav: a neutral fill plus a short crimson pill
+     on the left (the Windows 11 list indicator). A crimson fill read as an error. */
+  .row-selected {
+    position: relative;
+    background-color: var(--secondary);
+  }
+  .row-selected::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 16px;
+    margin-top: -8px;
+    border-radius: 2px;
+    background: var(--primary);
+  }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 0.3125rem;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: var(--radius);
+    font-family: var(--font-sans);
+    font-size: var(--text-2xs);
+    color: var(--muted-foreground);
+    background: var(--card);
+    white-space: nowrap;
+  }
+
+  /* Password characters: digits and symbols take their own colour (read 0 vs O at a glance). */
+  .pw-digit {
+    color: var(--char-digit);
+  }
+  .pw-symbol {
+    color: var(--char-symbol);
+  }
+
+  .range {
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--secondary);
+    accent-color: var(--primary);
+  }
+  .range::-webkit-slider-thumb {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--foreground);
+    border: 3px solid var(--primary);
+    cursor: pointer;
+  }
+}
+
+dialog::backdrop {
+  background: var(--scrim);
+}
+dialog {
+  color: var(--foreground);
+}
+
+/* Emergency Kit print: only the kit, black on white. */
+@media print {
+  @page {
+    margin: 16mm;
+  }
+  html,
+  body,
+  #root {
+    height: auto;
+    overflow: visible;
+    background: var(--print-paper);
+  }
+  body * {
+    visibility: hidden;
+  }
+  .kit-sheet,
+  .kit-sheet * {
+    visibility: visible;
+    color: var(--print-ink) !important;
+    border-color: var(--print-rule) !important;
+  }
+  .kit-sheet {
+    position: absolute;
+    inset: 0 0 auto 0;
+    background: var(--print-paper) !important;
+    border: 0 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

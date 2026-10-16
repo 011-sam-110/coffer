@@ -1,32 +1,37 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-// @ts-expect-error type error without @types/node package
-import process from "node:process";
+import tailwindcss from "@tailwindcss/vite";
+import { resolve } from "node:path";
+
 const host = process.env.TAURI_DEV_HOST;
+const root = import.meta.dirname;
 
-// https://vite.dev/config/
+// Two pages, one build: index.html is the main window (label "main"),
+// quick.html is the Quick Access popup (label "quick").
 export default defineConfig(() => ({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
 
-  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
+  // Keep Rust errors visible and use the fixed port Tauri expects.
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
     strictPort: true,
     host: host || false,
-    hmr: host
-      ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
-      : undefined,
-    watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+    hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
+    watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/.shots/**"] },
+  },
+  build: {
+    target: "es2022",
+    rollupOptions: {
+      input: {
+        main: resolve(root, "index.html"),
+        quick: resolve(root, "quick.html"),
+      },
     },
+  },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 }));
