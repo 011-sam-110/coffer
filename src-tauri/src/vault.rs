@@ -231,8 +231,8 @@ fn backups_dir(state: &AppState, vault_id: &str) -> PathBuf {
 fn backup_bytes(state: &AppState, vault_id: &str, bytes: &[u8]) {
     let dir = backups_dir(state, vault_id);
     let now = coffer_core::time_util::now();
-    let name = format!("{}.coffer", coffer_core::backups::file_time(now));
-    if let Err(e) = crate::paths::write_atomic(&dir.join(name), bytes) {
+    let path = backup_path(&dir, &coffer_core::backups::file_time(now));
+    if let Err(e) = crate::paths::write_atomic(&path, bytes) {
         crate::log!("backup: could not write: {e}");
         return;
     }
@@ -245,20 +245,69 @@ fn backup_bytes(state: &AppState, vault_id: &str, bytes: &[u8]) {
     }
 }
 
+/// A free backup name for `stamp` (whole seconds): `<stamp>.coffer`, then
+/// `<stamp>-2.coffer`, `-3`, ... for more saves in the same second.
+fn backup_path(dir: &Path, stamp: &str) -> PathBuf {
+    let first = dir.join(format!("{stamp}.coffer"));
+    if !first.exists() {
+        return first;
+    }
+    (2u32..)
+        .map(|n| dir.join(format!("{stamp}-{n}.coffer")))
+        .find(|p| !p.exists())
+        .unwrap_or(first)
+}
+
+/// The save time and the same-second number of a backup file name.
+fn parse_backup_name(name: &str) -> Option<(OffsetDateTime, u32)> {
+    let stem = name.strip_suffix(".coffer")?;
+    let (stamp, n) = match stem.split_once('-') {
+        Some((stamp, n)) => (stamp, n.parse::<u32>().ok().filter(|n| *n >= 2)?),
+        None => (stem, 1),
+    };
+    coffer_core::backups::parse_file_time(stamp).map(|t| (t, n))
+}
+
 /// Backup files with their save times, newest first.
 fn list_backups(dir: &Path) -> Vec<(PathBuf, OffsetDateTime)> {
-    let mut out: Vec<(PathBuf, OffsetDateTime)> = std::fs::read_dir(dir)
+    let mut out: Vec<(PathBuf, OffsetDateTime, u32)> = std::fs::read_dir(dir)
         .map(|it| {
             it.flatten()
                 .filter_map(|e| {
                     let name = e.file_name().to_string_lossy().into_owned();
-                    coffer_core::backups::parse_file_time(&name).map(|t| (e.path(), t))
+                    parse_backup_name(&name).map(|(t, n)| (e.path(), t, n))
                 })
                 .collect()
         })
         .unwrap_or_default();
-    out.sort_by(|a, b| b.1.cmp(&a.1));
-    out
+    out.sort_by(|a, b| (b.1, b.2).cmp(&(a.1, a.2)));
+    out.into_iter().map(|(p, t, _)| (p, t)).collect()
+}
+
+/// Read the vault file. `Ok(None)` only when it is not there: a file that
+/// another program holds open (a sync client) is tried again for about a
+/// second, then it is an IO error, not a missing vault.
+fn read_vault(path: &Path) -> CofferResult<Option<Vec<u8>>> {
+    let mut tries = 0;
+    loop {
+        match std::fs::read(path) {
+            Ok(b) => return Ok(Some(b)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                let busy = crate::win::fs::is_transient(&e);
+                tries += 1;
+                if !busy || tries >= 8 {
+                    crate::log!("vault io: read the vault file: {e}");
+                    return Err(CofferError::io(if busy {
+                        "Another program has the vault file open (a sync app?). Try again in a moment."
+                    } else {
+                        "Coffer could not read the vault file."
+                    }));
+                }
+                std::thread::sleep(Duration::from_millis(150));
+            }
+        }
+    }
 }
 
 /// Delete the backups listed before a re-key (they open with the old vault
@@ -339,9 +388,9 @@ pub fn status(app: &AppHandle) -> CofferResult<VaultStatus> {
     let Some(path) = vault_path(&state) else { return Ok(st) };
     st.vault_path = Some(path.to_string_lossy().into_owned());
     st.vault_name = Some(stem_of(&path));
-    match std::fs::read(&path) {
-        Err(_) => st.state = VaultState::Missing,
-        Ok(bytes) => {
+    match read_vault(&path)? {
+        None => st.state = VaultState::Missing,
+        Some(bytes) => {
             st.state = VaultState::Locked;
             if let Ok(h) = coffer_core::vault_file::read_header(&bytes) {
                 let stored = device_key(&state, &h.vault_id)?;
@@ -499,7 +548,7 @@ pub fn unlock(app: &AppHandle, password: &str, typed_key: Option<&str>) -> Coffe
         return status(app);
     }
     let path = vault_path(&state).ok_or_else(|| CofferError::new(ErrorCode::VaultMissing, "There is no vault on this PC yet."))?;
-    let bytes = std::fs::read(&path).map_err(|_| CofferError::new(ErrorCode::VaultMissing, format!("Coffer cannot find your vault at {}.", path.display())))?;
+    let bytes = read_vault(&path)?.ok_or_else(|| CofferError::new(ErrorCode::VaultMissing, format!("Coffer cannot find your vault at {}.", path.display())))?;
     let header = coffer_core::vault_file::read_header(&bytes)?;
     let (key, from_device) = match typed_key.map(str::trim).filter(|k| !k.is_empty()) {
         Some(text) => (SecretKey::parse(text)?, false),
@@ -544,7 +593,7 @@ pub fn unlock_hello_with(app: &AppHandle, verify: impl FnOnce() -> CofferResult<
         return status(app);
     }
     let path = vault_path(&state).ok_or_else(|| CofferError::new(ErrorCode::VaultMissing, "There is no vault on this PC yet."))?;
-    let bytes = std::fs::read(&path).map_err(|_| CofferError::new(ErrorCode::VaultMissing, format!("Coffer cannot find your vault at {}.", path.display())))?;
+    let bytes = read_vault(&path)?.ok_or_else(|| CofferError::new(ErrorCode::VaultMissing, format!("Coffer cannot find your vault at {}.", path.display())))?;
     let header = coffer_core::vault_file::read_header(&bytes)?;
     if !state.settings.rd().settings.hello_enabled {
         return Err(CofferError::new(ErrorCode::HelloUnavailable, "Windows Hello unlock is off. Turn it on in Settings > Security."));
@@ -1066,14 +1115,16 @@ pub struct ImportState {
     /// a new preview or a lock drops it.
     pub plan: Option<coffer_core::import::ImportPlan>,
     /// Preview id -> the plain file the user picked (`import_delete_source`).
-    sources: HashMap<String, PathBuf>,
+    sources: HashMap<String, (PathBuf, String)>,
 }
 
 /// A password export is never this large.
 const IMPORT_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Encrypted formats: `import_delete_source` offers to delete plain files only.
-const ENCRYPTED_FORMATS: [&str; 2] = ["coffer-cofferx", "coffer-vault"];
+/// `import_delete_source` deletes any file the user picked to import, except
+/// a vault file: that is a whole other vault (its own Secret Key, history
+/// and trash), and nothing about it is plain text.
+const KEPT_FORMATS: [&str; 1] = ["coffer-vault"];
 
 /// The file of `import_preview` source "last".
 pub fn import_last(app: &AppHandle) -> Option<(PathBuf, bool)> {
@@ -1108,8 +1159,8 @@ pub fn import_preview(app: &AppHandle, file: PathBuf, picked: bool, password: Op
     let mut im = state.import.lck();
     im.last = Some((file.clone(), picked));
     im.plan = (!preview.needs_password && !preview.needs_secret_key).then_some(plan);
-    if picked && !ENCRYPTED_FORMATS.contains(&preview.format.as_str()) {
-        im.sources.insert(preview.preview_id.clone(), file);
+    if picked {
+        im.sources.insert(preview.preview_id.clone(), (file, preview.format.clone()));
     }
     crate::log!("import: preview {} ({} to import, {} duplicates, {} skipped)", preview.format, preview.total, preview.duplicates, preview.skipped.len());
     Ok(preview)
@@ -1143,7 +1194,10 @@ pub fn import_undo(app: &AppHandle, batch_id: &str) -> CofferResult<u32> {
 /// Delete the plain file the user picked for this preview.
 pub fn import_delete_source(app: &AppHandle, preview_id: &str) -> CofferResult<()> {
     let state = app.state::<AppState>();
-    let path = state.import.lck().sources.get(preview_id).cloned().ok_or_else(|| CofferError::new(ErrorCode::NotFound, "Coffer no longer knows which file this was."))?;
+    let (path, format) = state.import.lck().sources.get(preview_id).cloned().ok_or_else(|| CofferError::new(ErrorCode::NotFound, "Coffer no longer knows which file this was."))?;
+    if KEPT_FORMATS.contains(&format.as_str()) {
+        return Err(CofferError::invalid("Coffer does not delete a vault file. Delete it yourself if you no longer need it."));
+    }
     if vault_path(&state).as_deref() == Some(path.as_path()) {
         return Err(CofferError::invalid("This is your vault file. Coffer does not delete it."));
     }
@@ -1248,6 +1302,30 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn same_second_backups_get_their_own_names() {
+        let dir = temp("backups");
+        let stamp = "20261016T023815Z";
+        for n in 0..3 {
+            let p = backup_path(&dir, stamp);
+            std::fs::write(&p, [n]).unwrap();
+        }
+        std::fs::write(dir.join("20261016T023814Z.coffer"), [9]).unwrap();
+        std::fs::write(dir.join("20261016T023815Z-x.coffer"), [9]).unwrap();
+        let names: Vec<String> = list_backups(&dir).iter().map(|(p, _)| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["20261016T023815Z-3.coffer", "20261016T023815Z-2.coffer", "20261016T023815Z.coffer", "20261016T023814Z.coffer"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_vault_file_is_none() {
+        let dir = temp("read");
+        assert!(read_vault(&dir.join("nope.coffer")).unwrap().is_none());
+        std::fs::write(dir.join("v.coffer"), b"x").unwrap();
+        assert_eq!(read_vault(&dir.join("v.coffer")).unwrap().unwrap(), b"x");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

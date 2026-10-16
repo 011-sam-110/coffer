@@ -73,7 +73,8 @@ pub struct KdfBenchmark {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TotpImage {
-    pub uri: String,
+    /// Holds the TOTP secret: never logged, zeroized on drop.
+    pub uri: Zeroizing<String>,
 }
 
 /// `totp_from_image` source: a file (Rust opens the dialog) or the screen.

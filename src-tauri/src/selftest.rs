@@ -373,7 +373,7 @@ fn vault_round_trip(app: &AppHandle) {
         Ok(p) => crate::vault::import_delete_source(app, &p.preview_id),
         Err(e) => Err(e.clone()),
     };
-    c.check("an encrypted source is not offered for deletion", deleted.is_err() && file.exists(), code_of(&deleted));
+    c.check("import_delete_source deletes a picked .cofferx too", deleted.is_ok() && !file.exists(), code_of(&deleted));
 
     // A damaged file: saves pause until "save again".
     let count_before = item_count(app);
@@ -480,6 +480,9 @@ fn vault_round_trip(app: &AppHandle) {
     // ---------- auto-type (SPEC 10) ----------
     autotype_checks(app, &mut c);
 
+    // ---------- totp_from_image from the screen ----------
+    qr_screen_checks(&mut c);
+
     std::thread::sleep(Duration::from_millis(2500));
     crate::log!("selftest vault: events {:?}", got.lock().unwrap());
     crate::log!("selftest vault: {} checks, {} failed", c.total, c.failed);
@@ -582,7 +585,7 @@ fn hello_checks(app: &AppHandle, c: &mut Checks, pw: &str, key: &coffer_core::Se
 /// A WinForms window with one multi-line text box, in its own powershell.exe
 /// (a real separate process; this test owns its PID and closes it).
 const TARGET_SCRIPT: &str = "Add-Type -AssemblyName System.Windows.Forms; \
-$f = New-Object System.Windows.Forms.Form; $f.Text = 'Coffer autotype target'; $f.Width = 520; $f.Height = 260; \
+$f = New-Object System.Windows.Forms.Form; $f.Text = 'Coffer autotype target'; $f.Width = 520; $f.Height = 260; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'; \
 $t = New-Object System.Windows.Forms.TextBox; $t.Multiline = $true; $t.AcceptsTab = $true; $t.AcceptsReturn = $true; $t.Dock = 'Fill'; \
 $f.Controls.Add($t); $f.Add_Shown({ $f.Activate(); [void]$t.Focus() }); [System.Windows.Forms.Application]::Run($f)";
 
@@ -653,7 +656,28 @@ fn close_window(h: isize) {
     }
 }
 
+/// Click the middle of `edit` like a user (that input gives its window the
+/// foreground). Only when `edit` is the window at that point.
+fn click_into(edit: isize) -> bool {
+    use windows::Win32::Foundation::{HWND, POINT, RECT};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, SetCursorPos, WindowFromPoint};
+    unsafe {
+        let mut r = RECT::default();
+        if GetWindowRect(HWND(edit as *mut _), &mut r).is_err() {
+            return false;
+        }
+        let p = POINT { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
+        if WindowFromPoint(p).0 as isize != edit || SetCursorPos(p.x, p.y).is_err() {
+            return false;
+        }
+        let click = |flags| INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } } };
+        SendInput(&[click(MOUSEEVENTF_LEFTDOWN), click(MOUSEEVENTF_LEFTUP)], std::mem::size_of::<INPUT>() as i32) == 2
+    }
+}
+
 /// Make `hwnd` the window auto-type types into, as if the user had been in it.
+#[allow(dead_code)]
 fn set_target(app: &AppHandle, hwnd: isize) {
     *app.state::<AppState>().foreground.lck() = Some(crate::state::ForegroundInfo { hwnd, title: "Coffer autotype target".into(), process: Some("powershell.exe".into()) });
 }
@@ -703,11 +727,16 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
     let hotkey_ok = matches!(*app.state::<AppState>().hotkeys.lck(), crate::contract::HotkeyStatus { quick: crate::contract::HotkeyState::Ok, .. });
     let mut run = |id: &str, label: &str, expect: String| {
         set_window_text(edit, "");
+        // The user clicks into the target, then presses the hotkey: the
+        // foreground tracker stores the target, as in use.
+        let clicked = click_into(edit);
+        std::thread::sleep(Duration::from_millis(400));
         if hotkey_ok {
             press_quick_hotkey();
             std::thread::sleep(Duration::from_millis(900));
         }
-        set_target(app, form);
+        let stored = app.state::<AppState>().foreground.lck().as_ref().map(|f| f.hwnd);
+        crate::log!("selftest vault: info clicked={clicked}; stored target is the form: {}", stored == Some(form));
         let fg_before = crate::win::autotype::foreground();
         let r = crate::autotype::run(app, id, None);
         std::thread::sleep(Duration::from_millis(400));
@@ -740,4 +769,89 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
     let gone = crate::autotype::run(app, &item.id, None);
     c.check("autotype: a closed target is refused", matches!(&gone, Err(e) if e.code == ErrorCode::Invalid && e.message.contains("gone")), code_of(&gone));
     crate::shell::hide_quick(app);
+}
+
+// ---------- totp_from_image, screen source ----------
+
+/// Shows `png` in a topmost WinForms window titled "Coffer QR target".
+fn qr_window_script(png: &std::path::Path) -> String {
+    format!(
+        "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; \
+$f = New-Object System.Windows.Forms.Form; $f.Text = 'Coffer QR target'; $f.TopMost = $true; $f.Width = 420; $f.Height = 460; $f.BackColor = 'White'; \
+$p = New-Object System.Windows.Forms.PictureBox; $p.Dock = 'Fill'; $p.SizeMode = 'CenterImage'; $p.Image = [System.Drawing.Image]::FromFile('{}'); \
+$f.Controls.Add($p); [System.Windows.Forms.Application]::Run($f)",
+        png.display()
+    )
+}
+
+fn find_titled(pid: u32, title: &str) -> Option<isize> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible};
+    struct Find<'a> {
+        pid: u32,
+        title: &'a str,
+        hwnd: isize,
+    }
+    unsafe extern "system" fn each(h: HWND, l: LPARAM) -> BOOL {
+        let f = unsafe { &mut *(l.0 as *mut Find) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&mut pid)) };
+        let mut buf = [0u16; 128];
+        let n = unsafe { GetWindowTextW(h, &mut buf) } as usize;
+        if pid == f.pid && unsafe { IsWindowVisible(h) }.as_bool() && String::from_utf16_lossy(&buf[..n]) == f.title {
+            f.hwnd = h.0 as isize;
+            return BOOL(0);
+        }
+        BOOL(1)
+    }
+    let mut find = Find { pid, title, hwnd: 0 };
+    unsafe {
+        let _ = EnumWindows(Some(each), LPARAM(&mut find as *mut Find as isize));
+    }
+    (find.hwnd != 0).then_some(find.hwnd)
+}
+
+fn qr_screen_checks(c: &mut Checks) {
+    let png = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join("totp-qr.png");
+    let mut child = match std::process::Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command", &qr_window_script(&png)]).spawn() {
+        Ok(ch) => ch,
+        Err(e) => {
+            c.check("totp screen: start the QR window", false, e);
+            return;
+        }
+    };
+    let pid = child.id();
+    let shown = wait_until(Duration::from_secs(20), || find_titled(pid, "Coffer QR target").is_some());
+    std::thread::sleep(Duration::from_millis(800));
+    let read = crate::totp_image::from_screen();
+    let expected = "otpauth://totp/Example:sam@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Example";
+    c.check(
+        "totp_from_image(screen): reads a QR code shown by another app",
+        shown && matches!(&read, Ok(uri) if uri.as_str() == expected),
+        match &read {
+            Ok(uri) => format!("read {} chars, matches={}", uri.len(), uri.as_str() == expected),
+            Err(e) => format!("{:?}: {}", e.code, e.message),
+        },
+    );
+    if let Some(h) = find_titled(pid, "Coffer QR target") {
+        close_window(h);
+    }
+    let closed = wait_until(Duration::from_secs(5), || matches!(child.try_wait(), Ok(Some(_))));
+    if !closed {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let none = {
+        std::thread::sleep(Duration::from_millis(500));
+        crate::totp_image::from_screen()
+    };
+    c.check(
+        "totp_from_image(screen): no QR code -> notFound",
+        matches!(&none, Err(e) if e.code == crate::error::ErrorCode::NotFound),
+        match &none {
+            Ok(_) => "found one".to_string(),
+            Err(e) => format!("{:?}", e.code),
+        },
+    );
 }

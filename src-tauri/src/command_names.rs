@@ -43,6 +43,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "totp_from_image",
     "ssh_generate",
     "generate",
+    "generator_options",
     "generator_copy",
     "generator_history",
     "generator_history_reveal",
@@ -95,6 +96,7 @@ pub const QUICK_COMMANDS: &[&str] = &[
     "quick_set_modal",
     "main_show",
     "generate",
+    "generator_options",
     "generator_copy",
 ];
 

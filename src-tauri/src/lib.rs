@@ -32,6 +32,7 @@ mod settings;
 mod shell;
 mod ssh;
 mod state;
+mod totp_image;
 mod tray;
 mod usage;
 mod vault;
@@ -55,7 +56,7 @@ macro_rules! with_commands {
             items_list, item_get, item_reveal, item_copy, item_save, item_patch, item_set_state, items_bulk,
             item_delete_forever, trash_empty, item_revisions, item_restore_revision, item_password_history,
             item_open_url, totp_code, totp_parse, totp_from_image, ssh_generate,
-            generate, generator_copy, generator_history, generator_history_reveal, generator_history_copy,
+            generate, generator_options, generator_copy, generator_history, generator_history_reveal, generator_history_copy,
             generator_history_clear, password_strength,
             health_report, health_check_breaches,
             import_preview, import_commit, import_undo, import_delete_source, export_vault,

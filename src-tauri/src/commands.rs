@@ -25,10 +25,6 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| CofferError::io(format!("Coffer could not finish that: {e}")))
 }
 
-/// Tier 2 features that are not in this version.
-fn later<T>() -> CofferResult<T> {
-    Err(CofferError::invalid("This is not in this version of Coffer yet."))
-}
 
 
 fn pw(p: &Option<Secret>) -> Option<&str> {
@@ -378,10 +374,41 @@ pub async fn totp_parse(input: Secret) -> CofferResult<TotpParse> {
     Ok(coffer_core::totp::totp_parse(&input))
 }
 
+/// A one-time-code setup QR code from an image file (Rust opens the
+/// dialog) or from the screen (the calling window steps aside meanwhile).
 #[tauri::command]
-pub async fn totp_from_image(source: TotpSource) -> CofferResult<Option<TotpImage>> {
-    let _ = source;
-    later()
+pub async fn totp_from_image(app: AppHandle, window: Window, source: TotpSource) -> CofferResult<Option<TotpImage>> {
+    let label = window.label().to_string();
+    blocking(move || {
+        let caller = app.get_webview_window(&label);
+        let uri = match source {
+            TotpSource::File => {
+                let mut dialog = rfd::FileDialog::new()
+                    .set_title("Choose the QR code image")
+                    .add_filter("Images", &["png", "jpg", "jpeg", "bmp"])
+                    .set_directory(crate::paths::home_dir());
+                if let Some(w) = caller.as_ref() {
+                    dialog = dialog.set_parent(w);
+                }
+                let Some(path) = dialog.pick_file() else { return Ok(None) };
+                crate::totp_image::from_file(&path)?
+            }
+            TotpSource::Screen => {
+                if let Some(w) = caller.as_ref() {
+                    let _ = w.hide();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let read = crate::totp_image::from_screen();
+                if let Some(w) = caller.as_ref() {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+                read?
+            }
+        };
+        Ok(Some(TotpImage { uri }))
+    })
+    .await?
 }
 
 #[tauri::command]
@@ -403,6 +430,12 @@ pub async fn generate(app: AppHandle, options: GeneratorOptions) -> CofferResult
         }
     })
     .await?
+}
+
+/// The vault's last generator options (defaults when none); unlocked only.
+#[tauri::command]
+pub async fn generator_options(app: AppHandle) -> CofferResult<GeneratorOptions> {
+    blocking(move || vault::with_vault(&app, |v| Ok(v.generator_options()))).await?
 }
 
 /// Copy a generated value; unlocked, it also goes into generator history.
@@ -478,6 +511,10 @@ pub async fn health_report(app: AppHandle) -> CofferResult<HealthReport> {
 /// "Check now": the k-anonymity range calls (SPEC 3.10).
 #[tauri::command]
 pub async fn health_check_breaches(app: AppHandle) -> CofferResult<HealthReport> {
+    // The setting is the consent to send hash prefixes (SPEC 3.10): Rust checks it too.
+    if app.state::<AppState>().settings.rd().settings.breach_check == BreachMode::Off {
+        return Err(CofferError::invalid("Breach checks are off. Turn them on in Settings > Security first."));
+    }
     blocking(move || vault::breach_check(&app)).await?
 }
 
