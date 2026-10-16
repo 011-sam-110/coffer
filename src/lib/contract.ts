@@ -495,6 +495,7 @@ export interface Commands {
   ssh_generate: [Record<string, never>, { privateKey: string; publicKey: string; fingerprint: string }]; // tier 2
 
   generate: [{ options: GeneratorOptions }, Generated];
+  generator_options: [Record<string, never>, GeneratorOptions]; // the last options (vault meta), defaults when none; unlocked only
   generator_copy: [{ value: string }, { clearsInSeconds: number | null }];
   generator_history: [Record<string, never>, GeneratedHistoryEntry[]];
   generator_history_reveal: [{ id: string }, string];
