@@ -7,6 +7,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
 import { HelloUnlock } from "../components/HelloUnlock";
+import { PinUnlock } from "../components/PinUnlock";
 import { autotypeChoices, useAutotype, type AutotypeOnly } from "../components/AutotypeActions";
 import { RepromptProvider, ToastProvider, useReprompt, useToast } from "../components/overlays";
 import { Button, cx, ErrorText, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
@@ -65,7 +66,39 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
   const [err, setErr] = useState<string | null>(null);
   const [fails, setFails] = useState(0);
   const ref = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<"pin" | "password">(status.pinReady ? "pin" : "password");
+  const [pinNote, setPinNote] = useState<string | null>(null);
   useEffect(() => ref.current?.focus(), []);
+  const usePassword = (note: string | null = null) => {
+    setPinNote(note);
+    setMode("password");
+    requestAnimationFrame(() => ref.current?.focus());
+  };
+  if (mode === "pin" && status.pinReady)
+    return (
+      <div className="flex flex-1 flex-col justify-center px-8">
+        <div className="mb-6 flex items-center gap-3">
+          <span className="inline-flex size-9 items-center justify-center rounded-sm border border-border bg-card">
+            <Lock aria-hidden className="size-4 text-muted-foreground" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate text-md font-semibold">{status.vaultName ?? "Coffer"} is locked</h1>
+            <p className="text-xs text-muted-foreground">Type your PIN to search and copy.</p>
+          </div>
+        </div>
+        <PinUnlock
+          status={status}
+          onUnlocked={onUnlocked}
+          onUnavailable={(message) => {
+            usePassword(message);
+            call("vault_status").then(onUnlocked).catch(() => undefined);
+          }}
+        />
+        <Button variant="quiet" size="sm" className="mt-3 -ml-2.5 w-fit" onClick={() => usePassword()}>
+          Use master password instead
+        </Button>
+      </div>
+    );
   return (
     <div className="flex flex-1 flex-col justify-center px-8">
       <div className="mb-6 flex items-center gap-3">
@@ -102,6 +135,7 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
           }
         }}
       >
+        {pinNote && <p className="text-xs text-gold">{pinNote}</p>}
         <label htmlFor="quick-pw" className="sr-only">
           Master password
         </label>
@@ -113,6 +147,11 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
         <Button type="submit" variant="primary" loading={busy}>
           {busy ? "Unlocking..." : "Unlock"}
         </Button>
+        {status.pinReady && (
+          <Button variant="quiet" size="sm" className="-ml-2.5 w-fit" onClick={() => setMode("pin")}>
+            Use PIN instead
+          </Button>
+        )}
       </form>
       <HelloUnlock className="mt-3" status={status} onUnlocked={onUnlocked} onStatus={onUnlocked} onWaiting={(w) => call("quick_set_modal", { modal: w }).catch(() => undefined)} autoStartOnShow />
     </div>

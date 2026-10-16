@@ -39,6 +39,7 @@ Coffer is a password manager for Windows that lives in the system tray, next to 
 | Automatic encrypted backups and restore | KeePass-style | 1 |
 | Screen-capture protection | Bitwarden | 1 |
 | Windows Hello in-session unlock (a convenience gate, off by default) | 1Password, Bitwarden | 2 |
+| PIN unlock on this PC, kept across restarts (a convenience gate, off by default) | Bitwarden | 2 |
 | Auto-type into the previous window | Bitwarden autotype, KeePass | 2 |
 | Item revision history UI | 1Password | 2 |
 | Rotate Secret Key | 1Password | 2 |
@@ -71,7 +72,7 @@ v2 security: this section takes in the security review in full (verdict "sound w
 | The vault file and the Secret Key (Emergency Kit stolen) | Hold against guessing for a strong password: Argon2id with high memory cost. |
 | The ability to change the vault file | Detect a changed, deleted, added or rolled-back record and a changed KDF header, and refuse to open. A whole-file rollback is detected on any PC that saw the newer file (generation counter); a PC that never saw it cannot detect it. |
 | Old copies of the file plus old secrets, after the user changed them | "Change master password" with "My old password may be known" and "Rotate Secret Key" make a new vault key and re-encrypt everything, so old secrets do not open new versions. |
-| Code running as the same Windows user while Coffer is locked | Best effort only. Such code can read the DPAPI-protected Secret Key and log keys; with Hello on it can open the vault. The docs say so; the UI claims no more. |
+| Code running as the same Windows user while Coffer is locked | Best effort only. Such code can read the DPAPI-protected Secret Key and log keys; with Hello on it can open the vault; with a PIN set it can try every PIN offline. The docs say so; the UI claims no more. |
 | Code running as the same user while Coffer is unlocked | Out of scope. No password manager can stop it. |
 | Script injected into the UI (for example from imported data) | Cannot reach more than its window's capability allows, cannot load remote code (CSP), cannot navigate away, cannot open arbitrary URLs or files. |
 | Shoulder-surfing, screen sharing, clipboard history | Mask by default; hide windows from most screen capture (setting, on by default); keep copies out of Windows clipboard history and cloud clipboard; clear the clipboard. |
@@ -170,7 +171,7 @@ One UTF-8 JSON file. Binary values are base64 (standard, padded).
 
 ### 3.7 WebView hardening
 - `build.rs`: `tauri_build::try_build(Attributes::new().app_manifest(AppManifest::new().commands(&[...every Coffer command...])))`, so only listed commands exist for permissions.
-- Capabilities per window: `capabilities/quick.json` (`"windows": ["quick"]`) allows only `app_info`, `settings_get`, `quick_hint_seen`, `vault_status`, `vault_unlock`, `vault_unlock_hello`, `vault_lock`, `items_list`, `item_get`, `item_copy`, `item_open_url`, `totp_code`, `autotype`, `quick_context`, `quick_hide`, `quick_set_modal`, `main_show`, `generate`, `generator_copy`. `capabilities/main.json` (`"windows": ["main"]`) allows the rest. Each capability adds `core:event:allow-listen` and `core:event:allow-unlisten` and no other core permission. No `remote` key. No shell plugin. The scaffold's opener and dialog plugins are removed (Rust crate, npm packages and `capabilities/default.json`); every file and folder dialog opens from Rust (`rfd`). WebView2 `PermissionRequested` (camera, microphone, location, notifications, clipboard read) is always denied.
+- Capabilities per window: `capabilities/quick.json` (`"windows": ["quick"]`) allows only `app_info`, `settings_get`, `quick_hint_seen`, `vault_status`, `vault_unlock`, `vault_unlock_hello`, `vault_unlock_pin`, `vault_lock`, `items_list`, `item_get`, `item_copy`, `item_open_url`, `totp_code`, `autotype`, `quick_context`, `quick_hide`, `quick_set_modal`, `main_show`, `generate`, `generator_copy`. `capabilities/main.json` (`"windows": ["main"]`) allows the rest. Each capability adds `core:event:allow-listen` and `core:event:allow-unlisten` and no other core permission. No `remote` key. No shell plugin. The scaffold's opener and dialog plugins are removed (Rust crate, npm packages and `capabilities/default.json`); every file and folder dialog opens from Rust (`rfd`). WebView2 `PermissionRequested` (camera, microphone, location, notifications, clipboard read) is always denied.
 - `tauri.conf.json`: `app.withGlobalTauri: false`; `app.security.freezePrototype: true`; `app.security.assetProtocol.enable: false`; `app.security.csp`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'` ('unsafe-inline' for styles only, for the motion library; it does not enable script). Because Tauri injects nonces into `style-src` (and a nonce makes browsers ignore 'unsafe-inline'), set `app.security.dangerousDisableAssetCspModification: ["style-src"]` and check the built app.
 - `on_navigation` allows only the app origin; `on_new_window` denies all; release builds have no devtools.
 - WebView2 per webview (via `with_webview`): `AreBrowserAcceleratorKeysEnabled = false` (Ctrl+P, Ctrl+R, F5 and the find bar do nothing), `IsGeneralAutofillEnabled = false` and `IsPasswordAutosaveEnabled = false` (so a typed Secret Key is never saved in the WebView2 profile), default context menus off.
@@ -185,6 +186,12 @@ One UTF-8 JSON file. Binary values are base64 (standard, padded).
 - The master password is still needed after an app restart, Windows sign-out, and after "Require master password every" N days (default 14). Then the UI hides the Hello button and says "Windows Hello works after one master-password unlock."
 - On a `keyChanged` lock, drop the VK that Hello holds (a Hello unlock would otherwise open with the old VK).
 - When `helloReady` is true, the unlock screen starts Hello at once. Cancel falls back to the password field. Hello needs Windows 11 (build 22000) and does not work over Remote Desktop.
+
+### 3.9 PIN unlock (tier 2)
+- A PIN of 6 to 12 digits unlocks the vault on this PC, also after a restart (`vault_unlock_pin`, from the main window and Quick Access). `pin_set` with the master password and the open vault sets it; `pin_set` with `null` turns it off.
+- `device.json` keeps VK sealed under Argon2id(PIN) (the vault's default cost), the whole record sealed again with DPAPI (docs/SECURITY.md section 8). The vault file does not change.
+- 5 wrong PINs in a row delete the record. "Require master password every" N days (default 14) also covers the PIN, counted from the last master-password unlock on this PC. A re-key or a Secret Key rotation deletes the record.
+- When `pinReady` is true, the unlock screens show `pinLength` boxes; the last digit unlocks. "Use master password instead" is one click away. When no PIN can unlock (`pinUnavailable`), the password field shows with the reason.
 
 ### 3.9 Clipboard
 - One `OpenClipboard` / `EmptyClipboard` / `SetClipboardData` (x4) / `CloseClipboard`: `CF_UNICODETEXT` plus the registered formats `ExcludeClipboardContentFromMonitorProcessing` (any data), `CanIncludeInClipboardHistory` (DWORD 0) and `CanUploadToCloudClipboard` (DWORD 0). Read `GetClipboardSequenceNumber` after `CloseClipboard`.

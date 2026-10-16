@@ -38,6 +38,12 @@ pub struct VaultStatus {
     pub hello_available: bool,
     pub hello_enabled: bool,
     pub hello_ready: bool,
+    /// A PIN is set for this vault on this PC.
+    pub pin_set: bool,
+    /// The PIN can unlock now (set, same Secret Key, master password typed within the days).
+    pub pin_ready: bool,
+    /// The number of digits of the PIN, when one is set.
+    pub pin_length: Option<u8>,
     pub item_count: Option<u32>,
 }
 

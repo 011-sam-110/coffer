@@ -96,6 +96,7 @@ const CODE_SET: Record<ErrorCode, true> = {
   olderFile: true,
   kdfTooStrong: true,
   exists: true,
+  pinUnavailable: true,
 };
 /** Every ErrorCode of the contract. */
 export const ERROR_CODES = Object.keys(CODE_SET) as ErrorCode[];

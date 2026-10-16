@@ -2,6 +2,7 @@
 import { CircleAlert, FolderSearch, History, Lock, SearchX } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { HelloUnlock } from "../../components/HelloUnlock";
+import { PinUnlock } from "../../components/PinUnlock";
 import { Dialog, useReprompt, useToast } from "../../components/overlays";
 import { Button, FormRow, Input, Notice, PasswordInput, Spinner } from "../../components/ui";
 import type { BackupEntry, VaultStatus } from "../../lib/contract";
@@ -25,6 +26,14 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
   const ids = { pw: useId(), sk: useId() };
   const needsKey = !!status?.needsSecretKey;
   const skChar = needsKey ? secretKeyCharMessage(sk) : null;
+  // With a PIN that can unlock, the PIN comes first; the master password is one click away.
+  const [mode, setMode] = useState<"pin" | "password">(status?.pinReady ? "pin" : "password");
+  const [pinNote, setPinNote] = useState<string | null>(null);
+  const usePassword = (note: string | null = null) => {
+    setPinNote(note);
+    setMode("password");
+    requestAnimationFrame(() => pwRef.current?.focus());
+  };
 
   useEffect(() => {
     pwRef.current?.focus();
@@ -98,53 +107,82 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
         </div>
       </div>
       {reason && <p className="mb-4 text-sm text-muted-foreground">{reason}</p>}
-      <form
-        className="flex flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
-        }}
-      >
-        <FormRow label="Master password" htmlFor={ids.pw} error={error}>
-          <PasswordInput
-            ref={pwRef}
-            id={ids.pw}
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            invalid={!!error}
-            disabled={busy}
-            revealLabel="master password"
+      {mode === "pin" && status?.pinReady ? (
+        <div className="flex flex-col gap-4">
+          <PinUnlock
+            status={status}
+            size="lg"
+            onUnlocked={setStatus}
+            onUnavailable={(message) => {
+              usePassword(message);
+              call("vault_status").then(setStatus).catch(() => undefined);
+            }}
+            onError={(e) => (e.code === "tampered" ? (onOutcome({ kind: "tampered" }), true) : e.code === "olderFile" ? (onOutcome({ kind: "older", message: e.message }), true) : false)}
           />
-        </FormRow>
-        {needsKey && (
-          <FormRow
-            label="Secret Key"
-            htmlFor={ids.sk}
-            error={skChar}
-            hint={`${SECRET_KEY_INPUT_HINT} No kit? On a computer where this vault opens: Settings > Security > Show Secret Key.`}
-          >
-            <Input
-              id={ids.sk}
-              mono
-              value={sk}
-              onChange={(e) => setSk(e.target.value.toUpperCase())}
-              placeholder="C1-XXXXXX-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX"
-              invalid={!!skChar}
+          <Button variant="quiet" size="sm" className="-ml-2.5 w-fit" onClick={() => usePassword()}>
+            Use master password instead
+          </Button>
+          {info?.demo && <p className="text-xs text-muted-foreground">Demo backend: the PIN is 482917.</p>}
+        </div>
+      ) : (
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          {pinNote && (
+            <Notice tone="warning" role="status">
+              {pinNote}
+            </Notice>
+          )}
+          <FormRow label="Master password" htmlFor={ids.pw} error={error}>
+            <PasswordInput
+              ref={pwRef}
+              id={ids.pw}
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              invalid={!!error}
               disabled={busy}
-              className="uppercase"
+              revealLabel="master password"
             />
           </FormRow>
-        )}
-        {fails >= 3 && (
-          <Notice tone="warning" role="status">
-            Coffer cannot reset a master password. Check Caps Lock and your keyboard layout.
-          </Notice>
-        )}
-        <Button type="submit" variant="primary" size="lg" loading={busy} disabled={needsKey && (!sk || !!skChar)}>
-          {busy ? "Unlocking..." : "Unlock"}
-        </Button>
-        {info?.demo && <p className="text-xs text-muted-foreground">Demo backend: the master password is "demo".</p>}
-      </form>
+          {needsKey && (
+            <FormRow
+              label="Secret Key"
+              htmlFor={ids.sk}
+              error={skChar}
+              hint={`${SECRET_KEY_INPUT_HINT} No kit? On a computer where this vault opens: Settings > Security > Show Secret Key.`}
+            >
+              <Input
+                id={ids.sk}
+                mono
+                value={sk}
+                onChange={(e) => setSk(e.target.value.toUpperCase())}
+                placeholder="C1-XXXXXX-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX"
+                invalid={!!skChar}
+                disabled={busy}
+                className="uppercase"
+              />
+            </FormRow>
+          )}
+          {fails >= 3 && (
+            <Notice tone="warning" role="status">
+              Coffer cannot reset a master password. Check Caps Lock and your keyboard layout.
+            </Notice>
+          )}
+          <Button type="submit" variant="primary" size="lg" loading={busy} disabled={needsKey && (!sk || !!skChar)}>
+            {busy ? "Unlocking..." : "Unlock"}
+          </Button>
+          {status?.pinReady && (
+            <Button variant="quiet" size="sm" className="-ml-2.5 w-fit" onClick={() => setMode("pin")}>
+              Use PIN instead
+            </Button>
+          )}
+          {info?.demo && <p className="text-xs text-muted-foreground">Demo backend: the master password is "demo".</p>}
+        </form>
+      )}
       {status && (
         <HelloUnlock
           className="mt-3"

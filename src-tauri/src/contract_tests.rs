@@ -70,7 +70,7 @@ fn capabilities_are_per_window_and_minimal() {
     // SPEC 3.7, plus generator_options (contract c5f1f96: the Quick Access
     // generator reads the last options too).
     let spec_quick = [
-        "app_info", "settings_get", "quick_hint_seen", "vault_status", "vault_unlock", "vault_unlock_hello", "vault_lock", "items_list", "item_get", "item_copy", "item_open_url",
+        "app_info", "settings_get", "quick_hint_seen", "vault_status", "vault_unlock", "vault_unlock_hello", "vault_unlock_pin", "vault_lock", "items_list", "item_get", "item_copy", "item_open_url",
         "totp_code", "autotype", "quick_context", "quick_hide", "quick_set_modal", "main_show", "generate", "generator_options", "generator_copy",
     ];
     assert_eq!(quick.iter().cloned().collect::<BTreeSet<_>>(), allow(&spec_quick));
@@ -112,6 +112,7 @@ fn error_codes_match() {
         ErrorCode::OlderFile,
         ErrorCode::KdfTooStrong,
         ErrorCode::Exists,
+        ErrorCode::PinUnavailable,
     ]
     .into_iter()
     .map(ser)

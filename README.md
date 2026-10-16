@@ -28,6 +28,7 @@ _Status: v0.1.0 pre-release for Windows 10 and 11. The installer is not code-sig
 - **Quick Access** - a 400 x 560 popup from the tray or Ctrl+Shift+Space, with suggestions for the app you came from. Enter copies the password, Ctrl+U the username and Ctrl+T the one-time code, without opening the main window.
 - **Auto-type** - Ctrl+Enter in Quick Access types the username and password into the app you came from, and Ctrl+Shift+Enter types the password alone. Coffer refuses to type into an app that runs as administrator.
 - **Windows Hello (optional, off by default)** - after one master-password unlock, face, fingerprint or PIN can unlock again in the same session. The master password is needed again after a restart and after 14 days (you can change the number of days).
+- **PIN unlock (optional, off by default)** - a PIN of 6 to 12 digits unlocks Coffer and Quick Access on this PC, also after a restart. 5 wrong PINs remove it, and the master password is needed again after 14 days. The vault file does not change: away from this PC it still needs the master password.
 - **Tray app** - close-to-tray, start with Windows, a tray menu, one instance at a time, and a tray icon that shows locked or unlocked.
 - **Auto-lock** - after a set idle time, when Windows locks and when the PC sleeps. Secrets stay in the Rust process and reach the window only when you press Reveal.
 - **Clipboard care** - copies stay out of Windows clipboard history and cloud clipboard, and are cleared after 90 seconds (you can change this) if the clipboard still holds them.

@@ -14,6 +14,7 @@
     "allow-vault-status",
     "allow-vault-unlock",
     "allow-vault-unlock-hello",
+    "allow-vault-unlock-pin",
     "allow-vault-lock",
     "allow-items-list",
     "allow-item-get",

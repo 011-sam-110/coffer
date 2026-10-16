@@ -700,6 +700,43 @@ describe("generator_options", () => {
   });
 });
 
+describe("PIN unlock", () => {
+  it("pin_set needs the master password; a lock then shows the PIN, and the PIN unlocks", async () => {
+    const b = mk({ latencyMs: 0 });
+    expect(await call<VaultStatus>(b, "vault_status")).toMatchObject({ pinSet: false, pinReady: false });
+    expect((await err(b, "pin_set", { pin: "12345", password: "demo" })).code).toBe("invalid");
+    expect((await err(b, "pin_set", { pin: "482917", password: null })).code).toBe("invalid");
+    expect((await err(b, "pin_set", { pin: "482917", password: "nope" })).code).toBe("badCredentials");
+    expect(await call<VaultStatus>(b, "pin_set", { pin: "482917", password: "demo" })).toMatchObject({ pinSet: true });
+    await call(b, "vault_lock");
+    expect(await call<VaultStatus>(b, "vault_status")).toMatchObject({ state: "locked", pinSet: true, pinReady: true });
+    expect(await call<VaultStatus>(b, "vault_unlock_pin", { pin: "482917" })).toMatchObject({ state: "unlocked" });
+  });
+  it("counts wrong PINs and removes the PIN at the fifth", async () => {
+    const b = mk({ pin: "on", startState: "locked", latencyMs: 0 });
+    for (const left of [4, 3, 2]) expect(await err(b, "vault_unlock_pin", { pin: "000000" })).toEqual({ code: "badCredentials", message: `Wrong PIN. ${left} tries left.` });
+    expect((await err(b, "vault_unlock_pin", { pin: "000000" })).message).toBe("Wrong PIN. 1 try left.");
+    expect((await err(b, "vault_unlock_pin", { pin: "000000" })).code).toBe("pinUnavailable");
+    expect(await call<VaultStatus>(b, "vault_status")).toMatchObject({ pinSet: false, pinReady: false });
+    expect((await err(b, "vault_unlock_pin", { pin: "482917" })).code).toBe("pinUnavailable");
+  });
+  it("asks for the master password when its days ran out, then works again", async () => {
+    const b = mk({ pin: "stale", startState: "locked", latencyMs: 0 });
+    expect(await call<VaultStatus>(b, "vault_status")).toMatchObject({ pinSet: true, pinReady: false });
+    expect((await err(b, "vault_unlock_pin", { pin: "482917" })).code).toBe("pinUnavailable");
+    await call(b, "vault_unlock", { password: "demo", secretKey: null });
+    await call(b, "vault_lock");
+    expect((await call<VaultStatus>(b, "vault_status")).pinReady).toBe(true);
+  });
+  it("is removed by a new vault key and turned off with null", async () => {
+    const b = mk({ pin: "on", latencyMs: 0 });
+    await call(b, "vault_change_password", { current: "demo", next: "Plum orbit lantern 2026 quartz!", rekey: true });
+    expect((await call<VaultStatus>(b, "vault_status")).pinSet).toBe(false);
+    await call(b, "pin_set", { pin: "123456", password: "Plum orbit lantern 2026 quartz!" });
+    expect(await call<VaultStatus>(b, "pin_set", { pin: null, password: null })).toMatchObject({ pinSet: false });
+  });
+});
+
 describe("tier 2: Windows Hello", () => {
   it("is off by default; hello_set needs the master password, then a lock keeps the key", async () => {
     const b = mk();

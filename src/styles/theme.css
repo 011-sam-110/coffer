@@ -349,6 +349,12 @@
     border-color: var(--danger-text);
     background-color: color-mix(in oklch, var(--danger-text) 9%, var(--muted));
   }
+  /* PIN entry: the box the next digit goes into, while the PIN field has the focus. */
+  .control.pin-box-next {
+    outline: 2px solid var(--focus-halo);
+    outline-offset: 0;
+    border-color: var(--focus-field);
+  }
   .control:disabled,
   .control[aria-disabled="true"] {
     opacity: 0.5;

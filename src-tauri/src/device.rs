@@ -1,9 +1,12 @@
 //! `%LOCALAPPDATA%\Coffer\device.json`: per vault id, the Secret Key sealed with
-//! DPAPI (SPEC 3.2) and the highest vault generation this PC has seen (SPEC 3.5).
+//! DPAPI (SPEC 3.2), the highest vault generation this PC has seen (SPEC 3.5)
+//! and, with a PIN set, the PIN record (`pin.rs`) sealed with DPAPI.
 //!
 //! The Secret Key entry is `CryptProtectData` (current user,
 //! `CRYPTPROTECT_UI_FORBIDDEN`, optional entropy `coffer/v1/device-sk` || the
-//! 16 vault id bytes), base64 in the JSON. The generation is not secret.
+//! 16 vault id bytes), base64 in the JSON. The PIN entry is the same with the
+//! entropy `coffer/v1/device-pin` || the vault id bytes. The generation is not
+//! secret.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,6 +19,7 @@ use zeroize::Zeroizing;
 use crate::error::{CofferError, CofferResult};
 
 const ENTROPY_LABEL: &[u8] = b"coffer/v1/device-sk";
+const PIN_ENTROPY_LABEL: &[u8] = b"coffer/v1/device-pin";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,11 +43,20 @@ struct DeviceVault {
     /// Highest `generation` seen for this vault id.
     #[serde(default)]
     generation: u64,
+    /// base64 of the DPAPI blob of the PIN record (`pin::PinRecord` JSON).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pin: Option<String>,
 }
 
 /// The DPAPI entropy for a vault: `coffer/v1/device-sk` || vault id bytes.
 pub fn entropy(vault_id: &[u8; 16]) -> Vec<u8> {
     let mut e = ENTROPY_LABEL.to_vec();
+    e.extend_from_slice(vault_id);
+    e
+}
+
+fn pin_entropy(vault_id: &[u8; 16]) -> Vec<u8> {
+    let mut e = PIN_ENTROPY_LABEL.to_vec();
     e.extend_from_slice(vault_id);
     e
 }
@@ -130,6 +143,45 @@ impl DeviceStore {
         self.write(&file)
     }
 
+    /// The PIN record for this vault (its JSON), or `None` (no PIN, or DPAPI
+    /// cannot open it any more).
+    pub fn pin_get(&self, vault_id: &str) -> CofferResult<Option<Zeroizing<Vec<u8>>>> {
+        let vault_id = &id_of(vault_id)?;
+        let file = self.read()?;
+        let Some(sealed) = file.vaults.get(&uuid_text(vault_id)).and_then(|v| v.pin.as_ref()) else { return Ok(None) };
+        let Ok(blob) = STANDARD.decode(sealed) else {
+            crate::log!("device: a stored PIN record is not valid base64");
+            return Ok(None);
+        };
+        match crate::win::dpapi::unprotect(&blob, &pin_entropy(vault_id)) {
+            Ok(record) => Ok(Some(record)),
+            Err(e) => {
+                crate::log!("device: the stored PIN record cannot be opened ({e})");
+                Ok(None)
+            }
+        }
+    }
+
+    /// Store (or replace) the PIN record for this vault.
+    pub fn pin_put(&self, vault_id: &str, record: &[u8]) -> CofferResult<()> {
+        let vault_id = &id_of(vault_id)?;
+        let sealed = crate::win::dpapi::protect(record, &pin_entropy(vault_id)).map_err(CofferError::io)?;
+        let mut file = self.read()?;
+        file.vaults.entry(uuid_text(vault_id)).or_default().pin = Some(STANDARD.encode(sealed));
+        self.write(&file)
+    }
+
+    /// Remove the PIN of this vault. True when there was one.
+    pub fn pin_remove(&self, vault_id: &str) -> CofferResult<bool> {
+        let vault_id = &id_of(vault_id)?;
+        let mut file = self.read()?;
+        let had = file.vaults.get_mut(&uuid_text(vault_id)).and_then(|v| v.pin.take()).is_some();
+        if had {
+            self.write(&file)?;
+        }
+        Ok(had)
+    }
+
     /// The highest generation this PC has seen for the vault.
     pub fn generation_get(&self, vault_id: &str) -> CofferResult<Option<u64>> {
         let vault_id = &id_of(vault_id)?;
@@ -207,6 +259,31 @@ mod tests {
         assert!(store.secret_key_get(OTHER).unwrap().is_none());
         store.secret_key_remove(VAULT).unwrap();
         assert!(store.secret_key_get(VAULT).unwrap().is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn pin_record_round_trip_per_vault() {
+        let dir = temp("pin");
+        let store = DeviceStore::new(&dir);
+        assert!(store.pin_get(VAULT).unwrap().is_none());
+        assert!(!store.pin_remove(VAULT).unwrap());
+        store.secret_key_put(VAULT, b"sk").unwrap();
+        store.pin_put(VAULT, b"{\"record\":1}").unwrap();
+        assert_eq!(&**store.pin_get(VAULT).unwrap().unwrap(), b"{\"record\":1}");
+        assert!(store.pin_get(OTHER).unwrap().is_none());
+        let text = std::fs::read_to_string(dir.join("device.json")).unwrap();
+        assert!(!text.contains("record"));
+        // The PIN blob does not open as a Secret Key and the other way round (own entropy).
+        let mut file: DeviceFile = serde_json::from_str(&text).unwrap();
+        let v = file.vaults.get_mut(VAULT).unwrap();
+        std::mem::swap(&mut v.pin, &mut v.secret_key);
+        std::fs::write(dir.join("device.json"), serde_json::to_vec(&file).unwrap()).unwrap();
+        assert!(store.pin_get(VAULT).unwrap().is_none());
+        assert!(store.secret_key_get(VAULT).unwrap().is_none());
+        store.pin_put(VAULT, b"x").unwrap();
+        assert!(store.pin_remove(VAULT).unwrap());
+        assert!(store.pin_get(VAULT).unwrap().is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
