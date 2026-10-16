@@ -169,19 +169,22 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
   }, [field.value]);
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
-        <Input
+      {/* Same shape as a secret field: the eye sits inside, so the hint keeps its room in a narrow pane. */}
+      <div className="control flex items-center gap-1 pr-1" aria-invalid={invalid || undefined}>
+        <input
           id={id}
-          mono
+          autoComplete="off"
+          spellCheck={false}
           value={field.value ?? ""}
-          placeholder={field.value === null && field.hasStored ? "Saved. Paste a new setup key to replace." : "otpauth://... or the setup key"}
-          invalid={invalid}
+          placeholder={field.value === null && field.hasStored ? "Saved. Paste to replace." : "otpauth://... or the setup key"}
+          aria-invalid={invalid || undefined}
           onChange={(e) => onChange(e.target.value === "" && field.hasStored ? null : e.target.value)}
+          className="h-[1.875rem] min-w-0 flex-1 bg-transparent font-mono text-sm outline-none"
         />
         {field.value === null && field.hasStored && itemId && field.id && (
-          <Button
+          <IconButton
             size="sm"
-            variant="quiet"
+            label="Show the saved setup key"
             onClick={async () => {
               try {
                 onChange(await withReprompt((password) => call("item_reveal", { id: itemId, field: field.id!, password })));
@@ -190,8 +193,8 @@ function TotpInput({ field, itemId, onChange, invalid, id }: { field: FormField;
               }
             }}
           >
-            Show
-          </Button>
+            <Eye />
+          </IconButton>
         )}
       </div>
       {info && <p className="text-xs text-muted-foreground">{info}</p>}

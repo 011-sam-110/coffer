@@ -169,6 +169,17 @@ for (const [name, path, viewport, steps = []] of STATES) {
         }
         if (clipsY && el.scrollHeight > el.clientHeight + 2 && st.overflowY !== "auto") clipped.push(`"${text}" (${el.scrollHeight}>${el.clientHeight} high)`);
       }
+      // A placeholder is text too: it must fit its empty field.
+      const ctx = document.createElement("canvas").getContext("2d");
+      for (const el of document.querySelectorAll("input[placeholder], textarea[placeholder]")) {
+        if (el.value || !el.placeholder || el.offsetParent === null) continue;
+        const st = getComputedStyle(el, "::placeholder");
+        ctx.font = `${st.fontWeight} ${st.fontSize} ${st.fontFamily}`;
+        const cs = getComputedStyle(el);
+        const room = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const need = ctx.measureText(el.placeholder).width;
+        if (el.tagName === "INPUT" && need > room + 1) clipped.push(`placeholder "${el.placeholder.slice(0, 30)}" (${Math.ceil(need)}>${Math.floor(room)} wide)`);
+      }
       return { clipped: clipped.slice(0, 6), truncated };
     });
     r.clipped = fit.clipped;

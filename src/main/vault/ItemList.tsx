@@ -68,7 +68,10 @@ export function NewItemMenu({ onPick, variant = "primary", label = "New" }: { on
       trigger={(p) => (
         <Button variant={variant} size="md" icon={<Plus className="size-4" />} {...p} title="New item (Ctrl+N)" aria-keyshortcuts="Control+N">
           {label}
-          <KeyBadge>Ctrl+N</KeyBadge>
+          {/* Below 340 px of list width the badges go, so the search keeps its room. */}
+          <span className="hidden @min-[340px]:inline-flex">
+            <KeyBadge>Ctrl+N</KeyBadge>
+          </span>
         </Button>
       )}
     />
@@ -200,7 +203,7 @@ export function ItemList({
   const title = filterTitle(nav.filter);
 
   return (
-    <section aria-label={title} className="flex h-full w-[clamp(280px,32vw,360px)] shrink-0 flex-col border-r border-border">
+    <section aria-label={title} className="@container flex h-full w-[clamp(280px,32vw,360px)] shrink-0 flex-col border-r border-border">
       <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 pt-3 pb-2">
         <div className="flex items-center gap-2">
           <div className="control flex h-8 min-w-0 flex-1 items-center gap-2">
@@ -209,7 +212,7 @@ export function ItemList({
               ref={searchRef}
               type="search"
               aria-label={`Search ${title}`}
-              placeholder={`Search ${base.length} ${base.length === 1 ? "item" : "items"}`}
+              placeholder="Search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -235,7 +238,7 @@ export function ItemList({
                 <X />
               </IconButton>
             ) : (
-              <span className="kbd">Ctrl+F</span>
+              <span className="kbd hidden @min-[340px]:inline-flex">Ctrl+F</span>
             )}
           </div>
           {!inTrash && !inArchive && (
@@ -280,7 +283,10 @@ export function ItemList({
               <option value="updated">Last changed</option>
               <option value="lastUsed">Last used</option>
             </Select>
-            {query.trim() && <span className="text-xs text-muted-foreground tabular-nums">{shown.length} found</span>}
+            {/* The count lives here: in the placeholder it was cut off in a narrow list. */}
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {query.trim() ? `${shown.length} found` : `${base.length} ${base.length === 1 ? "item" : "items"}`}
+            </span>
             {inTrash && base.length > 0 && (
               <Button size="sm" variant="ghost" className="ml-auto text-danger-text" onClick={() => setConfirmEmpty(true)}>
                 Empty Trash
