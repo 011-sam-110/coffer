@@ -525,6 +525,7 @@ export interface Commands {
   quick_hide: [Record<string, never>, void];
   quick_set_modal: [{ modal: boolean }, void]; // true while a prompt or dialog of Quick Access is up: no close on blur
   main_show: [{ itemId: string | null; view: "item" | "settings" | "generator" | "health" | null }, void];
+  main_hide: [Record<string, never>, void]; // main hides itself, e.g. after the first-close notice
   autotype: [{ id: string; password: string | null }, void]; // tier 2
   app_quit: [Record<string, never>, void];
 }
@@ -545,4 +546,5 @@ export interface Events {
   "main://navigate": { itemId: string | null; view: "item" | "settings" | "generator" | "health" | null };
   "edit://discarded": { title: string }; // lock dropped an unsaved edit
   "app://quitRequested": Record<string, never>; // main asks Save / Discard / Cancel, then calls app_quit
+  "main://closeNotice": Record<string, never>; // first close with closeBehavior "hide": the window stays open; the UI shows the tray notice, then calls main_hide
 }
