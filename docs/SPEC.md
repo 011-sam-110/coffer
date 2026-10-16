@@ -1,6 +1,6 @@
 # Coffer: product and technical spec
 
-Status: **v4**, 2026-10-16. v1 had two independent reviews (security, product); v2 took them in. A round-2 review of v2 found 23 items (v3); a round-3 check of v3 found 6 more (v4). Research: [research/findings.md](research/findings.md), [research/import-formats.md](research/import-formats.md). The IPC contract is code: [`src/lib/contract.ts`](../src/lib/contract.ts).
+Status: **v5 (final for v1)**, 2026-10-16. v1 had two independent reviews (security, product); v2 took them in. A round-2 review of v2 found 23 items (v3); a round-3 check found 6 (v4); a round-4 check found 1 (v5); a round-5 check confirmed it. Research: [research/findings.md](research/findings.md), [research/import-formats.md](research/import-formats.md). The IPC contract is code: [`src/lib/contract.ts`](../src/lib/contract.ts).
 
 ## 1. What Coffer is
 
@@ -140,6 +140,7 @@ One UTF-8 JSON file. Binary values are base64 (standard, padded).
 - **The vault name is not secret**: it is the file stem and shows on the lock screen. `vault_create` makes the stem from the name: invalid characters (`\ / : * ? " < > |` and control characters) become `_`, trailing dots and spaces are cut, 1 to 64 characters, `_` is added after a reserved device name (CON, PRN, AUX, NUL, COM1-9, LPT1-9). If `<stem>.coffer` already exists in the folder, `vault_create` fails with `exists` and never overwrites. `vaultName` while locked = the stem.
 - Item revisions (last 10 snapshots) are inside the item's own record.
 - **Atomic write**: write a uniquely named `<stem>.<random>.tmp` in the same folder, `sync_all`, then re-read the `manifest_mac` of the file on disk: if it differs from what Coffer last loaded or wrote, do not replace it (go to the external-change rule). Else replace with `MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)`, retrying up to 10 times over 2 s while a sync tool holds the file. Delete stale `.tmp` files of this vault.
+- **Deliberate overwrite**: `vault_save_again` with `saveAs: false`, and `backup_restore` while unlocked, first take the MAC of the disk file the user was shown as the new "last loaded" base, then write with the normal atomic rule. If the disk file changed again after the user saw it, the re-read still catches it and the external-change rule runs again. For a deliberate overwrite the base is the SHA-256 of the whole disk file, or "absent" when there is no file (a damaged or missing file has no MAC to compare).
 - **File-name times** use `YYYYMMDDTHHMMSSZ` (NTFS does not allow `:`).
 - **Backups**: after each save, copy the file to `%LOCALAPPDATA%\Coffer\backups\<vault_id>\<YYYYMMDDTHHMMSSZ>.coffer`. Keep the last 20 saves and one per day for 30 days. Backup commands work in every state (`settings.json` stores the vault id). Settings > Vault and the missing and tampered screens list them by index with [Restore]:
   - Restore while unlocked: decrypt the backup with the current VK (it must be the same vault and VK), back up the current file, then write the backup's records under the current header at generation = highest seen + 1.

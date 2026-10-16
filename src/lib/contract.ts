@@ -466,7 +466,8 @@ export interface Commands {
   vault_lock: [Record<string, never>, void];
   vault_change_password: [{ current: string; next: string; rekey: boolean }, void]; // rekey = "My old password may be known"
   vault_move: [Record<string, never>, VaultStatus | null]; // Rust opens the folder dialog
-  // After the file vanished, or after diskDamaged / olderOnDisk: saveAs false rewrites the vault path at highest seen + 1; saveAs true opens a Rust dialog.
+  // After the file vanished, or after diskDamaged / olderOnDisk: saveAs false rewrites the vault path at highest seen + 1,
+  // taking the disk file the user was shown as the base (so the atomic re-read check passes); saveAs true opens a Rust dialog.
   vault_save_again: [{ saveAs: boolean }, VaultStatus | null];
   vault_open_older: [Record<string, never>, VaultStatus]; // after vault_unlock failed with "olderFile" (keys held 60 s)
   hello_set: [{ enabled: boolean; password: string | null }, VaultStatus]; // tier 2; enabling needs the master password
@@ -524,6 +525,7 @@ export interface Commands {
   quick_hide: [Record<string, never>, void];
   quick_set_modal: [{ modal: boolean }, void]; // true while a prompt or dialog of Quick Access is up: no close on blur
   main_show: [{ itemId: string | null; view: "item" | "settings" | "generator" | "health" | null }, void];
+  main_hide: [Record<string, never>, void]; // main hides itself, e.g. after the first-close notice
   autotype: [{ id: string; password: string | null }, void]; // tier 2
   app_quit: [Record<string, never>, void];
 }
@@ -544,4 +546,5 @@ export interface Events {
   "main://navigate": { itemId: string | null; view: "item" | "settings" | "generator" | "health" | null };
   "edit://discarded": { title: string }; // lock dropped an unsaved edit
   "app://quitRequested": Record<string, never>; // main asks Save / Discard / Cancel, then calls app_quit
+  "main://closeNotice": Record<string, never>; // first close with closeBehavior "hide": the window stays open; the UI shows the tray notice, then calls main_hide
 }
