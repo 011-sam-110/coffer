@@ -205,7 +205,7 @@ export interface Field {
   id: string;
   label: string;
   kind: FieldKind;
-  /** Plain value. For a SECRET_KINDS field in an ItemView this is "" and masked is true. */
+  /** Plain value. For a SECRET_KINDS field with a value, in an ItemView, this is "" and masked is true. An empty secret field comes as "" with masked absent. */
   value: string;
   masked?: boolean;
   section?: string | null;
