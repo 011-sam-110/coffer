@@ -298,7 +298,7 @@ function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
               Print or save the kit first.
             </p>
           )}
-          <Button size="lg" variant={printed ? "primary" : "secondary"} disabled={!printed} aria-describedby={printed ? undefined : "kit-why"} onClick={onNext}>
+          <Button size="lg" variant="primary" disabled={!printed} aria-describedby={printed ? undefined : "kit-why"} onClick={onNext}>
             Continue
           </Button>
         </div>
