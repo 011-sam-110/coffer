@@ -11,7 +11,7 @@ use crate::device::DeviceStore;
 use crate::settings::SettingsFile;
 use crate::tray::TrayHandles;
 use crate::usage::UsageStore;
-use crate::vault::{OlderHold, Session, WatchState};
+use crate::vault::{ImportState, OlderHold, Session, WatchState};
 
 /// The main window's open edit, reported with `edit_state` (SPEC 9).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +57,8 @@ pub struct AppState {
     pub backups_listed: Mutex<Vec<PathBuf>>,
     /// The last conflict copy Rust wrote (`import_preview` source "conflict").
     pub last_conflict: Mutex<Option<PathBuf>>,
+    /// The import file and the preview waiting for `import_commit`.
+    pub import: Mutex<ImportState>,
     pub clipboard: Mutex<ClipState>,
     pub foreground: Mutex<Option<ForegroundInfo>>,
     pub quick: Mutex<QuickState>,
@@ -86,6 +88,7 @@ impl AppState {
             watch: Mutex::new(WatchState::default()),
             backups_listed: Mutex::new(Vec::new()),
             last_conflict: Mutex::new(None),
+            import: Mutex::new(ImportState::default()),
             clipboard: Mutex::new(ClipState::default()),
             foreground: Mutex::new(None),
             quick: Mutex::new(QuickState::default()),

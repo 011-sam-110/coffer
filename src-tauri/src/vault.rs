@@ -66,6 +66,15 @@ impl From<CoreError> for CofferError {
     }
 }
 
+/// A core error from the open vault. Its Secret Key is in memory, so
+/// `badCredentials` there means the master password (re-prompt, kit, export).
+fn unlocked_err(e: CoreError) -> CofferError {
+    match e {
+        CoreError::BadCredentials => CofferError::new(ErrorCode::BadCredentials, "Wrong master password."),
+        other => other.into(),
+    }
+}
+
 fn blocked(b: SaveBlock) -> CofferError {
     let why = match b {
         SaveBlock::DiskDamaged => "The vault file on disk is damaged or was changed outside Coffer.",
@@ -82,28 +91,10 @@ fn io_err(what: &str, e: impl std::fmt::Display) -> CofferError {
 
 // ---------- names and files ----------
 
-/// The file stem for a vault name (SPEC 3.5): `\ / : * ? " < > |` and
-/// control characters become `_`, trailing dots and spaces go, 1 to 64
-/// characters, `_` after a reserved device name.
+/// The file stem for a vault name (SPEC 3.5): the core's rule
+/// (`vault_file::stem_from_name`) on the trimmed name.
 pub fn stem_for(name: &str) -> CofferResult<String> {
-    let mut s: String = name.trim().chars().map(|c| if c.is_control() || "\\/:*?\"<>|".contains(c) { '_' } else { c }).take(64).collect();
-    while s.ends_with('.') || s.ends_with(' ') {
-        s.pop();
-    }
-    if s.is_empty() {
-        return Err(CofferError::invalid("Give the vault a name."));
-    }
-    let base_len = s.find('.').unwrap_or(s.len());
-    let base = s[..base_len].trim_end().to_ascii_uppercase();
-    let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&base.as_str())
-        || ((base.starts_with("COM") || base.starts_with("LPT")) && base.len() == 4 && base.as_bytes()[3].is_ascii_digit() && base.as_bytes()[3] != b'0');
-    if reserved {
-        s.insert(base_len, '_');
-        if s.chars().count() > 64 {
-            s = s.chars().take(64).collect();
-        }
-    }
-    Ok(s)
+    Ok(coffer_core::vault_file::stem_from_name(name.trim())?)
 }
 
 fn stem_of(path: &Path) -> String {
@@ -369,7 +360,7 @@ pub fn with_session<T>(app: &AppHandle, f: impl FnOnce(&mut Session) -> CofferRe
 
 /// Run a read on the vault (it may start a re-prompt grant, hence `&mut`).
 pub fn with_vault<T>(app: &AppHandle, f: impl FnOnce(&mut Vault) -> Result<T, CoreError>) -> CofferResult<T> {
-    with_session(app, |s| f(&mut s.vault).map_err(CofferError::from))
+    with_session(app, |s| f(&mut s.vault).map_err(unlocked_err))
 }
 
 /// Run a change on the vault, then save it if anything changed.
@@ -378,7 +369,7 @@ pub fn mutate<T>(app: &AppHandle, f: impl FnOnce(&mut Vault) -> Result<T, CoreEr
         if let Some(b) = s.block {
             return Err(blocked(b));
         }
-        let out = f(&mut s.vault)?;
+        let out = f(&mut s.vault).map_err(unlocked_err)?;
         if s.vault.is_dirty() {
             save(app, s)?;
         }
@@ -865,7 +856,7 @@ pub fn change_password(app: &AppHandle, current: &str, next: &str, rekey: bool) 
             return Err(blocked(b));
         }
         let old_backups: Vec<PathBuf> = list_backups(&backups_dir(&state, &s.vault_id)).into_iter().map(|(p, _)| p).collect();
-        s.vault.change_password(current, next, rekey, &stem_of(&s.path))?;
+        s.vault.change_password(current, next, rekey, &stem_of(&s.path)).map_err(unlocked_err)?;
         save(app, s)?;
         if rekey {
             // They open with the old vault key (SPEC 3.3).
@@ -883,7 +874,7 @@ pub fn rotate_secret_key(app: &AppHandle, password: &str) -> CofferResult<Emerge
             return Err(blocked(b));
         }
         let old_backups: Vec<PathBuf> = list_backups(&backups_dir(&state, &s.vault_id)).into_iter().map(|(p, _)| p).collect();
-        let key = s.vault.rotate_secret_key(password)?;
+        let key = s.vault.rotate_secret_key(password).map_err(unlocked_err)?;
         store_device_key(&state, &s.vault_id, &key)?;
         save(app, s)?;
         delete_files(&old_backups);
@@ -911,7 +902,7 @@ fn kit_for(s: &Session, key: &SecretKey) -> EmergencyKit {
 
 pub fn emergency_kit(app: &AppHandle, password: &str) -> CofferResult<EmergencyKit> {
     with_session(app, |s| {
-        let key = s.vault.secret_key_for_kit(password)?;
+        let key = s.vault.secret_key_for_kit(password).map_err(unlocked_err)?;
         Ok(kit_for(s, &key))
     })
 }
@@ -923,6 +914,133 @@ pub fn kdf_benchmark() -> CofferResult<KdfBenchmark> {
     let started = std::time::Instant::now();
     coffer_core::crypto::argon2id_key(b"coffer kdf benchmark", &salt, &params)?;
     Ok(KdfBenchmark { millis: started.elapsed().as_millis() as u64, m_kib: params.m_kib, t: params.t, p: params.p })
+}
+
+// ---------- import and export (SPEC 8) ----------
+
+/// The file `import_preview` read last, and the preview `import_commit` takes.
+#[derive(Default)]
+pub struct ImportState {
+    /// The last file previewed, and whether the user picked it (source "last").
+    last: Option<(PathBuf, bool)>,
+    /// The one preview waiting for `import_commit`. It holds decrypted items:
+    /// a new preview or a lock drops it.
+    pub plan: Option<coffer_core::import::ImportPlan>,
+    /// Preview id -> the plain file the user picked (`import_delete_source`).
+    sources: HashMap<String, PathBuf>,
+}
+
+/// A password export is never this large.
+const IMPORT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Encrypted formats: `import_delete_source` offers to delete plain files only.
+const ENCRYPTED_FORMATS: [&str; 2] = ["coffer-cofferx", "coffer-vault"];
+
+/// The file of `import_preview` source "last".
+pub fn import_last(app: &AppHandle) -> Option<(PathBuf, bool)> {
+    app.state::<AppState>().import.lck().last.clone()
+}
+
+/// Read `file`, detect its format and plan the import into the open vault.
+/// A `.coffer` file of a vault whose Secret Key this PC stores (a conflict
+/// copy) uses that key; the UI asks for the master password.
+pub fn import_preview(app: &AppHandle, file: PathBuf, picked: bool, password: Option<&str>, secret_key: Option<&str>) -> CofferResult<ImportPreview> {
+    let state = app.state::<AppState>();
+    if !state.is_unlocked() {
+        return Err(CofferError::locked());
+    }
+    let len = std::fs::metadata(&file).map_err(|e| io_err("read that file", e))?.len();
+    if len > IMPORT_MAX_BYTES {
+        return Err(CofferError::new(ErrorCode::UnsupportedFormat, "This file is too large to be a password export (over 64 MB)."));
+    }
+    let bytes = zeroize::Zeroizing::new(std::fs::read(&file).map_err(|e| io_err("read that file", e))?);
+    let typed = match secret_key.map(str::trim).filter(|k| !k.is_empty()) {
+        Some(text) => Some(SecretKey::parse(text)?),
+        None => None,
+    };
+    let stored = match (&typed, coffer_core::vault_file::read_header(&bytes)) {
+        (None, Ok(h)) => device_key(&state, &h.vault_id)?.filter(|k| k.key_id() == h.key_id),
+        _ => None,
+    };
+    let file_name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let request = coffer_core::import::ImportRequest { file_name: &file_name, bytes: &bytes, password, secret_key: typed.as_ref().or(stored.as_ref()) };
+    let plan = with_vault(app, |v| v.import_preview(&request))?;
+    let preview = plan.preview().clone();
+    let mut im = state.import.lck();
+    im.last = Some((file.clone(), picked));
+    im.plan = (!preview.needs_password && !preview.needs_secret_key).then_some(plan);
+    if picked && !ENCRYPTED_FORMATS.contains(&preview.format.as_str()) {
+        im.sources.insert(preview.preview_id.clone(), file);
+    }
+    crate::log!("import: preview {} ({} to import, {} duplicates, {} skipped)", preview.format, preview.total, preview.duplicates, preview.skipped.len());
+    Ok(preview)
+}
+
+/// Import the previewed items in one save.
+pub fn import_commit(app: &AppHandle, preview_id: &str) -> CofferResult<ImportResult> {
+    let state = app.state::<AppState>();
+    let plan = {
+        let mut im = state.import.lck();
+        match im.plan.take() {
+            Some(plan) if plan.id() == preview_id => plan,
+            other => {
+                im.plan = other;
+                return Err(CofferError::new(ErrorCode::NotFound, "This import preview has expired. Choose the file again."));
+            }
+        }
+    };
+    let result = mutate(app, |v| Ok(v.import_commit(plan)))?;
+    crate::log!("import: {} items imported, {} skipped, tag {}", result.imported, result.skipped, result.tag);
+    Ok(result)
+}
+
+/// Move an import batch to Trash; returns how many items moved.
+pub fn import_undo(app: &AppHandle, batch_id: &str) -> CofferResult<u32> {
+    let n = mutate(app, |v| Ok(v.import_undo(batch_id)))?;
+    crate::log!("import: undo moved {n} items to Trash");
+    Ok(n as u32)
+}
+
+/// Delete the plain file the user picked for this preview.
+pub fn import_delete_source(app: &AppHandle, preview_id: &str) -> CofferResult<()> {
+    let state = app.state::<AppState>();
+    let path = state.import.lck().sources.get(preview_id).cloned().ok_or_else(|| CofferError::new(ErrorCode::NotFound, "Coffer no longer knows which file this was."))?;
+    if vault_path(&state).as_deref() == Some(path.as_path()) {
+        return Err(CofferError::invalid("This is your vault file. Coffer does not delete it."));
+    }
+    match std::fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(io_err("delete that file", e)),
+    }
+    state.import.lck().sources.remove(preview_id);
+    crate::log!("import: deleted the plain source file");
+    Ok(())
+}
+
+/// The export bytes and a file name to suggest (`<stem>-export.<ext>`),
+/// after the master password is checked again.
+pub fn export_bytes(app: &AppHandle, kind: ExportKind, master_password: &str, export_password: Option<&str>) -> CofferResult<(zeroize::Zeroizing<Vec<u8>>, String)> {
+    with_session(app, |s| {
+        s.vault.verify_password(master_password).map_err(unlocked_err)?;
+        if kind == ExportKind::CofferEncrypted && export_password.is_none_or(|p| p.is_empty()) {
+            return Err(CofferError::invalid("Choose a password for the export file."));
+        }
+        let bytes = s.vault.export(kind, export_password)?;
+        let ext = match kind {
+            ExportKind::CofferEncrypted => "cofferx",
+            ExportKind::CofferJson | ExportKind::BitwardenJson => "json",
+            ExportKind::Csv => "csv",
+        };
+        Ok((bytes, format!("{}-export.{ext}", stem_of(&s.path))))
+    })
+}
+
+/// Write an export file where the save dialog said.
+pub fn export_write(path: &Path, bytes: &[u8]) -> CofferResult<()> {
+    crate::paths::write_atomic(path, bytes).map_err(|e| io_err("write the export file", e))?;
+    crate::log!("export: wrote {} bytes", bytes.len());
+    Ok(())
 }
 
 // ---------- breach check ----------

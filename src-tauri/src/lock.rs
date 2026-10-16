@@ -72,6 +72,8 @@ pub fn lock(app: &AppHandle, reason: LockReason) {
     let was_unlocked = session.is_some();
     drop(session);
     drop(state.older.lck().take());
+    // A waiting import preview holds decrypted items.
+    state.import.lck().plan = None;
     crate::clipboard::clear_if_ours(app);
     let discarded = state.edit.lck().take();
     if let Some(edit) = discarded.filter(|e| e.dirty) {

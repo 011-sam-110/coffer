@@ -30,10 +30,6 @@ fn later<T>() -> CofferResult<T> {
     Err(CofferError::invalid("This is not in this version of Coffer yet."))
 }
 
-/// Import and export arrive with coffer-core step 2.
-fn import_later<T>() -> CofferResult<T> {
-    Err(CofferError::new(ErrorCode::UnsupportedFormat, "Import and export are not in this build yet."))
-}
 
 fn pw(p: &Option<Secret>) -> Option<&str> {
     p.as_deref().map(String::as_str)
@@ -484,36 +480,90 @@ pub async fn health_check_breaches(app: AppHandle) -> CofferResult<HealthReport>
     blocking(move || vault::breach_check(&app)).await?
 }
 
-// ---------- import / export (coffer-core step 2) ----------
+// ---------- import / export (SPEC 8) ----------
 
 #[tauri::command]
-pub async fn import_preview(source: ImportSource, password: Option<Secret>, secret_key: Option<Secret>) -> CofferResult<Option<ImportPreview>> {
-    let _ = (source, password, secret_key);
-    import_later()
+pub async fn import_preview(app: AppHandle, source: ImportSource, password: Option<Secret>, secret_key: Option<Secret>) -> CofferResult<Option<ImportPreview>> {
+    let parent = main_window(&app);
+    blocking(move || {
+        let state = app.state::<AppState>();
+        if !state.is_unlocked() {
+            return Err(CofferError::locked());
+        }
+        let (file, picked) = match source {
+            ImportSource::Pick => {
+                let mut dialog = rfd::FileDialog::new()
+                    .set_title("Import passwords")
+                    .add_filter("Password exports", &["json", "csv", "zip", "1pux", "cofferx", "coffer"])
+                    .add_filter("All files", &["*"])
+                    .set_directory(crate::paths::home_dir());
+                if let Some(window) = parent.as_ref() {
+                    dialog = dialog.set_parent(window);
+                }
+                match dialog.pick_file() {
+                    Some(path) => (path, true),
+                    None => return Ok(None),
+                }
+            }
+            ImportSource::Last => vault::import_last(&app).ok_or_else(|| CofferError::invalid("Choose the file again."))?,
+            ImportSource::Conflict => {
+                let path = state.last_conflict.lck().clone();
+                (path.ok_or_else(|| CofferError::new(ErrorCode::NotFound, "Coffer has not written a conflict copy since it started."))?, false)
+            }
+        };
+        vault::import_preview(&app, file, picked, pw(&password), pw(&secret_key)).map(Some)
+    })
+    .await?
 }
 
 #[tauri::command]
-pub async fn import_commit(preview_id: String) -> CofferResult<ImportResult> {
-    let _ = preview_id;
-    import_later()
+pub async fn import_commit(app: AppHandle, preview_id: String) -> CofferResult<ImportResult> {
+    let result = blocking({
+        let app = app.clone();
+        move || vault::import_commit(&app, &preview_id)
+    })
+    .await??;
+    changed(&app, Vec::new());
+    Ok(result)
 }
 
 #[tauri::command]
-pub async fn import_undo(batch_id: String) -> CofferResult<u32> {
-    let _ = batch_id;
-    import_later()
+pub async fn import_undo(app: AppHandle, batch_id: String) -> CofferResult<u32> {
+    let n = blocking({
+        let app = app.clone();
+        move || vault::import_undo(&app, &batch_id)
+    })
+    .await??;
+    changed(&app, Vec::new());
+    Ok(n)
 }
 
 #[tauri::command]
-pub async fn import_delete_source(preview_id: String) -> CofferResult<()> {
-    let _ = preview_id;
-    import_later()
+pub async fn import_delete_source(app: AppHandle, preview_id: String) -> CofferResult<()> {
+    blocking(move || vault::import_delete_source(&app, &preview_id)).await?
 }
 
+/// The master password first, then the export is built, then the save dialog.
 #[tauri::command]
-pub async fn export_vault(kind: ExportKind, master_password: Secret, export_password: Option<Secret>) -> CofferResult<Option<ExportResult>> {
-    let _ = (kind, master_password, export_password);
-    import_later()
+pub async fn export_vault(app: AppHandle, kind: ExportKind, master_password: Secret, export_password: Option<Secret>) -> CofferResult<Option<ExportResult>> {
+    let parent = main_window(&app);
+    blocking(move || {
+        let (bytes, name) = vault::export_bytes(&app, kind, &master_password, pw(&export_password))?;
+        let (label, ext): (&str, &[&str]) = match kind {
+            ExportKind::CofferEncrypted => ("Coffer export (encrypted)", &["cofferx"]),
+            ExportKind::CofferJson => ("Coffer JSON", &["json"]),
+            ExportKind::BitwardenJson => ("Bitwarden JSON", &["json"]),
+            ExportKind::Csv => ("CSV", &["csv"]),
+        };
+        let mut dialog = rfd::FileDialog::new().set_title("Export your vault").add_filter(label, ext).set_file_name(name).set_directory(crate::paths::home_dir());
+        if let Some(window) = parent.as_ref() {
+            dialog = dialog.set_parent(window);
+        }
+        let Some(path) = dialog.save_file() else { return Ok(None) };
+        vault::export_write(&path, &bytes)?;
+        Ok(Some(ExportResult { path: path.to_string_lossy().into_owned() }))
+    })
+    .await?
 }
 
 // ---------- backups ----------
