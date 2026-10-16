@@ -99,7 +99,7 @@ function FieldRow({
             {shown ? <EyeOff /> : <Eye />}
           </IconButton>
         )}
-        <CopyButton label={`Copy ${field.label.toLowerCase()}`} shortcut={field.builtin ? COPY_KEYS[field.builtin] : undefined} onCopy={() => copy(item.id, field.id)} />
+        <CopyButton label={`Copy ${field.label.toLowerCase()}`} shortcut={field.builtin ? COPY_KEYS[field.builtin] : undefined} onCopy={() => copy(item.id, field.id, field.kind === "totp")} />
       </div>
     </div>
   );
@@ -200,7 +200,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
     if (!item) return;
     const has = item.fields.some((f) => f.builtin === role && fieldHasValue(f));
     if (!has) return toast(`This item has no ${SHORTCUT_WORDS[role]}.`);
-    await copy(item.id, role);
+    await copy(item.id, role, role === "totp");
   };
 
   const setState = async (state: "active" | "archived" | "trashed") => {
