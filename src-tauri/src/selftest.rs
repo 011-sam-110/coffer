@@ -585,7 +585,7 @@ fn hello_checks(app: &AppHandle, c: &mut Checks, pw: &str, key: &coffer_core::Se
 /// A WinForms window with one multi-line text box, in its own powershell.exe
 /// (a real separate process; this test owns its PID and closes it).
 const TARGET_SCRIPT: &str = "Add-Type -AssemblyName System.Windows.Forms; \
-$f = New-Object System.Windows.Forms.Form; $f.Text = 'Coffer autotype target'; $f.Width = 520; $f.Height = 260; \
+$f = New-Object System.Windows.Forms.Form; $f.Text = 'Coffer autotype target'; $f.Width = 520; $f.Height = 260; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'; \
 $t = New-Object System.Windows.Forms.TextBox; $t.Multiline = $true; $t.AcceptsTab = $true; $t.AcceptsReturn = $true; $t.Dock = 'Fill'; \
 $f.Controls.Add($t); $f.Add_Shown({ $f.Activate(); [void]$t.Focus() }); [System.Windows.Forms.Application]::Run($f)";
 
@@ -656,7 +656,28 @@ fn close_window(h: isize) {
     }
 }
 
+/// Click the middle of `edit` like a user (that input gives its window the
+/// foreground). Only when `edit` is the window at that point.
+fn click_into(edit: isize) -> bool {
+    use windows::Win32::Foundation::{HWND, POINT, RECT};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT};
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, SetCursorPos, WindowFromPoint};
+    unsafe {
+        let mut r = RECT::default();
+        if GetWindowRect(HWND(edit as *mut _), &mut r).is_err() {
+            return false;
+        }
+        let p = POINT { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
+        if WindowFromPoint(p).0 as isize != edit || SetCursorPos(p.x, p.y).is_err() {
+            return false;
+        }
+        let click = |flags| INPUT { r#type: INPUT_MOUSE, Anonymous: INPUT_0 { mi: MOUSEINPUT { dx: 0, dy: 0, mouseData: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 } } };
+        SendInput(&[click(MOUSEEVENTF_LEFTDOWN), click(MOUSEEVENTF_LEFTUP)], std::mem::size_of::<INPUT>() as i32) == 2
+    }
+}
+
 /// Make `hwnd` the window auto-type types into, as if the user had been in it.
+#[allow(dead_code)]
 fn set_target(app: &AppHandle, hwnd: isize) {
     *app.state::<AppState>().foreground.lck() = Some(crate::state::ForegroundInfo { hwnd, title: "Coffer autotype target".into(), process: Some("powershell.exe".into()) });
 }
@@ -706,11 +727,16 @@ fn autotype_checks(app: &AppHandle, c: &mut Checks) {
     let hotkey_ok = matches!(*app.state::<AppState>().hotkeys.lck(), crate::contract::HotkeyStatus { quick: crate::contract::HotkeyState::Ok, .. });
     let mut run = |id: &str, label: &str, expect: String| {
         set_window_text(edit, "");
+        // The user clicks into the target, then presses the hotkey: the
+        // foreground tracker stores the target, as in use.
+        let clicked = click_into(edit);
+        std::thread::sleep(Duration::from_millis(400));
         if hotkey_ok {
             press_quick_hotkey();
             std::thread::sleep(Duration::from_millis(900));
         }
-        set_target(app, form);
+        let stored = app.state::<AppState>().foreground.lck().as_ref().map(|f| f.hwnd);
+        crate::log!("selftest vault: info clicked={clicked}; stored target is the form: {}", stored == Some(form));
         let fg_before = crate::win::autotype::foreground();
         let r = crate::autotype::run(app, id, None);
         std::thread::sleep(Duration::from_millis(400));
