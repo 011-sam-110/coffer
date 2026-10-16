@@ -2,7 +2,7 @@
 // Search-first; Enter copies the item's main secret; Right arrow lists every
 // action; the window closes after a copy.
 import { MotionConfig } from "motion/react";
-import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, Lock, Search, Star, WandSparkles, X } from "lucide-react";
+import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLink, FolderPlus, KeyRound, Lock, Search, SearchX, Star, WandSparkles, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
@@ -116,13 +116,22 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
   );
 }
 
-function OpenCofferOnly({ text }: { text: string }) {
+/** The locked view's anatomy (icon tile, bold title, one line, full-width button) for the states Quick Access cannot handle. */
+function OpenCofferOnly({ icon, title, text }: { icon: ReactNode; title: string; text: string }) {
   return (
-    <div className="flex flex-1 flex-col items-start justify-center gap-4 px-8">
-      <AppWindow aria-hidden className="size-6 text-muted-foreground" />
-      <p className="text-base">{text}</p>
+    <div className="flex flex-1 flex-col justify-center px-8">
+      <div className="mb-6 flex items-center gap-3">
+        <span aria-hidden className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm border border-border bg-card [&_svg]:size-4 [&_svg]:text-muted-foreground">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-md font-semibold">{title}</h1>
+          <p className="text-xs text-muted-foreground">{text}</p>
+        </div>
+      </div>
       <Button
         variant="primary"
+        className="w-full"
         autoFocus
         onClick={async () => {
           await call("main_show", { itemId: null, view: null }).catch(() => undefined);
@@ -531,9 +540,11 @@ function Quick() {
   if (!status || !info) return <Frame>{null}</Frame>;
 
   let body: ReactNode;
-  if (status.state === "noVault") body = <OpenCofferOnly text="No vault is set up yet." />;
-  else if (status.state === "missing") body = <OpenCofferOnly text="Coffer cannot find your vault file." />;
-  else if (status.state === "locked" && status.needsSecretKey) body = <OpenCofferOnly text="Open Coffer to finish setup." />;
+  // These states end in Coffer itself, so the footer's own "Open Coffer" would say it twice.
+  const openOnly = status.state === "noVault" || status.state === "missing" || (status.state === "locked" && status.needsSecretKey);
+  if (status.state === "noVault") body = <OpenCofferOnly icon={<FolderPlus />} title="No vault yet" text="Open Coffer to create one or open an existing vault." />;
+  else if (status.state === "missing") body = <OpenCofferOnly icon={<SearchX />} title="Coffer cannot find your vault" text="Open Coffer to find the file or restore a backup." />;
+  else if (status.state === "locked" && status.needsSecretKey) body = <OpenCofferOnly icon={<KeyRound />} title="This PC needs your Secret Key" text="Open Coffer and type it from your Emergency Kit." />;
   else if (status.state === "locked") body = <Locked status={status} onUnlocked={(s) => setStatus(s)} />;
   else if (mode.kind === "generator")
     body = (
@@ -576,14 +587,14 @@ function Quick() {
             aria-controls="quick-list"
             aria-activedescendant={mode.kind === "list" && current ? `q-${sel}` : mode.kind === "actions" ? `a-${actSel}` : undefined}
             aria-label="Search Coffer"
-            placeholder={mode.kind === "actions" ? mode.item.title : "Search Coffer"}
+            placeholder="Search Coffer"
             readOnly={mode.kind === "actions"}
-            value={mode.kind === "actions" ? "" : query}
+            value={mode.kind === "actions" ? mode.item.title : query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             autoComplete="off"
             spellCheck={false}
-            className="h-full min-w-0 flex-1 bg-transparent text-md outline-none placeholder:text-muted-foreground"
+            className={cx("h-full min-w-0 flex-1 bg-transparent text-md outline-none placeholder:text-muted-foreground", mode.kind === "actions" && "text-sm font-semibold caret-transparent")}
           />
           {query && mode.kind === "list" ? (
             <IconButton size="sm" label="Clear search" onClick={() => setQuery("")}>
@@ -689,9 +700,11 @@ function Quick() {
             Generator
           </Button>
         )}
-        <Button size="sm" variant="quiet" icon={<AppWindow className="size-3.5" />} onClick={() => openInCoffer(current && mode.kind !== "generator" ? current : null)}>
-          Open Coffer
-        </Button>
+        {!openOnly && (
+          <Button size="sm" variant="quiet" icon={<AppWindow className="size-3.5" />} onClick={() => openInCoffer(current && mode.kind !== "generator" ? current : null)}>
+            Open Coffer
+          </Button>
+        )}
         <span className="flex-1" />
         {info.demo && <DemoBadge />}
       </footer>
