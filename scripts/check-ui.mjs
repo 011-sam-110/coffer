@@ -103,6 +103,11 @@ const STATES = [
   ["t12-revisions", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }]],
   ["t13-revision-confirm", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }, { click: "main button:has-text('Restore') >> nth=0" }, { wait: 300 }]],
   ["t14-revision-restored", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }, { click: "button:has-text('Restore') >> nth=0" }, { wait: 300 }, { click: "dialog button:has-text('Restore')" }, { wait: 700 }]],
+  // Tier 2: rotate Secret Key.
+  ["t15-rotate-ask", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }]],
+  ["t16-rotate-wrong", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }, { fill: "dialog input[type=password]", text: "nope" }, { press: "Enter" }, { wait: 1200 }]],
+  ["t17-rotate-kit", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }, { fill: "dialog input[type=password]", text: "demo" }, { press: "Enter" }, { wait: 2600 }]],
+  ["t18-rotate-confirm", "/?view=settings&tab=security", MAIN, [{ click: "button:has-text('Rotate Secret Key')" }, { wait: 300 }, { fill: "dialog input[type=password]", text: "demo" }, { press: "Enter" }, { wait: 2600 }, { click: "text=Print kit" }, { click: "button:has-text('Continue')" }]],
   ["t07-unlock-hello-ok", "/?state=locked&hello=ready", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 2600 }]],
   ["t05-settings-hello-none", "/?view=settings&tab=security&hello=none", MAIN],
   ["t06-settings-hello-on", "/?view=settings&tab=security&hello=ready", MAIN],

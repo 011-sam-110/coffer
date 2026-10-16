@@ -3,6 +3,7 @@ import { FolderInput, KeyRound, Printer, Upload } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
+import { RotateSecretKey } from "../../components/RotateSecretKey";
 import { Dialog, useToast } from "../../components/overlays";
 import { Button, Checkbox, cx, FormRow, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
 import type { EmergencyKit, ExportKind, Settings } from "../../lib/contract";
@@ -251,6 +252,9 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
         </Row>
         <Row title="Change master password">
           <Button onClick={() => setPwOpen(true)}>Change master password</Button>
+        </Row>
+        <Row title="Rotate Secret Key" description="Makes a new Secret Key and a new Emergency Kit. Use it when someone may have seen your kit.">
+          <RotateSecretKey />
         </Row>
       </Section>
       <ShowKitDialog open={kitOpen} onClose={() => setKitOpen(false)} />
