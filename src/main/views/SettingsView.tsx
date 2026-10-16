@@ -146,6 +146,8 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
   const [pwOpen, setPwOpen] = useState(false);
   const [hello, setHello] = useState<boolean | null>(null);
   const ids = { lock: useId(), clip: useId(), days: useId() };
+  // vault_status is fresh; app_info only says what Coffer saw at start.
+  const helloAvailable = status?.helloAvailable ?? info?.helloAvailable ?? false;
   return (
     <>
       <Section title="Locking">
@@ -173,23 +175,23 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
         <Row
           title="Windows Hello"
           description={
-            info?.helloAvailable ? (
+            helloAvailable ? (
               <>
                 Unlock with your face, fingerprint or PIN after one master-password unlock. With Windows Hello on, a program running as you can open the vault without your master password.
               </>
             ) : (
-              "Windows Hello is not set up on this PC."
+              "Windows Hello is not set up on this PC. Set it up in Windows Settings > Accounts > Sign-in options."
             )
           }
         >
           <Switch
             label="Windows Hello"
             checked={status?.helloEnabled ?? false}
-            disabled={!info?.helloAvailable}
+            disabled={!helloAvailable && !status?.helloEnabled}
             onChange={(v) => setHello(v)}
           />
         </Row>
-        {info?.helloAvailable && (
+        {helloAvailable && (
           <Row title="Ask for the master password every" htmlFor={ids.days} description="Windows Hello stops working after this many days without a master-password unlock.">
             <Select id={ids.days} value={String(settings.requirePasswordDays)} onChange={(e) => set({ requirePasswordDays: Number(e.target.value) })} className="w-28">
               {[7, 14, 30].map((d) => (

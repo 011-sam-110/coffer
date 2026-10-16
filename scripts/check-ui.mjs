@@ -89,6 +89,14 @@ const STATES = [
   ["m40-banner-missing", "/?missingOpen=1", MAIN],
   ["m41-bulk-select", "/", MAIN, [{ click: "[role=listbox] li:nth-child(2) input[type=checkbox]", force: true }, { click: "[role=listbox] li:nth-child(3) input[type=checkbox]", force: true }]],
   ["m42-copy-toast", "/?item=GitHub", MAIN, [{ press: "Control+p", target: "body" }, { wait: 500 }]],
+  // Tier 2: Windows Hello (SPEC 3.8).
+  ["t01-unlock-hello", "/?state=locked&hello=ready", MAIN],
+  ["t02-unlock-hello-wait", "/?state=locked&hello=ready", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 400 }]],
+  ["t03-unlock-hello-cancel", "/?state=locked&hello=ready&helloResult=cancel", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 2200 }]],
+  ["t04-unlock-hello-not-ready", "/?state=locked&hello=on", MAIN],
+  ["t07-unlock-hello-ok", "/?state=locked&hello=ready", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 2600 }]],
+  ["t05-settings-hello-none", "/?view=settings&tab=security&hello=none", MAIN],
+  ["t06-settings-hello-on", "/?view=settings&tab=security&hello=ready", MAIN],
   ["q01-quick", "/quick.html", QUICK],
   ["q02-quick-search", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }]],
   ["q03-quick-actions", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }, { press: "ArrowRight", target: "input[role=combobox]" }, { wait: 400 }]],
@@ -97,6 +105,9 @@ const STATES = [
   ["q06-quick-locked", "/quick.html?state=locked", QUICK],
   ["q07-quick-needs-key", "/quick.html?state=locked&needsKey=1", QUICK],
   ["q08-quick-no-vault", "/quick.html?state=noVault", QUICK],
+  ["q10-quick-hello", "/quick.html?state=locked&hello=ready", QUICK],
+  ["q11-quick-hello-wait", "/quick.html?state=locked&hello=ready", QUICK, [{ click: "text=Unlock with Windows Hello" }, { wait: 400 }]],
+  ["q12-quick-hello-failed", "/quick.html?state=locked&hello=ready&helloResult=failed", QUICK, [{ click: "text=Unlock with Windows Hello" }, { wait: 2200 }]],
   ["q09-quick-copied", "/quick.html", QUICK, [{ fill: "input[role=combobox]", text: "git" }, { press: "Enter", target: "input[role=combobox]" }, { wait: 700 }]],
 ];
 

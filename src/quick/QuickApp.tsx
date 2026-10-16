@@ -6,6 +6,7 @@ import { AppWindow, ChevronLeft, ChevronRight, Copy, CornerDownLeft, ExternalLin
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CountdownRing, DemoBadge, Monogram } from "../components/bits";
 import { Generator } from "../components/Generator";
+import { HelloUnlock } from "../components/HelloUnlock";
 import { RepromptProvider, ToastProvider, useReprompt, useToast } from "../components/overlays";
 import { Button, cx, IconButton, Kbd, Notice, PasswordInput } from "../components/ui";
 import type { AppInfo, ItemSummary, ItemView, QuickContext, Settings, TotpCode, VaultStatus } from "../lib/contract";
@@ -127,6 +128,7 @@ function Locked({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (s: V
           {busy ? "Unlocking..." : "Unlock"}
         </Button>
       </form>
+      <HelloUnlock className="mt-3" status={status} onUnlocked={onUnlocked} onStatus={onUnlocked} onWaiting={(w) => call("quick_set_modal", { modal: w }).catch(() => undefined)} autoStartOnShow />
     </div>
   );
 }
