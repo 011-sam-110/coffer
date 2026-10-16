@@ -48,19 +48,6 @@ type Continuation = { itemId: string; role: ChainRole; fieldId: string; label: s
 const CONTINUE_MS = 60_000;
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
-/** Re-render once a second while `on` is true (countdown rings). */
-function useSecondTick(on: boolean) {
-  const [, setT] = useState(0);
-  useEffect(() => {
-    if (!on) return;
-    const t = window.setInterval(() => setT((x) => x + 1), 1000);
-    return () => window.clearInterval(t);
-  }, [on]);
-}
-
-/** Seconds left in the current period, from the clock (codes change on the period edge). */
-const secondsLeft = (period: number) => period - (Math.floor(Date.now() / 1000) % period);
-
 /** The simulated flyout frame in a browser; the real window is the frame itself. */
 function Frame({ children }: { children: ReactNode }) {
   return (
@@ -160,17 +147,14 @@ function ItemRow({
   onActions,
   id,
   enterLabel,
-  totpPeriod,
 }: {
   row: Row;
   selected: boolean;
   onClick: () => void;
   onActions: () => void;
   id: string;
-  /** What Enter does on this row, e.g. "Password" or "Password · next". */
+  /** The field Enter copies on this row, e.g. "Password" (on the Continue row, the next field). */
   enterLabel: string;
-  /** Set for an item with a one-time code: the ring shows the seconds left. */
-  totpPeriod: number | null;
 }) {
   const i = row.item;
   return (
@@ -190,9 +174,10 @@ function ItemRow({
           </div>
           <span className="block truncate text-xs text-muted-foreground">{i.subtitle || ITEM_TYPES[i.type].label}</span>
         </div>
-        {totpPeriod !== null && (
-          <span className="shrink-0" title="Has a one-time code">
-            <CountdownRing remaining={secondsLeft(totpPeriod)} period={totpPeriod} size={14} />
+        {/* A static tag: a turning ring in a list read as loading. The ring shows next to the digits only. */}
+        {i.hasTotp && (
+          <span title="Has a one-time code" className="shrink-0 rounded-sm border border-border px-1.5 text-2xs leading-4 font-medium text-muted-foreground">
+            2FA
           </span>
         )}
         {selected && (
@@ -245,11 +230,12 @@ function Quick() {
   const [detail, setDetail] = useState<ItemView | null>(null);
   const [actSel, setActSel] = useState(0);
   const [hint, setHint] = useState(false);
+  /** This open still owes one count of the first-3-opens hint (SPEC 9); it is paid when the hint is in view. */
+  const hintDue = useRef(false);
   const [hidden, setHidden] = useState(false);
   // Quick Access is only hidden between opens, so this survives a close.
   const lastCopy = useRef<{ itemId: string; role: string | null; at: number } | null>(null);
   const [cont, setCont] = useState<Continuation | null>(null);
-  const [periods, setPeriods] = useState<Record<string, number>>({});
   const [actCode, setActCode] = useState<TotpCode | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -261,6 +247,14 @@ function Quick() {
     call("items_list")
       .then(setItems)
       .catch(() => setItems([]));
+  }, []);
+
+  // The hint is in view only while unlocked, so only an unlocked open counts (once per open).
+  const showHint = useCallback(() => {
+    if (!hintDue.current) return;
+    hintDue.current = false;
+    setHint(true);
+    call("quick_hint_seen").catch(() => undefined);
   }, []);
 
   /** Called each time Quick Access is shown: fresh state, focused search. */
@@ -280,21 +274,22 @@ function Quick() {
           })
           .catch(() => undefined);
       }
-      call("vault_status").then(setStatus).catch(() => undefined);
+      hintDue.current = false;
+      const vs = call("vault_status");
+      vs.then(setStatus).catch(() => undefined);
       if (c) setCtx(c);
       else call("quick_context").then(setCtx).catch(() => setCtx(null));
-      call("settings_get")
-        .then((s) => {
+      Promise.all([vs, call("settings_get")])
+        .then(([v, s]) => {
           setSettings(s);
-          if (s.quickHintsShown < 3) {
-            setHint(true);
-            call("quick_hint_seen").catch(() => undefined);
-          } else setHint(false);
+          hintDue.current = s.quickHintsShown < 3;
+          if (v.state === "unlocked" && hintDue.current) showHint();
+          else setHint(false); // locked: an unlock in this open shows it (the effect below)
         })
         .catch(() => undefined);
       requestAnimationFrame(() => searchRef.current?.focus());
     },
-    [],
+    [showHint],
   );
 
   useEffect(() => {
@@ -315,9 +310,10 @@ function Quick() {
   useEffect(() => {
     if (status?.state !== "unlocked") return;
     loadItems();
+    showHint();
     // After an unlock here, stay open with the cursor in the search.
     requestAnimationFrame(() => searchRef.current?.focus());
-  }, [status?.state, loadItems]);
+  }, [status?.state, loadItems, showHint]);
 
   const hide = useCallback(async () => {
     await call("quick_hide").catch(() => undefined);
@@ -349,16 +345,6 @@ function Quick() {
     return { rows: out, hiddenCount: 0 };
   }, [query, items, ctx, byId, active, cont]);
 
-  // Code periods for the rings: one totp_code call per item with a code (a re-prompt item reports 30 s).
-  useEffect(() => {
-    const need = rows.filter((r) => r.item.hasTotp && periods[r.item.id] === undefined).slice(0, 15);
-    need.forEach((r) =>
-      call("totp_code", { id: r.item.id, field: null, password: null })
-        .then((c) => setPeriods((p) => ({ ...p, [r.item.id]: c.period })))
-        .catch(() => setPeriods((p) => ({ ...p, [r.item.id]: 30 }))),
-    );
-  }, [rows, periods]);
-  useSecondTick(mode.kind === "list" && rows.some((r) => r.item.hasTotp));
 
   useEffect(() => setSel(0), [query]);
   useEffect(() => {
@@ -437,7 +423,7 @@ function Quick() {
     }
   };
 
-  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? `${cont.label} · next` : enterWords(item.type));
+  const rowEnterLabel = (item: ItemSummary) => (cont && cont.itemId === item.id ? cont.label : enterWords(item.type));
 
   const openActions = async (item: ItemSummary) => {
     setMode({ kind: "actions", item });
@@ -650,9 +636,14 @@ function Quick() {
                         {a.label}
                       </span>
                       {a.detail && (
-                        <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground tabular-nums" aria-label={a.ring ? `${a.detail}, ${a.ring.remaining} seconds left` : a.detail}>
+                        <span className="flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground tabular-nums">
                           {a.detail}
-                          {a.ring && <CountdownRing remaining={a.ring.remaining} period={a.ring.period} size={14} />}
+                          {a.ring && (
+                            <span role="img" aria-label={`One-time code, ${a.ring.remaining} seconds left`} className="flex items-center gap-1 font-sans">
+                              <CountdownRing remaining={a.ring.remaining} period={a.ring.period} size={14} />
+                              <span aria-hidden>{a.ring.remaining} s</span>
+                            </span>
+                          )}
                         </span>
                       )}
                       {i === actSel && <Kbd>↵</Kbd>}
@@ -689,7 +680,6 @@ function Quick() {
                     row={r}
                     selected={i === sel}
                     enterLabel={rowEnterLabel(r.item)}
-                    totpPeriod={r.item.hasTotp ? (periods[r.item.id] ?? 30) : null}
                     onClick={() => (i === sel ? enter(r.item) : setSel(i))}
                     onActions={() => openActions(r.item)}
                   />

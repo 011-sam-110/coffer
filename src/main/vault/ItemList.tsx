@@ -5,7 +5,7 @@ import { Archive, ArchiveRestore, Plus, Search, Star, Tag, Trash2, X } from "luc
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Monogram, TYPE_ICONS } from "../../components/bits";
 import { ConfirmDialog, Dialog, Menu, useToast } from "../../components/overlays";
-import { Button, cx, IconButton, Input, KeyBadge, Select } from "../../components/ui";
+import { Button, cx, IconButton, Input, Select } from "../../components/ui";
 import type { ItemSummary, ItemType } from "../../lib/contract";
 import { hasTag } from "../../lib/format";
 import { call } from "../../lib/ipc";
@@ -60,18 +60,15 @@ function flagChip(i: ItemSummary): { word: string; label: string; tab: HealthTab
   return null;
 }
 
-export function NewItemMenu({ onPick, variant = "primary", label = "New" }: { onPick: (t: ItemType) => void; variant?: "primary" | "secondary"; label?: string }) {
+/** A 32 x 32 "+" button: the search beside it keeps the rest of the list column. */
+export function NewItemMenu({ onPick, variant = "primary", label = "New item" }: { onPick: (t: ItemType) => void; variant?: "primary" | "secondary"; label?: string }) {
   return (
     <Menu
       label="New item"
       items={ITEM_TYPE_ORDER.map((t) => ({ label: ITEM_TYPES[t].label, onSelect: () => onPick(t) }))}
       trigger={(p) => (
-        <Button variant={variant} size="md" icon={<Plus className="size-4" />} {...p} title="New item (Ctrl+N)" aria-keyshortcuts="Control+N">
-          {label}
-          {/* Below 340 px of list width the badges go, so the search keeps its room. */}
-          <span className="hidden @min-[340px]:inline-flex">
-            <KeyBadge>Ctrl+N</KeyBadge>
-          </span>
+        <Button variant={variant} size="md" className="w-8 px-0" {...p} aria-label={label} title={`${label} (Ctrl+N)`} aria-keyshortcuts="Control+N">
+          <Plus aria-hidden className="size-4" />
         </Button>
       )}
     />

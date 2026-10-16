@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AppInfo, Events, ItemSummary, Settings, VaultStatus } from "../lib/contract";
 import { call, on } from "../lib/ipc";
+import { useToast } from "../components/overlays";
 
 export type Banner =
   | { kind: "missing"; path: string }
@@ -20,11 +21,15 @@ interface Store {
   itemsLoaded: boolean;
   banner: Banner;
   lockedReason: Events["vault://locked"]["reason"] | null;
+  /** The conflict file that a keyChanged lock wrote our open changes to (SPEC 3.5); null otherwise. */
+  keyChangedFile: string | null;
   /** Bumps on every vault://changed, so open views can reload. */
   changeTick: number;
   setBanner: (b: Banner) => void;
   setStatus: (s: VaultStatus) => void;
   refreshStatus: () => Promise<VaultStatus | null>;
+  /** Reads app_info again (hotkeyStatus changes when another app takes or frees a shortcut). */
+  refreshInfo: () => Promise<void>;
   refreshItems: () => Promise<void>;
   updateSettings: (patch: Partial<Settings>) => Promise<Settings | null>;
   lock: () => Promise<void>;
@@ -46,9 +51,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [banner, setBanner] = useState<Banner>(null);
   const [lockedReason, setLockedReason] = useState<Store["lockedReason"]>(null);
+  const [keyChangedFile, setKeyChangedFile] = useState<string | null>(null);
+  // Rust writes the conflict file and emits vault://conflict just before a keyChanged lock.
+  const lastConflict = useRef<{ path: string; at: number } | null>(null);
+  // Bumps on each lock: an items_list answer that was asked for before the lock is dropped.
+  const lockEpoch = useRef(0);
   const [changeTick, setChangeTick] = useState(0);
   const statusRef = useRef<VaultStatus | null>(null);
   statusRef.current = status;
+  const { error: showError } = useToast();
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -61,8 +72,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshItems = useCallback(async () => {
+    const epoch = lockEpoch.current;
     try {
       const list = await call("items_list");
+      if (epoch !== lockEpoch.current) return; // Coffer locked meanwhile: a locked vault shows no items
       setItems(list);
       setItemsLoaded(true);
     } catch (e) {
@@ -73,15 +86,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const updateSettings = useCallback(async (patch: Partial<Settings>) => {
+  const refreshInfo = useCallback(async () => {
     try {
-      const s = await call("settings_set", { patch });
-      setSettings(s);
-      return s;
+      setInfo(await call("app_info"));
     } catch {
-      return null;
+      // keep the last info
     }
   }, []);
+
+  // A failed save shows Rust's message; the controls show `settings`, which did not change, so they go back.
+  const updateSettings = useCallback(
+    async (patch: Partial<Settings>) => {
+      try {
+        const s = await call("settings_set", { patch });
+        setSettings(s);
+        if ("hotkeyQuick" in patch || "hotkeyLock" in patch) refreshInfo();
+        return s;
+      } catch (e) {
+        showError(e);
+        return null;
+      }
+    },
+    [refreshInfo, showError],
+  );
 
   const lock = useCallback(async () => {
     await call("vault_lock");
@@ -100,15 +127,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const offs = [
       on("vault://locked", (p) => {
+        lockEpoch.current += 1;
         setItems([]);
         setItemsLoaded(false);
         setLockedReason(p.reason);
+        const c = lastConflict.current;
+        setKeyChangedFile(p.reason === "keyChanged" && c && Date.now() - c.at < 10_000 ? c.path : null);
         setBanner(null);
         refreshStatus();
       }),
       on("vault://unlocked", (s) => {
         setStatus(s);
         setLockedReason(null);
+        setKeyChangedFile(null);
       }),
       on("vault://changed", () => {
         refreshItems();
@@ -120,6 +151,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setBanner({ kind: "reloaded" });
       }),
       on("vault://conflict", (p) => {
+        lastConflict.current = { path: p.conflictPath, at: Date.now() };
         refreshItems();
         setChangeTick((t) => t + 1);
         setBanner({ kind: "conflict", path: p.conflictPath, since: p.since });
@@ -140,15 +172,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       itemsLoaded,
       banner,
       lockedReason,
+      keyChangedFile,
       changeTick,
       setBanner,
       setStatus,
       refreshStatus,
+      refreshInfo,
       refreshItems,
       updateSettings,
       lock,
     }),
-    [info, status, settings, items, itemsLoaded, banner, lockedReason, changeTick, refreshStatus, refreshItems, updateSettings, lock],
+    [info, status, settings, items, itemsLoaded, banner, lockedReason, keyChangedFile, changeTick, refreshStatus, refreshInfo, refreshItems, updateSettings, lock],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

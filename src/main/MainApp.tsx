@@ -4,7 +4,7 @@
 import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DemoBadge } from "../components/bits";
-import { Dialog, RepromptProvider, ToastProvider } from "../components/overlays";
+import { ConfirmDialog, Dialog, RepromptProvider, ToastProvider } from "../components/overlays";
 import { Button, Notice } from "../components/ui";
 import { call, on } from "../lib/ipc";
 import { CreateVault, OpenVault, Welcome } from "./screens/Onboarding";
@@ -31,6 +31,11 @@ function initialNav(): Nav {
   };
 }
 
+/** Which editor a nav shows (VaultShell keys the editor the same way); null when none is open. */
+function editorKey(n: Nav): string | null {
+  return n.view === "items" && n.editing ? `${n.editing}-${n.itemId ?? n.newType}` : null;
+}
+
 function Shell() {
   const { status, info, items, itemsLoaded, settings, updateSettings } = useStore();
   const [setup, setSetup] = useState<Setup>(null);
@@ -41,9 +46,23 @@ function Shell() {
   const [closeNotice, setCloseNotice] = useState(false);
   const [quitAsk, setQuitAsk] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  /** A move away from an edit with unsaved changes waits here until the user says "Discard". */
+  const [pendingNav, setPendingNav] = useState<Partial<Nav> | null>(null);
   const demoApplied = useRef(false);
+  const navRef = useRef(nav);
+  navRef.current = nav;
 
-  const go = useCallback((patch: Partial<Nav>) => setNav((n) => ({ ...n, ...patch })), []);
+  // Every move that would close an edit with unsaved changes asks first (SPEC 9):
+  // Ctrl+N, Ctrl+comma, the sidebar, another list row, a Health link, the tray menu.
+  const go = useCallback((patch: Partial<Nav>) => {
+    const cur = navRef.current;
+    const open = editorKey(cur);
+    if (open && editInfo.dirty && editorKey({ ...cur, ...patch }) !== open) {
+      setPendingNav(patch);
+      return;
+    }
+    setNav((n) => ({ ...n, ...patch }));
+  }, []);
 
   // First close with "hide to tray": Rust keeps the window open and asks for this notice (SPEC 9).
   const closeToTray = useCallback(() => {
@@ -93,6 +112,7 @@ function Shell() {
       if (editInfo.title && editInfo.dirty) setLostEdit(editInfo.title);
       editInfo.title = null;
       editInfo.dirty = false;
+      setPendingNav(null);
       setNav((n) => ({ ...n, editing: null }));
     });
     const b = on("edit://discarded", (p) => setLostEdit(p.title));
@@ -121,7 +141,7 @@ function Shell() {
         onDone={() => setSetup(null)}
       />
     );
-  else if (setup === "open") screen = <OpenVault onCancel={() => setSetup(status.state === "noVault" ? "welcome" : null)} />;
+  else if (setup === "open") screen = <OpenVault onCancel={() => setSetup(status.state === "noVault" ? "welcome" : null)} onDone={() => setSetup(null)} />;
   else if (outcome?.kind === "tampered") screen = <Tampered onDone={() => setOutcome(null)} />;
   else if (outcome?.kind === "older") screen = <OlderFile message={outcome.message} onDone={() => setOutcome(null)} />;
   else if (status.state === "missing") screen = <Missing onCreate={() => setSetup("create")} />;
@@ -208,6 +228,21 @@ function Shell() {
           </>
         }
       />
+      <ConfirmDialog
+        open={!!pendingNav}
+        title="Discard changes?"
+        body={`Your changes to ${editInfo.title ?? "this item"} are not saved.`}
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        danger
+        onCancel={() => setPendingNav(null)}
+        onConfirm={() => {
+          const patch = pendingNav;
+          setPendingNav(null);
+          editInfo.dirty = false;
+          if (patch) setNav((n) => ({ ...n, ...patch }));
+        }}
+      />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
     </>
   );
@@ -216,13 +251,13 @@ function Shell() {
 export function MainApp() {
   return (
     <MotionConfig reducedMotion="user">
-      <StoreProvider>
-        <ToastProvider>
+      <ToastProvider>
+        <StoreProvider>
           <RepromptProvider>
             <Shell />
           </RepromptProvider>
-        </ToastProvider>
-      </StoreProvider>
+        </StoreProvider>
+      </ToastProvider>
     </MotionConfig>
   );
 }

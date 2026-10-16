@@ -636,7 +636,11 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 }
 
 function Shortcuts({ settings, set }: { settings: Settings; set: SetFn }) {
-  const { info } = useStore();
+  const { info, refreshInfo } = useStore();
+  // "In use by another app" can change while Coffer runs: read it again each time this tab opens.
+  useEffect(() => {
+    refreshInfo();
+  }, [refreshInfo]);
   return (
     <>
       <Section title="From any app">

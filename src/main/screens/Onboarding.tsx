@@ -388,9 +388,9 @@ function Prefs({ onNext }: { onNext: () => void }) {
             loading={busy}
             onClick={async () => {
               setBusy(true);
-              await updateSettings({ startWithWindows, hotkeyQuick: hotkey });
+              const saved = await updateSettings({ startWithWindows, hotkeyQuick: hotkey });
               setBusy(false);
-              onNext();
+              if (saved) onNext(); // on an error the toast says why, and this step stays
             }}
           >
             Continue
@@ -460,7 +460,7 @@ function TryHotkey({ onDone }: { onDone: () => void }) {
   );
 }
 
-export function OpenVault({ onCancel }: { onCancel: () => void }) {
+export function OpenVault({ onCancel, onDone }: { onCancel: () => void; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const { setStatus } = useStore();
   const { error } = useToast();
@@ -480,7 +480,10 @@ export function OpenVault({ onCancel }: { onCancel: () => void }) {
               setBusy(true);
               try {
                 const s = await call("vault_open");
-                if (s) setStatus(s);
+                if (s) {
+                  setStatus(s);
+                  onDone(); // the unlock form (password and, on a new PC, the Secret Key) comes next
+                }
               } catch (e) {
                 error(e);
               } finally {

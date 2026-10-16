@@ -308,7 +308,8 @@ export function ItemEditor({
   const dirty = useMemo(() => !!form && !!base && !formsEqual(form, base), [form, base]);
 
   // Tell Rust about the open edit (SPEC 9: lock and quit during an edit).
-  const title = form?.title.trim() || (mode === "new" ? `New ${ITEM_TYPES[newType].label.toLowerCase()}` : "");
+  // The lock and quit notices name the item as saved; an unsaved new title is not its name yet.
+  const title = (mode === "edit" ? base?.title.trim() : form?.title.trim()) || (mode === "new" ? `New ${ITEM_TYPES[newType].label.toLowerCase()}` : "");
   useEffect(() => {
     editInfo.title = title || null;
     editInfo.dirty = dirty;
@@ -349,6 +350,7 @@ export function ItemEditor({
         setBase(form);
         setConflict(false);
         toast(mode === "new" ? `${saved.title} added.` : `${saved.title} saved.`);
+        editInfo.dirty = false; // saved: closing the editor must not ask "Discard changes?"
         onDone(saved.id);
         return true;
       } catch (e) {
@@ -543,7 +545,14 @@ export function ItemEditor({
                   >
                     Keep mine
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => onDone(form.id ?? null)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      editInfo.dirty = false;
+                      onDone(form.id ?? null);
+                    }}
+                  >
                     Keep theirs
                   </Button>
                 </>
@@ -688,6 +697,7 @@ export function ItemEditor({
         onCancel={() => setAskDiscard(false)}
         onConfirm={() => {
           setAskDiscard(false);
+          editInfo.dirty = false;
           onDone(mode === "edit" ? itemId : null);
         }}
       />

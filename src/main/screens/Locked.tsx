@@ -15,7 +15,7 @@ export type UnlockOutcome = { kind: "tampered" } | { kind: "older"; message: str
 
 /** Unlock form, shared by the main window. Quick Access has its own compact one. */
 export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcome) => void; onOpenOther: () => void }) {
-  const { status, setStatus, lockedReason, info } = useStore();
+  const { status, setStatus, lockedReason, keyChangedFile, info } = useStore();
   const [pw, setPw] = useState("");
   const [sk, setSk] = useState("");
   const [busy, setBusy] = useState(false);
@@ -62,7 +62,7 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
     }
   };
 
-  const reason =
+  const reason: React.ReactNode =
     lockedReason === "idle"
       ? "Coffer locked after a while without use."
       : lockedReason === "systemLock"
@@ -70,7 +70,18 @@ export function Unlock({ onOutcome, onOpenOther }: { onOutcome: (o: UnlockOutcom
         : lockedReason === "sleep"
           ? "Coffer locked when the PC went to sleep."
           : lockedReason === "keyChanged"
-            ? "The master password or Secret Key changed on another computer. Unlock with the new one."
+            ? keyChangedFile
+              ? (
+                  // SPEC 3.5, word for word. The file is next to the vault, whose path shows above.
+                  <>
+                    The master password or Secret Key changed on another computer. Your open changes are in{" "}
+                    <span className="break-all text-foreground" title={keyChangedFile} data-selectable>
+                      {keyChangedFile.split(/[\\/]/).pop()}
+                    </span>
+                    .
+                  </>
+                )
+              : "The master password or Secret Key changed on another computer. Unlock with the new one."
             : null;
 
   return (

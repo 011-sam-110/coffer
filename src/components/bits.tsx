@@ -233,8 +233,10 @@ export function TotpCode({
       <span className="font-mono text-base tracking-wider tabular-nums" data-selectable>
         {groupCode(code.code)}
       </span>
-      <CountdownRing remaining={remaining} period={code.period} />
-      <span className="sr-only">{remaining} seconds left</span>
+      <span role="img" aria-label={`One-time code, ${remaining} seconds left`} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+        <CountdownRing remaining={remaining} period={code.period} />
+        <span aria-hidden>{remaining} s</span>
+      </span>
     </span>
   );
 }

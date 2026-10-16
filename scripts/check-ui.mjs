@@ -54,6 +54,8 @@ const STATES = [
   ["m05-prefs", "/?state=noVault&screen=prefs", MAIN],
   ["m06-try-hotkey", "/?state=noVault&screen=hotkey", MAIN],
   ["m07-open-vault", "/?state=noVault&screen=open", MAIN],
+  // After the pick, the unlock form with the Secret Key field shows (QA phase 2, M3).
+  ["m07b-open-vault-picked", "/?state=noVault&screen=open", MAIN, [{ click: "text=Choose vault file", wait: 600 }, { expect: "label:has-text('Secret Key')" }]],
   ["m08-unlock", "/?state=locked", MAIN],
   ["m09-unlock-wrong", "/?state=locked", MAIN, [{ fill: "input[type=password]", text: "nope" }, { press: "Enter" }, { wait: 1100 }]],
   ["m10-unlock-secret-key", "/?state=locked&needsKey=1", MAIN],
@@ -160,7 +162,7 @@ for (const [name, path, viewport, steps = []] of STATES) {
         else if (s.press) {
           if (s.target) await page.focus(s.target).catch(() => undefined);
           await page.keyboard.press(s.press);
-        }
+        } else if (s.expect) await page.waitForSelector(s.expect, { timeout: 3000 });
         if (s.wait) await page.waitForTimeout(s.wait);
         else await page.waitForTimeout(250);
       } catch (e) {
