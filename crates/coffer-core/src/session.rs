@@ -474,6 +474,41 @@ impl Vault {
     /// `BadCredentials`, `Tampered`.
     pub fn unlock(bytes: &[u8], password: &str, secret_key: &SecretKey, highest_seen: u64) -> Result<UnlockOutcome> {
         let (f, keys) = open_file(bytes, password, secret_key)?;
+        Self::from_verified(f, keys, secret_key, highest_seen)
+    }
+
+    /// Windows Hello unlock (SPEC 3.8): opens the file with a vault key the
+    /// shell held from [`Vault::hello_key`], without Argon2 and without the
+    /// unwrap. Checks, in order: structure, the key id (`badSecretKey`), the
+    /// KDF floor and ceiling (later password checks run Argon2 with them),
+    /// the manifest MAC with this VK, every record. Same generation rule as
+    /// [`Vault::unlock`].
+    ///
+    /// A MAC that fails with this VK returns `badCredentials`, not
+    /// `tampered`: the usual cause is a rekey (password change with "My old
+    /// password may be known", or a key rotation) on another PC. Drop the
+    /// held key and ask for the master password; a damaged file then shows
+    /// as `tampered` on that unlock.
+    ///
+    /// # Errors
+    /// `Corrupt`, `BadSecretKey`, `KdfTooWeak`, `KdfTooStrong`,
+    /// `BadCredentials`, `Tampered` (a record fails after the MAC passed).
+    pub fn unlock_with_vault_key(bytes: &[u8], vk: &[u8; 32], secret_key: &SecretKey, highest_seen: u64) -> Result<UnlockOutcome> {
+        let f = VaultFile::parse(bytes)?;
+        if secret_key.key_id() != f.key_id {
+            return Err(CoreError::BadSecretKey("This Secret Key is for another vault.".into()));
+        }
+        f.kdf.check()?;
+        let key = Key32::from_slice(vk).ok_or(CoreError::BadCredentials)?;
+        let keys = VaultKeys::from_vk(key, &f.vault_id);
+        if !verify_mac(&keys, &f) {
+            return Err(CoreError::BadCredentials);
+        }
+        Self::from_verified(f, keys, secret_key, highest_seen)
+    }
+
+    /// The open vault of a file whose MAC verified with `keys`.
+    fn from_verified(f: VaultFile, keys: VaultKeys, secret_key: &SecretKey, highest_seen: u64) -> Result<UnlockOutcome> {
         let d = decrypt_all(&keys, &f)?;
         let disk = disk_state_of(&f);
         let mut v = Vault {
@@ -555,9 +590,36 @@ impl Vault {
         self.kdf
     }
 
-    /// Number of items in every state.
+    /// Number of items in every state (active, archived and trashed).
     pub fn item_count(&self) -> usize {
         self.items.len()
+    }
+
+    /// Number of active items (not archived, not in Trash): the count to
+    /// show the user, e.g. on the lock screen or in the Emergency Kit.
+    pub fn active_item_count(&self) -> usize {
+        self.items.values().filter(|s| s.item.state == ItemState::Active).count()
+    }
+
+    /// When the vault was created (`YYYY-MM-DDTHH:MM:SSZ`, kept in the meta
+    /// record), for the Emergency Kit. `None` for a file that does not
+    /// hold it.
+    pub fn created_at(&self) -> Option<String> {
+        time_util::parse(&self.meta.created_at).and_then(time_util::fmt)
+    }
+
+    /// The vault key (VK) bytes, for Windows Hello (SPEC 3.8).
+    ///
+    /// This exposes the key that decrypts every record: anyone who holds
+    /// these 32 bytes and the file can read the vault without the master
+    /// password or the Secret Key. It exists so the shell can unlock with
+    /// Hello without keeping the master password: call it at lock time only
+    /// when Hello is on, protect the bytes at once with
+    /// `CryptProtectMemory(CRYPTPROTECTMEMORY_SAME_PROCESS)`, zero this copy
+    /// (it is zeroed on drop), and give the bytes back to
+    /// [`Vault::unlock_with_vault_key`]. Never log, store on disk or send it.
+    pub fn hello_key(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(self.keys.vk.0)
     }
 
     /// The Secret Key for the Emergency Kit, after checking the master
