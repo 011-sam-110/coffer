@@ -198,7 +198,7 @@ fn on_quick_blur(app: &AppHandle) {
     let visible = window.is_visible().unwrap_or(false);
     let state = app.state::<AppState>();
     let mut quick = state.quick.lck();
-    if quick.modal || !visible {
+    if quick.modal || !visible || crate::hello::PROMPTING.load(std::sync::atomic::Ordering::SeqCst) {
         return;
     }
     quick.last_blur_hide = Some(Instant::now());

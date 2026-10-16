@@ -19,6 +19,7 @@ mod contract_tests;
 mod device;
 mod error;
 mod folders;
+mod hello;
 mod hibp;
 mod hotkeys;
 mod lock;
@@ -100,6 +101,7 @@ pub fn run() {
             win::set_app(&handle);
             win::signals::start();
             vault::start_watcher(&handle);
+            hello::start(&handle);
             shell::create_windows(&handle)?;
             tray::create(&handle)?;
             log!("tray ready");

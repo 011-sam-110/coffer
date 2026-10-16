@@ -59,6 +59,8 @@ pub struct AppState {
     pub last_conflict: Mutex<Option<PathBuf>>,
     /// The import file and the preview waiting for `import_commit`.
     pub import: Mutex<ImportState>,
+    /// Windows Hello: the held vault key and the password-proof time.
+    pub hello: Mutex<crate::hello::HelloState>,
     pub clipboard: Mutex<ClipState>,
     pub foreground: Mutex<Option<ForegroundInfo>>,
     pub quick: Mutex<QuickState>,
@@ -89,6 +91,7 @@ impl AppState {
             backups_listed: Mutex::new(Vec::new()),
             last_conflict: Mutex::new(None),
             import: Mutex::new(ImportState::default()),
+            hello: Mutex::new(crate::hello::HelloState::default()),
             clipboard: Mutex::new(ClipState::default()),
             foreground: Mutex::new(None),
             quick: Mutex::new(QuickState::default()),

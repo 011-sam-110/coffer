@@ -472,7 +472,104 @@ fn vault_round_trip(app: &AppHandle) {
         format!("{} / {}", code_of(&bad_kit), code_of(&kit2)),
     );
 
+    // ---------- Windows Hello gating (SPEC 3.8) ----------
+    // An unattended run cannot answer a Hello prompt: `unlock_hello_with`
+    // gets a stand-in for it. Everything around the prompt is real.
+    hello_checks(app, &mut c, PW, &key);
+
     std::thread::sleep(Duration::from_millis(2500));
     crate::log!("selftest vault: events {:?}", got.lock().unwrap());
     crate::log!("selftest vault: {} checks, {} failed", c.total, c.failed);
+}
+
+fn hello_checks(app: &AppHandle, c: &mut Checks, pw: &str, key: &coffer_core::SecretKey) {
+    use crate::error::ErrorCode;
+    let state = app.state::<AppState>();
+    let status = || crate::vault::status(app).ok();
+    let ready = || status().map(|s| s.hello_ready).unwrap_or(false);
+    let verified = || -> crate::error::CofferResult<()> { Ok(()) };
+    let cancelled = || -> crate::error::CofferResult<()> { Err(crate::error::CofferError::new(ErrorCode::HelloFailed, "Windows Hello was cancelled. Use your master password.")) };
+
+    let st = status();
+    let available = st.as_ref().is_some_and(|s| s.hello_available);
+    c.check("hello: available on this PC, off by default", available && st.as_ref().is_some_and(|s| !s.hello_enabled && !s.hello_ready), format!("{st:?}"));
+
+    let wrong = crate::hello::set(app, true, Some("not the password"));
+    let none = crate::hello::set(app, true, None);
+    c.check("hello_set(true) needs the master password", matches!(&wrong, Err(e) if e.code == ErrorCode::BadCredentials) && none.is_err(), format!("{} / {}", code_of(&wrong), code_of(&none)));
+    let on = crate::hello::set(app, true, Some(pw));
+    let saved = std::fs::read_to_string(state.settings_path()).unwrap_or_default().contains("\"helloEnabled\": true");
+    c.check("hello_set(true) with the password: on and saved", matches!(&on, Ok(s) if s.hello_enabled) && saved, code_of(&on));
+
+    let items = item_count(app);
+    crate::lock::lock(app, LockReason::Manual);
+    c.check("a manual lock keeps the key: helloReady", ready(), format!("{:?}", status()));
+    let r = crate::vault::unlock_hello_with(app, cancelled);
+    c.check("a cancelled prompt does not unlock and keeps the key", matches!(&r, Err(e) if e.code == ErrorCode::HelloFailed) && !state.is_unlocked() && ready(), code_of(&r));
+    let r = crate::vault::unlock_hello_with(app, verified);
+    c.check("Verified opens the vault with the held key", r.is_ok() && state.is_unlocked() && item_count(app) == items, format!("{} items {:?}", code_of(&r), item_count(app)));
+
+    // keyChanged drops the key, and no prompt is shown then.
+    crate::lock::lock(app, LockReason::KeyChanged);
+    let mut asked = false;
+    let r = crate::vault::unlock_hello_with(app, || {
+        asked = true;
+        Ok(())
+    });
+    c.check(
+        "a keyChanged lock drops the key; no prompt",
+        !ready() && matches!(&r, Err(e) if e.code == ErrorCode::HelloUnavailable && e.message == crate::hello::NOT_READY) && !asked,
+        code_of(&r),
+    );
+
+    // Turning Hello off drops the key.
+    let _ = crate::vault::unlock(app, pw, None);
+    crate::lock::lock(app, LockReason::Manual);
+    let was_ready = ready();
+    let off = crate::hello::set(app, false, None);
+    c.check("hello_set(false) drops the key", was_ready && off.is_ok() && !ready(), code_of(&off));
+
+    // After requirePasswordDays without a password unlock, the key is not kept.
+    let _ = crate::vault::unlock(app, pw, None);
+    let _ = crate::hello::set(app, true, Some(pw));
+    crate::hello::age_password_proof(&state, std::time::Duration::from_secs(15 * 24 * 3600));
+    crate::lock::lock(app, LockReason::Idle);
+    let r = crate::vault::unlock_hello_with(app, verified);
+    c.check("after 14 days without the password: no key, the password is needed", !ready() && matches!(&r, Err(e) if e.code == ErrorCode::HelloUnavailable), code_of(&r));
+
+    // A re-key on another PC: the held key no longer opens the file.
+    let _ = crate::vault::unlock(app, pw, None);
+    crate::lock::lock(app, LockReason::Manual);
+    let path = status().and_then(|s| s.vault_path).map(PathBuf::from).unwrap_or_default();
+    let rekeyed = (|| -> Result<(), String> {
+        use coffer_core::session::UnlockOutcome;
+        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+        let seen = coffer_core::vault_file::read_header(&bytes).map_err(|e| e.to_string())?.generation;
+        let Ok(UnlockOutcome::Ready(mut v)) = coffer_core::Vault::unlock(&bytes, pw, key, seen) else { return Err("open".into()) };
+        v.change_password(pw, pw, true, "Selftest").map_err(|e| e.to_string())?;
+        std::fs::write(&path, v.to_bytes(seen)).map_err(|e| e.to_string())
+    })();
+    let was_ready = ready();
+    let r = crate::vault::unlock_hello_with(app, verified);
+    c.check(
+        "a re-key elsewhere: Hello says the key changed and drops it",
+        rekeyed.is_ok() && was_ready && matches!(&r, Err(e) if e.code == ErrorCode::HelloFailed) && !ready() && !state.is_unlocked(),
+        format!("{rekeyed:?} / {}", code_of(&r)),
+    );
+    let r = crate::vault::unlock(app, pw, None);
+    c.check("then the master password opens it", r.is_ok(), code_of(&r));
+
+    // The real prompt, started and cancelled by the test. Only on request,
+    // with a person at the PC: the dialog stays until someone presses Cancel.
+    if std::env::var_os("COFFER_SELFTEST_HELLO_PROMPT").is_some() {
+        let hwnd = app.get_webview_window(shell::MAIN).and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0);
+        if let Some(w) = app.get_webview_window(shell::MAIN) {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+        std::thread::sleep(Duration::from_millis(800));
+        let outcome = crate::win::hello::prompt_then_cancel(hwnd, Duration::from_secs(3));
+        crate::log!("selftest vault: info real Hello prompt: {outcome}");
+    }
+    let _ = crate::hello::set(app, false, None);
 }
