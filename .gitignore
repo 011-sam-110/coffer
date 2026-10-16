@@ -32,8 +32,3 @@ dist-ssr
 *.cofferx
 device.json
 src/assets/fonts/itf/
-
-# A vault or an encrypted export must never be committed (the default vault folder
-# %USERPROFILE%\Coffer can be a checkout of this repo).
-*.coffer
-*.cofferx
