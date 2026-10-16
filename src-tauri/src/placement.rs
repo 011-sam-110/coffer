@@ -44,6 +44,12 @@ pub fn clamp(work: RectI, pos: (i32, i32), size: (i32, i32)) -> (i32, i32) {
     (x, y)
 }
 
+/// The window position that puts its client area at `client`, given where the
+/// window and its client area are now (the difference is the invisible border).
+pub fn window_for_client(client: (i32, i32), outer_now: (i32, i32), inner_now: (i32, i32)) -> (i32, i32) {
+    (client.0 - (inner_now.0 - outer_now.0), client.1 - (inner_now.1 - outer_now.1))
+}
+
 /// The physical size and margin for a monitor scale factor.
 pub fn scaled(scale: f64) -> ((i32, i32), i32) {
     let s = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
@@ -87,6 +93,13 @@ mod tests {
         // Taskbar on the left: tray at the bottom-left.
         let left = RectI { left: 62, top: 0, right: 1920, bottom: 1080 };
         assert_eq!(near_tray(left, (30, 1040), (400, 560), 12), (74, 508));
+    }
+
+    #[test]
+    fn client_area_is_what_gets_placed() {
+        // 12 px invisible border left, none at the top.
+        assert_eq!(window_for_client((2135, 785), (100, 50), (112, 50)), (2123, 785));
+        assert_eq!(window_for_client((10, 10), (0, 0), (0, 0)), (10, 10));
     }
 
     #[test]

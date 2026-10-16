@@ -7,7 +7,7 @@ use windows::Win32::Foundation::{CloseHandle, HWND, MAX_PATH};
 use windows::Win32::System::Threading::{GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
 use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EVENT_SYSTEM_FOREGROUND, GetClassNameW, GetDesktopWindow, GetShellWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow, OBJID_WINDOW, WINEVENT_OUTOFCONTEXT,
+    EVENT_SYSTEM_FOREGROUND, GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetShellWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow, OBJID_WINDOW, WINEVENT_OUTOFCONTEXT,
     WINEVENT_SKIPOWNPROCESS,
 };
 
@@ -32,8 +32,10 @@ pub fn is_ignored_class(class: &str) -> bool {
     IGNORED_CLASSES.iter().any(|c| c.eq_ignore_ascii_case(class))
 }
 
-/// Install the hook on the calling thread. That thread must run a message loop.
+/// Install the hook on the calling thread (which must run a message loop), and
+/// store the window in front now, so the first Quick Access has a target.
 pub fn install() -> bool {
+    store(unsafe { GetForegroundWindow() });
     let hook = unsafe {
         SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, None, Some(on_event), 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS)
     };
@@ -41,7 +43,14 @@ pub fn install() -> bool {
 }
 
 unsafe extern "system" fn on_event(_hook: HWINEVENTHOOK, _event: u32, hwnd: HWND, id_object: i32, _id_child: i32, _thread: u32, _time: u32) {
-    if hwnd.is_invalid() || id_object != OBJID_WINDOW.0 {
+    if id_object != OBJID_WINDOW.0 {
+        return;
+    }
+    store(hwnd);
+}
+
+fn store(hwnd: HWND) {
+    if hwnd.is_invalid() {
         return;
     }
     if let Some(info) = describe(hwnd) {

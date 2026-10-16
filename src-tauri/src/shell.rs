@@ -74,6 +74,13 @@ pub fn create_windows(app: &AppHandle) -> tauri::Result<()> {
             })
             .build()?;
         crate::win::webview::harden(&window);
+        // A window that was never shown reports a stale frame (a caption that
+        // is not there), so Quick Access would land off by its height on the
+        // first show. Recompute the frame now (create_windows runs on the main
+        // thread, in setup).
+        if let Ok(hwnd) = window.hwnd() {
+            crate::win::capture::refresh_frame(hwnd.0 as isize);
+        }
     }
     apply_capture_protection(app);
     Ok(())
@@ -103,7 +110,8 @@ pub fn quick_context(app: &AppHandle) -> QuickContext {
     QuickContext { title: fg.as_ref().map(|f| f.title.clone()), process: fg.and_then(|f| f.process), suggestions: Vec::new() }
 }
 
-fn place_quick(window: &WebviewWindow, app: &AppHandle, origin: QuickOrigin) {
+/// Place Quick Access; returns where its client area should be.
+fn place_quick(window: &WebviewWindow, app: &AppHandle, origin: QuickOrigin) -> Option<(i32, i32)> {
     use crate::win::monitor;
     let (area, anchor) = match origin {
         QuickOrigin::Tray(Some(p)) => (monitor::from_point(p.0, p.1), Some(p)),
@@ -118,23 +126,31 @@ fn place_quick(window: &WebviewWindow, app: &AppHandle, origin: QuickOrigin) {
     };
     let Some(area) = area else {
         let _ = window.center();
-        return;
+        return None;
     };
     let (size, margin) = placement::scaled(area.scale);
     let at = |size: (i32, i32)| match anchor {
         Some(a) => placement::near_tray(area.work, a, size, margin),
         None => placement::centered(area.work, size),
     };
-    let pos = at(size);
-    let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
-    // Moving to a monitor with another scale resizes the window: place it
-    // again with the size it has now.
-    if let Ok(actual) = window.outer_size() {
-        let actual = (actual.width as i32, actual.height as i32);
-        if actual != size {
-            let pos = at(actual);
-            let _ = window.set_position(PhysicalPosition::new(pos.0, pos.1));
-        }
+    // First move: onto the target monitor (the window takes that monitor's
+    // scale, so its size can change).
+    let first = at(size);
+    let _ = window.set_position(PhysicalPosition::new(first.0, first.1));
+    // Then place the client area, which is what the user sees: an undecorated
+    // window with a shadow has invisible borders outside it.
+    let Ok(inner_size) = window.inner_size() else { return None };
+    let client = at((inner_size.width as i32, inner_size.height as i32));
+    move_client_to(window, client);
+    Some(client)
+}
+
+/// Move the window so its client area's top-left is at `client`.
+fn move_client_to(window: &WebviewWindow, client: (i32, i32)) {
+    let (Ok(outer), Ok(inner)) = (window.outer_position(), window.inner_position()) else { return };
+    let target = placement::window_for_client(client, (outer.x, outer.y), (inner.x, inner.y));
+    if target != (outer.x, outer.y) {
+        let _ = window.set_position(PhysicalPosition::new(target.0, target.1));
     }
 }
 
