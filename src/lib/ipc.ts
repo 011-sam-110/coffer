@@ -72,32 +72,39 @@ export function setBackend(b: Backend | null): void {
   backendPromise = b ? Promise.resolve(b) : null;
 }
 
-const CODES: ErrorCode[] = [
-  "badCredentials",
-  "needsSecretKey",
-  "badSecretKey",
-  "vaultMissing",
-  "tampered",
-  "corrupt",
-  "kdfTooWeak",
-  "locked",
-  "notFound",
-  "conflict",
-  "repromptRequired",
-  "weakPassword",
-  "unsupportedFormat",
-  "io",
-  "invalid",
-  "helloUnavailable",
-  "helloFailed",
-  "network",
-];
+// A Record keyed by ErrorCode: tsc fails when the contract gains or loses a code
+// and this list does not follow (a missing code used to turn olderFile and exists into "io").
+const CODE_SET: Record<ErrorCode, true> = {
+  badCredentials: true,
+  needsSecretKey: true,
+  badSecretKey: true,
+  vaultMissing: true,
+  tampered: true,
+  corrupt: true,
+  kdfTooWeak: true,
+  locked: true,
+  notFound: true,
+  conflict: true,
+  repromptRequired: true,
+  weakPassword: true,
+  unsupportedFormat: true,
+  io: true,
+  invalid: true,
+  helloUnavailable: true,
+  helloFailed: true,
+  network: true,
+  olderFile: true,
+  kdfTooStrong: true,
+  exists: true,
+};
+/** Every ErrorCode of the contract. */
+export const ERROR_CODES = Object.keys(CODE_SET) as ErrorCode[];
 
 /** Turn anything a backend throws into a CofferError. */
 export function toCofferError(e: unknown): CofferError {
   if (e && typeof e === "object" && "code" in e && "message" in e) {
     const code = String((e as { code: unknown }).code) as ErrorCode;
-    return { code: CODES.includes(code) ? code : "io", message: String((e as { message: unknown }).message) };
+    return { code: ERROR_CODES.includes(code) ? code : "io", message: String((e as { message: unknown }).message) };
   }
   if (typeof e === "string") return { code: "io", message: e };
   if (e instanceof Error) return { code: "io", message: e.message };
