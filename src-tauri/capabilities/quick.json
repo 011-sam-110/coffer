@@ -1,0 +1,31 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick",
+  "description": "Quick Access window: only the commands listed in SPEC 3.7.",
+  "windows": [
+    "quick"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-app-info",
+    "allow-settings-get",
+    "allow-quick-hint-seen",
+    "allow-vault-status",
+    "allow-vault-unlock",
+    "allow-vault-unlock-hello",
+    "allow-vault-lock",
+    "allow-items-list",
+    "allow-item-get",
+    "allow-item-copy",
+    "allow-item-open-url",
+    "allow-totp-code",
+    "allow-autotype",
+    "allow-quick-context",
+    "allow-quick-hide",
+    "allow-quick-set-modal",
+    "allow-main-show",
+    "allow-generate",
+    "allow-generator-copy"
+  ]
+}
