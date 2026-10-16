@@ -304,7 +304,8 @@ export function ItemEditor({
   const dirty = useMemo(() => !!form && !!base && !formsEqual(form, base), [form, base]);
 
   // Tell Rust about the open edit (SPEC 9: lock and quit during an edit).
-  const title = form?.title.trim() || (mode === "new" ? `New ${ITEM_TYPES[newType].label.toLowerCase()}` : "");
+  // The lock and quit notices name the item as saved; an unsaved new title is not its name yet.
+  const title = (mode === "edit" ? base?.title.trim() : form?.title.trim()) || (mode === "new" ? `New ${ITEM_TYPES[newType].label.toLowerCase()}` : "");
   useEffect(() => {
     editInfo.title = title || null;
     editInfo.dirty = dirty;
