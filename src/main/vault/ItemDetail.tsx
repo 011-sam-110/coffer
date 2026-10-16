@@ -20,6 +20,7 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { autotypeChoices, typedIntoText, useAutotype } from "../../components/AutotypeActions";
 import { Markdown } from "../../components/Markdown";
+import { RevisionsSection } from "../../components/RevisionsSection";
 import { Monogram, PasswordChars, SecretText, TotpCode } from "../../components/bits";
 import { ConfirmDialog, Menu, useCopy, useReprompt, useToast } from "../../components/overlays";
 import { Button, cx, IconButton, KeyBadge, Notice, Spinner } from "../../components/ui";
@@ -535,6 +536,8 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
               )}
             </section>
           )}
+
+          <RevisionsSection key={item.rev} item={item} onRestored={setItem} />
 
           {/* 17 px: the cards' 16 px inset plus their 1 px border, so the columns line up. */}
           <dl className="grid grid-cols-[148px_1fr] gap-x-3 gap-y-1 px-[17px] text-xs text-muted-foreground">

@@ -99,6 +99,10 @@ const STATES = [
   ["t09-detail-typed", "/?item=GitHub", MAIN, [{ click: "header [aria-label='More actions']" }, { click: "text=Type password" }, { wait: 700 }]],
   ["t10-detail-autotype-admin", "/?item=GitHub&autotype=admin", MAIN, [{ click: "header [aria-label='More actions']" }, { click: "text=Type username and password" }, { wait: 700 }]],
   ["t11-edit-autotype", "/?item=GitHub&edit=1", MAIN, [{ click: "text=Advanced" }, { fill: "input[placeholder='{USERNAME}{TAB}{PASSWORD}{ENTER}']", text: "{USERNAME}{TAB}{PASS}" }]],
+  // Tier 2: revisions.
+  ["t12-revisions", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }]],
+  ["t13-revision-confirm", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }, { click: "main button:has-text('Restore') >> nth=0" }, { wait: 300 }]],
+  ["t14-revision-restored", "/?item=GitHub", MAIN, [{ click: "text=/^Revisions/" }, { wait: 400 }, { click: "button:has-text('Restore') >> nth=0" }, { wait: 300 }, { click: "dialog button:has-text('Restore')" }, { wait: 700 }]],
   ["t07-unlock-hello-ok", "/?state=locked&hello=ready", MAIN, [{ click: "text=Unlock with Windows Hello" }, { wait: 2600 }]],
   ["t05-settings-hello-none", "/?view=settings&tab=security&hello=none", MAIN],
   ["t06-settings-hello-on", "/?view=settings&tab=security&hello=ready", MAIN],
