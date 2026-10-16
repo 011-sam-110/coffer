@@ -248,7 +248,7 @@ export function ImportWizard({ source, onClose, embedded }: { source: "pick" | "
                     try {
                       await call("import_delete_source", { previewId: preview.previewId });
                       setSourceFile("deleted");
-                      toast("Export file deleted.");
+                      toast("Import file deleted.");
                     } catch (e) {
                       error(e);
                     }

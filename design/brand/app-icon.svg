@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Coffer</title>
+  <!-- App icon: a crimson tile (theme primary #e60039) with the Coffer mark as a solid
+       white strongbox. The lid seam, the gap round the lock plate and the keyhole are
+       cut through to the tile, so the shape still reads at 16 and 32 px.
+       The glyph uses the 24 px grid of coffer-mark.svg at scale 30, centred. -->
+  <defs>
+    <mask id="cuts" maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28">
+      <rect x="-2" y="-2" width="28" height="28" fill="#fff"/>
+      <rect x="1" y="10" width="22" height="2" fill="#000"/>
+      <rect x="7.5" y="6.75" width="9" height="8.75" rx="2" fill="#000"/>
+    </mask>
+    <mask id="keyhole" maskUnits="userSpaceOnUse" x="-2" y="-2" width="28" height="28">
+      <rect x="-2" y="-2" width="28" height="28" fill="#fff"/>
+      <circle cx="12" cy="10.6" r="1.45" fill="#000"/>
+      <rect x="11.3" y="10.6" width="1.4" height="2.7" fill="#000"/>
+    </mask>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#e60039"/>
+  <g transform="translate(152 152) scale(30)" fill="#fafafa">
+    <path d="M2 18.5V8.5C2 5.5 6.5 3 12 3s10 2.5 10 5.5v10a2.5 2.5 0 0 1-2.5 2.5h-15A2.5 2.5 0 0 1 2 18.5z" mask="url(#cuts)"/>
+    <rect x="8.5" y="7.75" width="7" height="6.75" rx="1.5" mask="url(#keyhole)"/>
+  </g>
+</svg>

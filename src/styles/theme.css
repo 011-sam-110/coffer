@@ -247,6 +247,14 @@
   textarea {
     caret-color: var(--primary-text);
   }
+  /* Placeholders are hints, never values: always the UI face at 13 px, muted. Mono is for typed values only. */
+  input::placeholder,
+  textarea::placeholder {
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    letter-spacing: var(--tracking);
+    text-transform: none;
+  }
   /* One visible focus ring for every interactive element (ring token, 2 px, offset). */
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -446,6 +454,14 @@ dialog {
     inset: 0 0 auto 0;
     background: var(--print-paper) !important;
     border: 0 !important;
+  }
+  .kit-sheet .screen-only {
+    display: none !important;
+  }
+}
+@media screen {
+  .kit-sheet .print-only {
+    display: none;
   }
 }
 

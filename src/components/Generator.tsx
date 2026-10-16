@@ -1,12 +1,12 @@
 // The password generator form (SPEC 5). Used by the Generator panel, the item
 // editor ("Change password") and, compact, by Quick Access.
-import { Copy, RefreshCw } from "lucide-react";
+import { Copy, Minus, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Generated, GeneratorMode, GeneratorOptions } from "../lib/contract";
 import { call } from "../lib/ipc";
 import { ENTROPY_TONE, PasswordChars } from "./bits";
 import { useToast } from "./overlays";
-import { Button, Checkbox, cx, IconButton, Input, Segmented, Select } from "./ui";
+import { Button, Checkbox, cx, IconButton, Input, Kbd, Segmented, Select } from "./ui";
 
 export const DEFAULT_GENERATOR: GeneratorOptions = {
   mode: "random",
@@ -57,7 +57,7 @@ export function Generator({
   const [opts, setOpts] = useState<GeneratorOptions>(DEFAULT_GENERATOR);
   const [result, setResult] = useState<Generated | null>(null);
   const [busy, setBusy] = useState(false);
-  const { error } = useToast();
+  const { error, expectCopy } = useToast();
   const req = useRef(0);
   const ids = { len: useId(), sep: useId(), ex: useId(), md: useId(), ms: useId() };
 
@@ -98,6 +98,7 @@ export function Generator({
   const copy = async () => {
     if (!result) return;
     try {
+      expectCopy();
       await call("generator_copy", { value: result.value });
       onCopied?.();
     } catch (e) {
@@ -109,8 +110,25 @@ export function Generator({
   const sizeValue = opts.mode === "passphrase" ? opts.words : opts.length;
   const setSize = (n: number) => (opts.mode === "passphrase" ? set({ words: clamp(n, lo, hi) }) : set({ length: clamp(n, lo, hi) }));
 
+  // Enter does the main action (Copy, or Use in the editor); Ctrl+R makes a new password.
+  // Enter on a button or in the exclude field keeps its own meaning.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const t = e.target as HTMLElement;
+    if (e.key.toLowerCase() === "r" && e.ctrlKey && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      run(opts);
+    } else if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey && !e.altKey && t.tagName !== "BUTTON" && !(t.tagName === "INPUT" && (t as HTMLInputElement).type === "text")) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onUse) {
+        if (result) onUse(result.value);
+      } else copy();
+    }
+  };
+
   return (
-    <div className={cx("flex flex-col", compact ? "gap-3" : "gap-4")}>
+    <div className={cx("flex flex-col", compact ? "gap-3" : "gap-4")} onKeyDown={onKeyDown}>
       <Segmented label="Kind of password" value={opts.mode} onChange={setMode} options={MODES} size={compact ? "sm" : "md"} />
 
       <div className="rounded-sm border border-border bg-background">
@@ -122,7 +140,7 @@ export function Generator({
           >
             {result ? <PasswordChars value={result.value} /> : <span className="text-muted-foreground">...</span>}
           </output>
-          <IconButton label="Make a new one" onClick={() => run(opts)}>
+          <IconButton label="Make a new one (Ctrl+R)" onClick={() => run(opts)}>
             <RefreshCw />
           </IconButton>
         </div>
@@ -138,6 +156,12 @@ export function Generator({
             )}
           </p>
           <div className="flex items-center gap-2">
+            {!compact && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground" aria-hidden>
+                <Kbd>Ctrl+R</Kbd> new
+                <Kbd>Enter</Kbd> {onUse ? "use" : "copy"}
+              </span>
+            )}
             {onUse ? (
               <>
                 <Button size="sm" variant="ghost" icon={<Copy className="size-3.5" />} onClick={copy} disabled={!result}>
@@ -172,7 +196,16 @@ export function Generator({
               value={sizeValue}
               onChange={(e) => setSize(+e.target.value)}
             />
-            {!compact && (
+            {compact ? (
+              <span className="flex items-center gap-1">
+                <IconButton label={opts.mode === "passphrase" ? "One word less" : "One less"} disabled={sizeValue <= lo} onClick={() => setSize(sizeValue - 1)}>
+                  <Minus />
+                </IconButton>
+                <IconButton label={opts.mode === "passphrase" ? "One word more" : "One more"} disabled={sizeValue >= hi} onClick={() => setSize(sizeValue + 1)}>
+                  <Plus />
+                </IconButton>
+              </span>
+            ) : (
               <Input
                 aria-label={opts.mode === "passphrase" ? "Number of words" : "Length"}
                 type="number"

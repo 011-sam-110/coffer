@@ -284,7 +284,7 @@ export function VaultShell({
   return (
     <KeysContext.Provider value={{ register }}>
       <div className="flex h-full">
-        <Sidebar nav={nav} go={go} onLock={() => lock()} />
+        <Sidebar nav={nav} go={go} onLock={() => lock()} onShowShortcuts={onShowShortcuts} />
         <div className="flex min-w-0 flex-1 flex-col">
           {notice && <div className="shrink-0 border-b border-border px-4 py-2.5">{notice}</div>}
           <Banners />

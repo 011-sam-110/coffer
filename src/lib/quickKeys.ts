@@ -86,3 +86,33 @@ export function enterHint(type: ItemType): string {
   const plan = enterPlan(type);
   return plan.kind === "open" ? "Enter opens in Coffer" : `Enter copies the ${plan.words}`;
 }
+
+/** The words on a selected row: what Enter does ("Password", "Public key", "Open"). */
+export function enterWords(type: ItemType): string {
+  const plan = enterPlan(type);
+  if (plan.kind === "open") return "Open";
+  return plan.words.charAt(0).toUpperCase() + plan.words.slice(1);
+}
+
+/** The order Quick Access walks a login in, one copy per open. */
+export const COPY_CHAIN = ["username", "password", "totp"] as const;
+export type ChainRole = (typeof COPY_CHAIN)[number];
+
+/**
+ * After a copy of `lastRole` from this item, the next field to copy: the first
+ * later role in COPY_CHAIN that the item has a value for, or null at the end.
+ */
+export function nextChainField(item: Pick<ItemView, "fields">, lastRole: string | null): { role: ChainRole; fieldId: string; label: string } | null {
+  const at = COPY_CHAIN.indexOf(lastRole as ChainRole);
+  if (at < 0) return null;
+  for (const role of COPY_CHAIN.slice(at + 1)) {
+    const f = item.fields.find((x) => x.builtin === role && fieldHasValue(x));
+    if (f) return { role, fieldId: f.id, label: f.label };
+  }
+  return null;
+}
+
+/** "261749" -> "261 749"; other lengths stay as they are. */
+export function groupCode(code: string): string {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code.length === 8 ? `${code.slice(0, 4)} ${code.slice(4)}` : code;
+}

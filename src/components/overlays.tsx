@@ -289,9 +289,11 @@ interface ClipState {
 interface ToastApi {
   toast: (text: string, opts?: { tone?: "info" | "error"; action?: { label: string; run: () => void }; ms?: number }) => void;
   error: (e: unknown) => void;
+  /** Quick Access: the next clipboard toast is for a copy made here. */
+  expectCopy: () => void;
 }
 
-const ToastContext = createContext<ToastApi>({ toast: () => undefined, error: () => undefined });
+const ToastContext = createContext<ToastApi>({ toast: () => undefined, error: () => undefined, expectCopy: () => undefined });
 export const useToast = () => useContext(ToastContext);
 
 /** Toasts, plus the clipboard countdown fed by clipboard://copied and clipboard://cleared. */
@@ -315,19 +317,33 @@ export function ToastProvider({ children, placement = "bottom" }: { children: Re
     toast(msg, { tone: "error", ms: 5000 });
   }, [toast]);
 
+  // Quick Access shows a clipboard toast only for a copy it made itself (expectCopy),
+  // never for one made in the main window.
+  const ownCopyUntil = useRef(0);
+  const expectCopy = useCallback(() => {
+    ownCopyUntil.current = Date.now() + 5000;
+  }, []);
   useEffect(() => {
     const a = on("clipboard://copied", (p) => {
+      if (placement === "quick" && Date.now() > ownCopyUntil.current) return;
+      ownCopyUntil.current = 0;
       setClip({ label: p.label, clearsAt: p.clearsInSeconds === null ? null : Date.now() + p.clearsInSeconds * 1000, cleared: false });
       setNow(Date.now());
     });
     const b = on("clipboard://cleared", () => {
       setClip((c) => (c ? { ...c, cleared: true } : c));
     });
+    // A locked vault shows no item titles: every toast goes.
+    const c = on("vault://locked", () => {
+      setToasts([]);
+      setClip(null);
+    });
     return () => {
       a();
       b();
+      c();
     };
-  }, []);
+  }, [placement]);
   useEffect(() => {
     if (!clip) return;
     if (clip.cleared) {
@@ -342,7 +358,7 @@ export function ToastProvider({ children, placement = "bottom" }: { children: Re
     return () => window.clearInterval(t);
   }, [clip]);
 
-  const api = useMemo(() => ({ toast, error }), [toast, error]);
+  const api = useMemo(() => ({ toast, error, expectCopy }), [toast, error, expectCopy]);
   const left = clip?.clearsAt ? Math.max(0, Math.ceil((clip.clearsAt - now) / 1000)) : null;
 
   return (
@@ -352,7 +368,8 @@ export function ToastProvider({ children, placement = "bottom" }: { children: Re
         aria-live="polite"
         className={cx(
           "pointer-events-none fixed z-50 flex flex-col items-center gap-2",
-          placement === "bottom" ? "bottom-5 left-1/2 -translate-x-1/2" : "bottom-14 left-3 right-3",
+          // Quick Access: under the search bar, so a toast never covers the hint line or the footer.
+          placement === "bottom" ? "bottom-5 left-1/2 -translate-x-1/2" : "top-14 left-3 right-3",
         )}
       >
         <AnimatePresence initial={false}>

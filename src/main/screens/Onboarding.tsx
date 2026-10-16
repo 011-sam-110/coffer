@@ -1,11 +1,11 @@
 // Welcome, Create vault (details, Emergency Kit, confirm, preferences, try the
 // shortcut) and Open existing vault. SPEC 11 items 1 to 3.
-import { Check, CloudAlert, FolderOpen, Printer, ShieldCheck } from "lucide-react";
+import { Check, CloudAlert, FileDown, FolderOpen, Printer, ShieldCheck } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
 import { useToast } from "../../components/overlays";
-import { Button, FormRow, Input, Keys, Notice, PasswordInput, Switch } from "../../components/ui";
+import { Button, cx, FormRow, Input, Keys, Notice, PasswordInput, Switch } from "../../components/ui";
 import type { EmergencyKit, FolderInfo } from "../../lib/contract";
 import { formatDate, secretKeyGroups, vaultStem } from "../../lib/format";
 import { call, isCofferError, on } from "../../lib/ipc";
@@ -217,7 +217,7 @@ function Details({ onCancel, onCreated }: { onCancel: () => void; onCreated: (k:
 }
 
 /** The printable Emergency Kit. Print styles turn it black on white. */
-export function KitSheet({ kit }: { kit: EmergencyKit }) {
+export function KitSheet({ kit, lossLineOnScreen = true }: { kit: EmergencyKit; /** False when the screen already says it above the sheet. */ lossLineOnScreen?: boolean }) {
   const groups = secretKeyGroups(kit.secretKey);
   const rows: Array<[string, string]> = [
     ["Vault name", kit.vaultName],
@@ -254,35 +254,56 @@ export function KitSheet({ kit }: { kit: EmergencyKit }) {
       </div>
       <div className="mt-6">
         <p className="mb-2 text-xs font-medium text-muted-foreground">Master password</p>
-        <div className="h-12 rounded-sm border border-dashed border-input-hover" aria-label="Empty box: write your master password here by hand" />
+        <div className="flex h-12 items-center rounded-sm border border-dashed border-input-hover px-3">
+          {/* On screen only: the printed box stays empty for the handwriting. */}
+          <span className="screen-only text-xs text-muted-foreground">Write your master password here by hand after you print. Coffer never puts it in the kit.</span>
+        </div>
       </div>
-      <p className="mt-5 text-sm font-medium">If you lose this kit and this computer, nobody can open this vault, not even Coffer.</p>
+      <p className={cx("mt-5 text-sm font-medium", !lossLineOnScreen && "print-only")}>If you lose this kit and this computer, nobody can open this vault, not even Coffer.</p>
     </article>
   );
 }
 
 function KitStep({ kit, onNext }: { kit: EmergencyKit; onNext: () => void }) {
+  // Continue opens once the print dialog ran (print or "Microsoft Print to PDF"); Coffer cannot see which.
+  const [printed, setPrinted] = useState(false);
+  const print = () => {
+    window.print();
+    setPrinted(true);
+  };
   return (
     <ScreenFrame width={660}>
       <div className="no-print">
         <StepTitle step={stepLabel("kit")} title="Save your Emergency Kit">
-          Your vault opens with your master password plus this Secret Key. This PC keeps the key; a new PC needs the kit.
+          Your vault opens with your master password plus this Secret Key. If you lose this kit and this computer, nobody can open this vault, not even Coffer.
         </StepTitle>
       </div>
-      <KitSheet kit={kit} />
+      <KitSheet kit={kit} lossLineOnScreen={false} />
       <div className="no-print">
         <Notice tone="warning" icon={<CloudAlert />} className="mt-4">
           Keep the kit off the cloud folder that holds your vault: together they leave only your password between an attacker and your data.
         </Notice>
       </div>
-      {/* Sticky, so the step's actions stay in view at 720 px. */}
-      <div className="no-print sticky bottom-0 z-10 -mx-6 mt-5 flex items-center gap-2 border-t border-border bg-background px-6 py-3">
-        <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>
-          Save as PDF
-        </Button>
-        <Button variant="primary" onClick={onNext}>
-          I saved it
-        </Button>
+      {/* Sticky, so the step's actions stay in view at 720 px. The rule is as wide as the kit. */}
+      <div className="no-print sticky bottom-0 z-10 mt-5 border-t border-border bg-background pt-4 pb-4">
+        <p className="mb-3 text-xs text-muted-foreground">Keep it off this PC: print it, or put the PDF on a USB stick or your phone.</p>
+        <div className="flex items-center gap-2">
+          <Button size="lg" variant={printed ? "secondary" : "primary"} icon={<Printer className="size-4" />} onClick={print}>
+            Print kit
+          </Button>
+          <Button size="lg" icon={<FileDown className="size-4" />} onClick={print} title='Opens the print dialog: choose "Microsoft Print to PDF".'>
+            Save as PDF
+          </Button>
+          <span className="flex-1" />
+          {!printed && (
+            <p id="kit-why" className="text-xs text-muted-foreground">
+              Print or save the kit first.
+            </p>
+          )}
+          <Button size="lg" variant={printed ? "primary" : "secondary"} disabled={!printed} aria-describedby={printed ? undefined : "kit-why"} onClick={onNext}>
+            Continue
+          </Button>
+        </div>
       </div>
     </ScreenFrame>
   );

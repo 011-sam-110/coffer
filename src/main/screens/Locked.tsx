@@ -1,7 +1,7 @@
 // Unlock, Missing vault, Tampered vault and Older file screens (SPEC 3.5, 11).
 import { FileWarning, FolderSearch, History, Lock, SearchX } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import { Dialog, useToast } from "../../components/overlays";
+import { Dialog, useReprompt, useToast } from "../../components/overlays";
 import { Button, FormRow, Input, Notice, PasswordInput, Spinner } from "../../components/ui";
 import type { BackupEntry, VaultStatus } from "../../lib/contract";
 import { formatBytes, formatDateTime } from "../../lib/format";
@@ -143,6 +143,7 @@ export function BackupList({ onRestored, compact }: { onRestored?: (s: VaultStat
   const [confirm, setConfirm] = useState<BackupEntry | null>(null);
   const [busy, setBusy] = useState(false);
   const { error, toast } = useToast();
+  const { withReprompt } = useReprompt();
   useEffect(() => {
     call("backups_list").then(setList).catch((e) => {
       setList([]);
@@ -186,12 +187,13 @@ export function BackupList({ onRestored, compact }: { onRestored?: (s: VaultStat
                 if (!confirm) return;
                 setBusy(true);
                 try {
-                  const s = await call("backup_restore", { index: confirm.index });
+                  // A restore that would weaken re-prompt on an item needs the master password (contract 208fbdd).
+                  const s = await withReprompt((password) => call("backup_restore", { index: confirm.index, password }), "Restoring this backup turns off the master password question on some items. Enter your master password to go on.");
                   toast("Backup restored.");
                   setConfirm(null);
                   onRestored?.(s);
                 } catch (e) {
-                  error(e);
+                  if (!(isCofferError(e) && e.message === "Cancelled.")) error(e);
                 } finally {
                   setBusy(false);
                 }
@@ -254,6 +256,7 @@ export function Tampered({ onDone }: { onDone: () => void }) {
   const [choose, setChoose] = useState(false);
   const [busy, setBusy] = useState(false);
   const { error } = useToast();
+  const { withReprompt } = useReprompt();
   return (
     <ScreenFrame center width={480}>
       <div className="mb-5 inline-flex size-10 items-center justify-center rounded-sm border border-destructive bg-accent/40">
@@ -271,11 +274,11 @@ export function Tampered({ onDone }: { onDone: () => void }) {
             try {
               const list = await call("backups_list");
               if (!list.length) throw { code: "notFound", message: "There is no backup of this vault yet." };
-              const s = await call("backup_restore", { index: list[0].index });
+              const s = await withReprompt((password) => call("backup_restore", { index: list[0].index, password }), "Restoring this backup turns off the master password question on some items. Enter your master password to go on.");
               setStatus(s);
               onDone();
             } catch (e) {
-              error(e);
+              if (!(isCofferError(e) && e.message === "Cancelled.")) error(e);
             } finally {
               setBusy(false);
             }
