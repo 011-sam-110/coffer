@@ -62,7 +62,7 @@ export interface EmergencyKit {
   vaultPath: string;
   vaultId: string;
   keyId: string; // the 6 id symbols, printed as "Key ID"
-  secretKey: string; // C1-AAAAAA-XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX (id, 26 secret symbols, check)
+  secretKey: string; // C1-AAAAAA-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXK (key id, 26 secret symbols, check)
   createdAt: string;
   computerName: string;
 }
@@ -385,7 +385,8 @@ export interface ImportPreview {
   duplicates: number; // equal to an item already in the vault; will be skipped
   skipped: Array<{ title: string; reason: string }>;
   warnings: string[];
-  needsPassword: boolean; // encrypted Bitwarden JSON: call import_preview again with password
+  needsPassword: boolean; // .cofferx or .coffer: call import_preview again with source "last" and the password
+  needsSecretKey: boolean; // a .coffer file whose key id has no stored Secret Key on this PC
 }
 
 export interface BackupEntry {
@@ -465,7 +466,8 @@ export interface Commands {
   vault_lock: [Record<string, never>, void];
   vault_change_password: [{ current: string; next: string; rekey: boolean }, void]; // rekey = "My old password may be known"
   vault_move: [Record<string, never>, VaultStatus | null]; // Rust opens the folder dialog
-  vault_save_again: [{ saveAs: boolean }, VaultStatus | null]; // file vanished while unlocked; saveAs opens a Rust dialog
+  // After the file vanished, or after diskDamaged / olderOnDisk: saveAs false rewrites the vault path at highest seen + 1; saveAs true opens a Rust dialog.
+  vault_save_again: [{ saveAs: boolean }, VaultStatus | null];
   vault_open_older: [Record<string, never>, VaultStatus]; // after vault_unlock failed with "olderFile" (keys held 60 s)
   hello_set: [{ enabled: boolean; password: string | null }, VaultStatus]; // tier 2; enabling needs the master password
   secret_key_validate: [{ secretKey: string }, { valid: boolean; keyId: string | null }];
@@ -502,8 +504,8 @@ export interface Commands {
   health_report: [Record<string, never>, HealthReport];
   health_check_breaches: [Record<string, never>, HealthReport];
 
-  // Rust opens the file dialog unless reuseLast (then it re-reads the last picked file, e.g. with a password).
-  import_preview: [{ password: string | null; reuseLast: boolean }, ImportPreview | null];
+  // source "pick" opens the dialog, "last" re-reads the last pick (e.g. with a password), "conflict" = the last conflict file Rust wrote.
+  import_preview: [{ source: "pick" | "last" | "conflict"; password: string | null; secretKey: string | null }, ImportPreview | null];
   import_commit: [{ previewId: string }, ImportResult];
   import_undo: [{ batchId: string }, number];
   import_delete_source: [{ previewId: string }, void]; // deletes the plain file the user imported from
@@ -528,7 +530,9 @@ export interface Commands {
 
 // ---------- events (Rust -> UI) ----------
 export interface Events {
-  "vault://locked": { reason: "manual" | "idle" | "systemLock" | "sleep" | "quit" };
+  "vault://locked": { reason: "manual" | "idle" | "systemLock" | "sleep" | "quit" | "keyChanged" };
+  "vault://diskDamaged": { path: string }; // MAC failed on disk; saves blocked (SPEC 3.5)
+  "vault://olderOnDisk": { fileGeneration: number; seenGeneration: number }; // rollback on disk; saves blocked
   "vault://unlocked": VaultStatus;
   "vault://changed": { ids: string[] };
   "vault://reloaded": Record<string, never>; // external change merged cleanly
