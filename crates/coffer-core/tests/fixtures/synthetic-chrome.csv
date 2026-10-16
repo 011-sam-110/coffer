@@ -1,0 +1,4 @@
+name,url,username,password,note
+Example Mail,https://mail.example.com/login,alice@example.com,Chrome-Synthetic-1!,
+,https://shop.example.net/,bob,Chrome-Synthetic-2!,Gift card PIN is in the notes app
+Router,http://192.168.1.1/,admin,Chrome-Synthetic-3!,

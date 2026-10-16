@@ -837,7 +837,7 @@ pub struct StoredItem {
     #[serde(default)]
     pub password_history: Vec<HistoryValue>,
     /// Revision snapshots, newest first (last 10).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub revisions: Vec<RevisionRecord>,
     /// Id of the import batch that made this item (undo by batch id).
     #[serde(default, skip_serializing_if = "Option::is_none")]
