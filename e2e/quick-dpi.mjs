@@ -116,6 +116,11 @@ const app = spawn(EXE, HIDDEN ? ["--hidden"] : [], {
   stdio: ["ignore", "ignore", "ignore"],
 });
 console.log(`quick-dpi: ${EXE} pid ${app.pid}, data ${DATA}`);
+/** Wait for a test window to close; one that hangs is closed after 15 s. */
+const probeDone = (probe) =>
+  Promise.race([new Promise((res) => probe.on("exit", res)), sleep(15000).then(() => probe.kill())]);
+/** Windows says the Quick Access window is shown (it waits up to 4 s). */
+const quickShown = () => JSON.parse(execFileSync(PY, [WIN, "quick-visible", String(app.pid), "4"], { encoding: "utf8" }).trim().split("\n").pop()).visible;
 
 let browser;
 try {
@@ -166,7 +171,7 @@ try {
     probe.stdout.on("data", (d) => (out += d));
     // The hotkey is pressed once the test window is in front; then Quick Access must take the focus.
     const front = await poll(() => out.includes('"front": true'), 8000, 100);
-    const visible = front && (await poll(() => quick.evaluate(() => document.hasFocus()), 4000));
+    const visible = front && quickShown();
     await sleep(700);
     const metrics = await quick.evaluate(() => {
       const titles = [...document.querySelectorAll('[role="option"] .truncate.font-medium')].map((e) => ({ text: e.textContent, shown: e.clientWidth, needs: e.scrollWidth }));
@@ -182,7 +187,7 @@ try {
     check(`${m.device}: page is 400 x 560`, Math.abs(metrics.w - 400) <= 1 && Math.abs(metrics.h - 560) <= 1, `${metrics.w} x ${metrics.h}`);
     check(`${m.device}: no item name is cut`, metrics.titles.length > 0 && cut.length === 0, cut.map((t) => `${t.text}: ${t.shown} of ${t.needs} px`).join("; "));
     await invoke("quick_hide").catch(() => undefined);
-    await new Promise((res) => probe.on("exit", res));
+    await probeDone(probe);
   }
 
   // A zoom gesture (Ctrl + wheel; a touchpad pinch also zooms) must not
@@ -194,7 +199,8 @@ try {
     let out = "";
     probe.stdout.on("data", (d) => (out += d));
     await poll(() => out.includes('"front": true'), 8000, 100);
-    await poll(() => quick.evaluate(() => document.hasFocus()), 4000);
+    // The wheel goes to the visible Quick Access window: wait until Windows shows it.
+    const up = quickShown();
     await sleep(500);
     const before = await quick.evaluate(() => ({ dpr: window.devicePixelRatio, w: window.innerWidth, pinch: window.visualViewport?.scale ?? 1 }));
     const wheel = JSON.parse(execFileSync(PY, [WIN, "ctrl-wheel", String(app.pid), "3"], { encoding: "utf8" }).trim().split("\n").pop());
@@ -202,7 +208,7 @@ try {
     const after = await quick.evaluate(() => ({ dpr: window.devicePixelRatio, w: window.innerWidth, pinch: window.visualViewport?.scale ?? 1 }));
     await quick.screenshot({ path: join(SHOTS, "9-after-ctrl-wheel.png"), scale: "device" }).catch(() => undefined);
     console.log(`  zoom gesture: before ${JSON.stringify(before)} after ${JSON.stringify(after)} wheel=${JSON.stringify(wheel)}`);
-    check("Ctrl + wheel does not zoom Quick Access", wheel.ok && after.dpr === before.dpr && after.w === before.w, `devicePixelRatio ${before.dpr} -> ${after.dpr}, width ${before.w} -> ${after.w}`);
+    check("Ctrl + wheel does not zoom Quick Access", up && wheel.ok && after.dpr === before.dpr && after.w === before.w, `${wheel.ok ? "" : `wheel not sent: ${wheel.error}; `}devicePixelRatio ${before.dpr} -> ${after.dpr}, width ${before.w} -> ${after.w}`);
     // A touchpad pinch, as DevTools sends it.
     const cdp = await quick.context().newCDPSession(quick);
     await cdp.send("Input.synthesizePinchGesture", { x: 200, y: 150, scaleFactor: 2.5, gestureSourceType: "mouse" }).catch((e) => console.log(`(pinch: ${e.message})`));
@@ -211,7 +217,7 @@ try {
     await quick.screenshot({ path: join(SHOTS, "9-after-pinch.png"), scale: "device" }).catch(() => undefined);
     check("A pinch does not zoom Quick Access", pinched === 1, `visual zoom ${pinched}`);
     await invoke("quick_hide").catch(() => undefined);
-    await new Promise((res) => probe.on("exit", res));
+    await probeDone(probe);
 
     // The next open: no zoom left over from before.
     const again = spawn(PY, [WIN, "focus-at", String(Math.round((l + r) / 2 - 210)), String(t + 40), "5"], { stdio: ["ignore", "pipe", "inherit"] });
