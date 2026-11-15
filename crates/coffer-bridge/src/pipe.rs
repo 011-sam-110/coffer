@@ -131,11 +131,27 @@ mod win {
         }
     }
 
-    /// The exe of the process that serves the pipe at `handle` (client side).
-    pub fn server_exe(handle: RawHandle) -> io::Result<PathBuf> {
+    /// The process id of the server of the pipe at `handle` (client side).
+    pub fn server_pid(handle: RawHandle) -> io::Result<u32> {
         let mut pid = 0u32;
         unsafe { GetNamedPipeServerProcessId(HANDLE(handle), &mut pid).map_err(err)? };
-        process_path(pid)
+        Ok(pid)
+    }
+
+    /// The exe of the process that serves the pipe at `handle` (client side).
+    pub fn server_exe(handle: RawHandle) -> io::Result<PathBuf> {
+        process_path(server_pid(handle)?)
+    }
+
+    /// Let Coffer (`pid`) bring its window to the front for the next call.
+    /// Windows lets only the foreground process, or a process it started, take
+    /// the front. Chrome starts the bridge, so while Chrome is in front (the user
+    /// just clicked Connect or Unlock) the bridge holds that right and passes it
+    /// on. Without it Coffer's Connect prompt only flashes in the taskbar. When
+    /// the bridge does not hold the right, Windows refuses and nothing changes.
+    pub fn allow_foreground(pid: u32) {
+        use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+        let _ = unsafe { AllowSetForegroundWindow(pid) };
     }
 
     /// The exe of the client at `handle` (server side; for the log only).

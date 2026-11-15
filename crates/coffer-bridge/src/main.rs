@@ -210,6 +210,7 @@ mod host {
                     0
                 }
                 Link::Up(client) => {
+                    let coffer_pid = pipe::server_pid(client.as_raw_handle()).ok();
                     let (mut rd, mut wr) = tokio::io::split(client);
                     let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<Done>(2);
                     let d1 = done_tx.clone();
@@ -223,6 +224,10 @@ mod host {
                                     continue;
                                 }
                             };
+                            // A call can open a Coffer window (Connect prompt, unlock): let it come to the front.
+                            if let Some(pid) = coffer_pid {
+                                pipe::allow_foreground(pid);
+                            }
                             if frame::write_async(&mut wr, &msg, MAX_MESSAGE).await.is_err() {
                                 break;
                             }
