@@ -51,6 +51,7 @@ export interface Link {
 export class NativeLink implements Link {
   private port: chrome.runtime.Port | null;
   private nextId = 1;
+  private queue: Promise<void> = Promise.resolve();
   private waiting = new Map<number, { resolve: (m: Message) => void; reject: (e: BridgeError) => void; timer: ReturnType<typeof setTimeout> }>();
   closed = false;
 
@@ -86,7 +87,14 @@ export class NativeLink implements Link {
   async request(build: (id: number) => Message | Promise<Message>, timeoutMs = 10_000): Promise<Message> {
     if (this.closed || !this.port) throw new BridgeError("not_running", "The connection to Coffer is closed.");
     const id = this.nextId++;
-    const msg = await build(id);
+    // Messages leave in the order of the calls: a signed call's number must
+    // only go up, and signing is async (two calls can finish signing out of order).
+    const built = this.queue.then(() => build(id));
+    this.queue = built.then(
+      () => undefined,
+      () => undefined,
+    );
+    const msg = await built;
     return new Promise<Message>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiting.delete(id);
@@ -183,8 +191,11 @@ export class Session {
     this.hello = null;
   }
 
-  /** A signed call. Rejects with a BridgeError (`locked`, `not_paired`, `bad_mac`, ...). */
-  async call<T>(call: string, args: unknown = {}): Promise<T> {
+  /**
+   * A signed call. Rejects with a BridgeError (`locked`, `not_paired`, `bad_mac`, ...).
+   * `timeoutMs`: longer for `get_login`, which waits while Coffer asks for the master password.
+   */
+  async call<T>(call: string, args: unknown = {}, timeoutMs?: number): Promise<T> {
     const pairing = await this.env.load();
     if (!pairing) throw new BridgeError("not_paired", "Connect this browser to Coffer first.");
     const hello = await this.connect();
@@ -192,7 +203,7 @@ export class Session {
     if (!link) throw new BridgeError("not_running", "The connection to Coffer is closed.");
     const key = unb64(pairing.key);
     const seq = ++this.seq;
-    const reply = await link.request((id) => signedRequest(key, pairing.client, id, call, args, hello.nonce, seq));
+    const reply = await link.request((id) => signedRequest(key, pairing.client, id, call, args, hello.nonce, seq), timeoutMs);
     const err = errorOf(reply);
     if (err) throw err;
     const body = String(reply.body ?? "");

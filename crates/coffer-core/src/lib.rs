@@ -21,6 +21,7 @@ pub mod import;
 pub mod model;
 pub mod secret_key;
 pub mod session;
+pub mod site;
 pub mod strength;
 pub mod suggest;
 pub mod templates;

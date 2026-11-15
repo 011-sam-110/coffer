@@ -641,6 +641,39 @@ fn reprompt_is_enforced() {
 }
 
 #[test]
+fn login_refs_carry_no_password_and_fill_needs_the_grant() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let plain = v.item_save(&login("northwind-shop.test", "alex@example.com", "plain-pass-91"), None).unwrap().id;
+    let mut guarded = login("Northwind (work)", "alex.morgan@work.example", "guarded-pass-92");
+    guarded.reprompt = true;
+    guarded.urls = vec![ItemUrl { url: "https://northwind-shop.test".into(), label: None }];
+    guarded.fields.push(field("totp", FieldKind::Totp, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"));
+    let guarded = v.item_save(&guarded, None).unwrap().id;
+    let trashed = v.item_save(&login("Old", "old@example.com", "old-pass-93"), None).unwrap().id;
+    v.item_set_state(&trashed, ItemState::Trashed).unwrap();
+
+    let refs = v.login_refs();
+    assert_eq!(refs.len(), 2, "active logins only: {refs:?}");
+    let g = refs.iter().find(|r| r.id == guarded).unwrap();
+    assert!(g.reprompt && g.has_totp && g.username == "alex.morgan@work.example" && g.urls == ["https://northwind-shop.test"]);
+    let text = format!("{refs:?}");
+    assert!(!text.contains("plain-pass-91") && !text.contains("guarded-pass-92") && !text.contains("GEZDGNBV"), "no secret in the refs");
+
+    let f = v.login_fill(&plain).unwrap();
+    assert_eq!((f.username.as_str(), f.password.as_str(), f.has_totp), ("alex@example.com", "plain-pass-91", false));
+    assert_eq!(v.login_fill(&guarded).unwrap_err(), CoreError::RepromptRequired);
+    assert_eq!(v.login_fill(&trashed).unwrap_err(), CoreError::NotFound);
+    assert_eq!(v.login_fill("not-an-id").unwrap_err(), CoreError::NotFound);
+    assert_eq!(v.grant(&guarded, "wrong").unwrap_err(), CoreError::BadCredentials);
+    assert_eq!(v.login_fill(&guarded).unwrap_err(), CoreError::RepromptRequired);
+    v.grant(&guarded, PW).unwrap();
+    let f = v.login_fill(&guarded).unwrap();
+    assert_eq!((f.password.as_str(), f.has_totp), ("guarded-pass-92", true));
+    assert_eq!(v.totp_code(&guarded, None, None).unwrap().code.len(), 6, "the grant covers the code too");
+}
+
+#[test]
 fn saves_cannot_weaken_reprompt() {
     let k = sk();
     let mut v = new_vault(&k);

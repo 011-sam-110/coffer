@@ -87,6 +87,8 @@ pub fn lock(app: &AppHandle, reason: LockReason) {
     // A waiting import preview holds decrypted items.
     state.import.lck().plan = None;
     crate::clipboard::clear_if_ours(app);
+    // A fill in the browser that waits for the master password gets `locked`.
+    crate::bridge::on_lock(app);
     let discarded = state.edit.lck().take();
     if let Some(edit) = discarded.filter(|e| e.dirty) {
         let _ = app.emit(events::EDIT_DISCARDED, EditDiscardedEvent { title: edit.title });

@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { BridgeInfo, CofferError, Settings } from "../contract";
 import type { Backend } from "../ipc";
-import { createDemoBackend, DEMO_EXTENSION_FOLDER, DEMO_PAIR_WORDS } from "./index";
+import { createDemoBackend, DEMO_EXTENSION_FOLDER, DEMO_MASTER_PASSWORD, DEMO_PAIR_WORDS } from "./index";
 import type { DemoBackendOptions } from "./index";
 
 const mk = (o: Partial<DemoBackendOptions> = {}): Backend => createDemoBackend({ page: "main", startState: "unlocked", latencyMs: 0, search: "", ...o });
@@ -15,7 +15,7 @@ describe("demo browser bridge", () => {
   it("starts with Chrome connected and the extension folder", async () => {
     const info = await call<BridgeInfo>(mk(), "bridge_info");
     expect(info.browsers.map((b) => [b.browser, b.name])).toEqual([["chrome", "Chrome"]]);
-    expect(info).toMatchObject({ extensionFolder: DEMO_EXTENSION_FOLDER, extensionFound: true, pending: null });
+    expect(info).toMatchObject({ extensionFolder: DEMO_EXTENSION_FOLDER, extensionFound: true, pending: null, reprompt: null });
     expect((await call<BridgeInfo>(mk({ bridge: "none" }), "bridge_info")).browsers).toEqual([]);
   });
 
@@ -48,5 +48,21 @@ describe("demo browser bridge", () => {
     const s = await call<Settings>(b, "settings_get");
     expect([s.offerSaveLogins, s.offerUpdatePasswords]).toEqual([true, true]);
     expect((await call<Settings>(b, "settings_set", { patch: { offerSaveLogins: false } })).offerSaveLogins).toBe(false);
+  });
+
+  it("a fill's master-password question: a wrong password keeps it open, the right one or Cancel closes it", async () => {
+    const b = mk({ bridge: "reprompt" });
+    let info = await call<BridgeInfo>(b, "bridge_info");
+    expect(info.reprompt).toMatchObject({ name: "Chrome", title: "Northwind (work)", site: "northwind-shop.example" });
+    const requestId = info.reprompt!.requestId;
+    const wrong = (await b.invoke("bridge_reprompt_answer", { requestId, password: "nope" }).catch((e) => e)) as CofferError;
+    expect(wrong.code).toBe("badCredentials");
+    expect((await call<BridgeInfo>(b, "bridge_info")).reprompt?.requestId).toBe(requestId);
+    info = await call<BridgeInfo>(b, "bridge_reprompt_answer", { requestId, password: DEMO_MASTER_PASSWORD });
+    expect(info.reprompt).toBeNull();
+    const gone = (await b.invoke("bridge_reprompt_answer", { requestId, password: null }).catch((e) => e)) as CofferError;
+    expect(gone.code).toBe("notFound");
+    const c = mk({ bridge: "reprompt" });
+    expect((await call<BridgeInfo>(c, "bridge_reprompt_answer", { requestId, password: null })).reprompt).toBeNull();
   });
 });

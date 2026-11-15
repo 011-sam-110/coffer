@@ -7,7 +7,7 @@ import { DemoBadge } from "../components/bits";
 import { ConfirmDialog, Dialog, RepromptProvider, ToastProvider } from "../components/overlays";
 import { Button, Notice } from "../components/ui";
 import { call, on } from "../lib/ipc";
-import { BridgePrompt } from "./BridgePrompt";
+import { BridgePrompt, BridgeReprompt } from "./BridgePrompt";
 import { CreateVault, OpenVault, Welcome } from "./screens/Onboarding";
 import { Missing, OlderFile, Tampered, Unlock, type UnlockOutcome } from "./screens/Locked";
 import { StoreProvider, useStore } from "./store";
@@ -246,6 +246,7 @@ function Shell() {
       />
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <BridgePrompt />
+      <BridgeReprompt />
     </>
   );
 }

@@ -109,12 +109,12 @@ try {
   await name.pressSequentially("github.com", { delay: 20 });
   const website = page.getByLabel("Website", { exact: true });
   check("a login named github.com gets https://github.com as its Website", (await website.inputValue()) === "https://github.com", await website.inputValue());
-  check('the hint "Taken from the name." shows', await page.getByText("Taken from the name.", { exact: true }).isVisible());
+  check('the hint "Taken from the name. Chrome fills this login on this website." shows', await page.getByText("Taken from the name. Chrome fills this login on this website.", { exact: true }).isVisible());
   await page.screenshot({ path: join(SHOTS, "03-login-named-with-url.png") });
   await name.fill("");
   await name.pressSequentially("GitHub", { delay: 20 });
   check('a login named "GitHub" gets no Website', (await website.inputValue()) === "", await website.inputValue());
-  check("the hint is gone for a plain name", (await page.getByText("Taken from the name.", { exact: true }).count()) === 0);
+  check("the hint is gone for a plain name", (await page.getByText("Taken from the name. Chrome fills this login on this website.", { exact: true }).count()) === 0);
   // Once the user edits Website, it stops following the name.
   await name.fill("");
   await name.pressSequentially("github.com", { delay: 20 });

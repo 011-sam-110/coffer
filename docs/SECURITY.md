@@ -267,7 +267,7 @@ What the signature does not cover:
 
 ## 12. Browser bridge
 
-The Coffer extension in Chrome or Edge reaches Coffer through `coffer-bridge.exe` (native messaging) and a named pipe. [BRIDGE.md](BRIDGE.md) has the protocol. Today the bridge answers only `hello`, the Connect calls, `status`, `unlock` and `disconnect`, so no item data crosses it yet. Fill and save come next (BRIDGE.md section 6).
+The Coffer extension in Chrome or Edge reaches Coffer through `coffer-bridge.exe` (native messaging) and a named pipe. [BRIDGE.md](BRIDGE.md) has the protocol. The bridge answers `hello`, the Connect calls, `status`, `unlock` and `disconnect` (M3), and the fill calls `list_logins`, `get_login` and `copy_totp` (M4). Save comes next (BRIDGE.md section 6).
 
 **Who can reach Coffer.**
 
@@ -290,6 +290,29 @@ The Coffer extension in Chrome or Edge reaches Coffer through `coffer-bridge.exe
 **Unlock.** `unlock` only shows Coffer's own unlock window (PIN, Hello or master password). No password or PIN crosses the pipe.
 
 **What the bridge does not protect against.** A program that runs as the same Windows user can read the extension's key from the browser profile, then call Coffer as that browser. From M4 on, such a program could then ask for logins while Coffer is unlocked. This is the same limit as the rest of section 1: code running as the user while Coffer is unlocked is out of scope.
+
+### Fill in the browser (M4)
+
+The threat here is the web page: a hostile site, a hacked page on a site you use, or a page that frames another site. The content script runs inside the page, so the rules below keep the page from getting a password without your pick, and keep one site from getting another site's password.
+
+- **No fill without your pick.** A focus on a sign-in field only asks Coffer for the menu (`list_logins`: names and usernames, no password). `get_login` runs only after a pick in the menu or Ctrl+Shift+L. Nothing fills when a page loads, so a hidden form on a hacked page cannot collect a password while you do nothing.
+- **A pick is a person's pick.** The content script counts a click or Enter only when the browser marks it as a real input event (`isTrusted`; a page script cannot make one), and only when the menu has been on screen for 400 ms. Where Chrome can tell (IntersectionObserver v2, `trackVisibility`), the menu must also have been fully visible for those 400 ms: not covered by another element, not faded, not moved by a transform. A page that hides the menu under a fake button, or puts a transparent layer over it, gets no fill from the click.
+- **The menu is out of the page's reach.** The button, the menu and the note live in a closed shadow root: page scripts get `null` for its `shadowRoot` and cannot read the names in it or restyle it. The host element is in the top layer (a manual popover) with inline `!important` styles. A page can still see that the host element exists and how big it is, so it can tell that Coffer is installed and guess how many logins the site has. It can remove the host; then there is nothing to pick.
+- **Only visible fields.** The extension fills a field only when it is visible at the moment of the fill: not `display: none`, `visibility: hidden`, `opacity: 0`, `hidden`, `aria-hidden`, smaller than 8 px, or pushed off the page. A decoy password box beside the real one gets nothing. A sign-up form (two new-password boxes) is not a sign-in form, and a search box never gets the button.
+- **The page's own address, from Chrome.** The content script sends no address. The service worker reads the frame's URL from Chrome (`sender.url`), and the top page's URL from the top page's own content script, which runs in an isolated world that the page's scripts cannot change. Text in the page (a form's `action`, a title, a URL in the DOM) is never used to choose logins.
+- **https only.** Fill works on `https:` pages, and on `http:` only for `localhost` and `127.0.0.1`. The extension and Coffer both check.
+- **Frames.** A frame gets the button and a fill only when it is the same site as its top page (the same scheme and registered domain); Coffer checks this (`cross_site`) before it looks at the vault. A sign-in frame of your bank inside another site's page gets nothing, so that site cannot make you fill it.
+- **Look-alike sites.** Matching is by the registered domain from the Public Suffix List (BRIDGE.md section 6): `g00gle.com`, `google.com.evil.test` and `evil-google.com` get none of a `google.com` login's data. Private suffixes keep sites apart (`alex.github.io` is not `bob.github.io`).
+- **Coffer checks the login against the address.** `get_login` and `copy_totp` refuse a login that does not fit the page (`no_match`), so an id from another site gets nothing, also from a content script that was made to ask for it.
+- **Re-prompt.** A login with "Ask for master password" fills only after the master password in Coffer's own window (the same check and the same 60 s grant as in the app). The password never goes through the browser. Cancel, 2 minutes or a lock ends the question with no fill.
+- **The one-time code** goes to the clipboard with the rules of section 6 (out of clipboard history, cleared after the set time), only after a fill of that login.
+
+Limits:
+
+- A page's own scripts can read a field's value once Coffer fills it. That is how sign-in forms work, so a hacked page on the right site (an XSS) gets the login after you pick it.
+- The password crosses from Coffer through the pipe, the bridge and Chrome to the content script in clear text inside the signed answer (a MAC, not encryption). Only the current Windows user can open the pipe (section 12). Coffer wipes its copy of the answer after it sends it; JavaScript strings in the extension cannot be wiped.
+- A renderer that an attacker took over (a browser exploit) could send fill messages without a pick. Chrome still reports that renderer's real site in `sender.url`, so it gets only that site's logins.
+- Another extension with access to the page can read filled values too, as it can read anything you type.
 
 ## 13. Known limits
 

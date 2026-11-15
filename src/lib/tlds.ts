@@ -3,6 +3,8 @@
 // ASCII names only: an internationalised TLD (xn--...) is left out, because a
 // name typed with one is not read as a web address. Update: fetch the file again
 // and keep the same shape (lower case, one space between names).
+// Rust reads this file too (crates/coffer-core/src/site.rs): every line that is
+// one quoted string followed by a comma is a line of names.
 const LIST = [
   "aaa aarp abb abbott abbvie abc able abogado abudhabi ac academy accenture accountant accountants aco actor ad",
   "ads adult ae aeg aero aetna af afl africa ag agakhan agency ai aig airbus airforce airtel akdn al alibaba alipay",
@@ -75,5 +77,12 @@ const LIST = [
   "zara zero zip zm zone zuerich zw",
 ].join(" ");
 
-/** Every ASCII top-level domain, lower case: "com", "uk", "dev", ... */
-export const TLDS: ReadonlySet<string> = new Set(LIST.split(" "));
+// Special-use names that are not in the root zone but name real local sites:
+// test, example, localhost and invalid (RFC 6761), local (RFC 6762, mDNS) and
+// internal (ICANN, 2024). "invalid" is left out: it never names a site.
+const SPECIAL_USE = [
+  "example internal local localhost test",
+].join(" ");
+
+/** Every ASCII top-level domain, lower case: "com", "uk", "dev", ..., and the special-use names. */
+export const TLDS: ReadonlySet<string> = new Set([...LIST.split(" "), ...SPECIAL_USE.split(" ")]);

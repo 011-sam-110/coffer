@@ -10,7 +10,7 @@ use tauri::AppHandle;
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 
 use super::AppHost;
-use super::gate::{Core, Outcome, PairEnd};
+use super::gate::{Core, Outcome, PairEnd, RepromptEnd};
 
 /// Connections at one time; more are closed at once.
 const MAX_CONNECTIONS: usize = 16;
@@ -71,8 +71,11 @@ async fn connection(app: AppHandle, core: Arc<Core>, pipe_conn: NamedPipeServer,
     let (mut rd, mut wr) = tokio::io::split(pipe_conn);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
     let writer = tauri::async_runtime::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if frame::write_async(&mut wr, msg.as_bytes(), MAX_MESSAGE).await.is_err() {
+        while let Some(mut msg) = rx.recv().await {
+            let sent = frame::write_async(&mut wr, msg.as_bytes(), MAX_MESSAGE).await;
+            // A fill's answer holds a password: wipe each message once it is out.
+            zeroize::Zeroize::zeroize(&mut msg);
+            if sent.is_err() {
                 break;
             }
         }
@@ -120,6 +123,25 @@ async fn connection(app: AppHandle, core: Arc<Core>, pipe_conn: NamedPipeServer,
                         }
                     };
                     let _ = tx.send(wait.reply(&end)).await;
+                });
+            }
+            Outcome::Later(mut wait) => {
+                // get_login on a re-prompt login: answer after the master password, Cancel or 2 minutes.
+                let (tx, app, core) = (tx.clone(), app.clone(), core.clone());
+                tauri::async_runtime::spawn(async move {
+                    let end = loop {
+                        let now = wait.rx.borrow().clone();
+                        if now != RepromptEnd::Waiting {
+                            break now;
+                        }
+                        match tokio::time::timeout_at(wait.deadline.into(), wait.rx.changed()).await {
+                            Ok(Ok(())) => continue,
+                            Ok(Err(_)) => break wait.rx.borrow().clone(),
+                            Err(_) => break RepromptEnd::Timeout,
+                        }
+                    };
+                    let reply = core.finish(&AppHost(&app), &wait.ticket, &end);
+                    let _ = tx.send(reply).await;
                 });
             }
         }

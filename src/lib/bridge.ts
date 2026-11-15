@@ -1,5 +1,5 @@
 // Words for Settings > Browsers and the Connect prompt (SPEC 3.13).
-import type { BridgeInfo, BrowserLink, PairRequest } from "./contract";
+import type { BridgeInfo, BridgeReprompt, BrowserLink, PairRequest } from "./contract";
 import { formatDate, relativeTime } from "./format";
 
 export interface BrowserRow {
@@ -33,4 +33,9 @@ export function connectedLine(link: BrowserLink, now: number = Date.now()): stri
 /** "maple · river · otter · lamp" */
 export function pairWords(req: Pick<PairRequest, "words">): string {
   return req.words.join(" · ");
+}
+
+/** "Chrome asks to fill Northwind (work) on northwind-shop.test. This login asks for your master password." */
+export function repromptReason(req: Pick<BridgeReprompt, "name" | "title" | "site">): string {
+  return `${req.name} asks to fill ${req.title} on ${req.site}. This login asks for your master password.`;
 }

@@ -508,11 +508,22 @@ export interface PairRequest {
   expiresAt: string; // 2 minutes after the request; then it closes and stores nothing
 }
 
+/** A fill in the browser waits for the master password (a login with "Ask for master password"). */
+export interface BridgeReprompt {
+  requestId: string;
+  browser: BrowserKind;
+  name: string;
+  title: string; // the login's name
+  site: string; // the registered domain of the page ("northwind-shop.test")
+  expiresAt: string; // 2 minutes after the request; then the browser gets "timeout"
+}
+
 export interface BridgeInfo {
   browsers: BrowserLink[];
   extensionFolder: string; // <install folder>\extension, the folder for Load unpacked
   extensionFound: boolean; // the folder holds manifest.json
   pending: PairRequest | null;
+  reprompt: BridgeReprompt | null;
 }
 
 // ---------- quick access ----------
@@ -612,6 +623,7 @@ export interface Commands {
   bridge_pair_answer: [{ pairId: string; allow: boolean }, BridgeInfo]; // the Connect prompt; "notFound" when it closed already
   bridge_disconnect: [{ id: string }, BridgeInfo]; // deletes that browser's key; it must connect again
   bridge_copy_folder: [Record<string, never>, void]; // copies extensionFolder (not a secret: no clear timer)
+  bridge_reprompt_answer: [{ requestId: string; password: string | null }, BridgeInfo]; // the master password lets that one login fill; null = Cancel; "badCredentials" keeps it open
 }
 
 // ---------- events (Rust -> UI) ----------
@@ -632,5 +644,5 @@ export interface Events {
   "app://quitRequested": Record<string, never>; // main asks Save / Discard / Cancel, then calls app_quit
   "main://closeNotice": Record<string, never>; // first close with closeBehavior "hide": the window stays open; the UI shows the tray notice, then calls main_hide
   "update://state": UpdateState; // the auto update moved on (checking, downloading, ready, installing, an error)
-  "bridge://changed": BridgeInfo; // a browser connected or disconnected, or the Connect prompt opened or closed
+  "bridge://changed": BridgeInfo; // a browser connected or disconnected, the Connect prompt or a fill's master-password question opened or closed
 }

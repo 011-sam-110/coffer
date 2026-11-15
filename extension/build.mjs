@@ -5,7 +5,8 @@
 //
 // The output: manifest.json (version from package.json, the fixed ID's
 // public key), background.js (the service worker), popup/ and welcome/
-// pages, words.txt (the EFF large word list, for the four words), host.json
+// pages, content.js (the content script, one IIFE), words.txt (the EFF large
+// word list, for the four words), host.json
 // (the native host name: Coffer's own here; the installer writes its own
 // identifier, so a QA copy talks to its own host), icons and fonts.
 // COFFER_HOST sets host.json (e2e runs).
@@ -49,6 +50,23 @@ await build({
       },
       output: { entryFileNames: "[name].js", chunkFileNames: "chunks/[name].js", assetFileNames: "assets/[name][extname]" },
     },
+  },
+});
+
+// The content script: one IIFE file (a content script cannot be an ES module),
+// with no imports left at run time.
+await build({
+  configFile: false,
+  customLogger: logger,
+  root: src,
+  publicDir: false,
+  logLevel: "warn",
+  build: {
+    outDir: out,
+    emptyOutDir: false,
+    target: "es2022",
+    minify: false,
+    lib: { entry: join(src, "content", "main.ts"), formats: ["iife"], name: "cofferContent", fileName: () => "content.js" },
   },
 });
 
