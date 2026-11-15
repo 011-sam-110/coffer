@@ -157,7 +157,7 @@ pub async fn vault_unlock_pin(app: AppHandle, pin: Secret) -> CofferResult<Vault
 
 #[tauri::command]
 pub async fn vault_lock(app: AppHandle) -> CofferResult<()> {
-    blocking(move || crate::lock::lock(&app, LockReason::Manual)).await
+    blocking(move || crate::lock::lock_by_user(&app, LockReason::Manual)).await
 }
 
 #[tauri::command]
@@ -749,4 +749,24 @@ pub fn suggestions(app: &AppHandle, title: Option<&str>, process: Option<&str>) 
         Ok(guard) => guard.as_ref().map(|s| s.vault.suggestions(title, process, &learned, &last_used)).unwrap_or_default(),
         Err(_) => Vec::new(),
     }
+}
+
+// ---------- updates (SPEC 3.12) ----------
+
+#[tauri::command]
+pub async fn update_status(app: AppHandle) -> CofferResult<UpdateState> {
+    Ok(crate::updates::status(&app))
+}
+
+/// Check GitHub now; a newer version downloads and its signature is checked.
+#[tauri::command]
+pub async fn update_check(app: AppHandle) -> CofferResult<UpdateState> {
+    Ok(crate::updates::check(&app).await)
+}
+
+/// "Restart now": lock, then install the ready update (Coffer exits and the
+/// installer starts it again).
+#[tauri::command]
+pub async fn update_install(app: AppHandle) -> CofferResult<()> {
+    blocking(move || crate::updates::restart_now(&app)).await?
 }

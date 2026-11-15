@@ -31,6 +31,7 @@ _Status: v0.1.0 pre-release for Windows 10 and 11. The installer is not code-sig
 - **PIN unlock (optional, off by default)** - a PIN of 6 to 12 digits unlocks Coffer and Quick Access on this PC, also after a restart. 5 wrong PINs remove it, and the master password is needed again after 14 days. The vault file does not change: away from this PC it still needs the master password.
 - **Tray app** - close-to-tray, start with Windows, a tray menu, one instance at a time, and a tray icon that shows locked or unlocked.
 - **Auto-lock** - after a set idle time, when Windows locks and when the PC sleeps. Secrets stay in the Rust process and reach the window only when you press Reveal.
+- **Auto update** - every 6 hours Coffer reads the newest GitHub release, downloads the installer and checks its signature against the public key built into Coffer. A wrong signature is refused. The update installs the next time Coffer locks, never while you use it, or at once with Restart now. Settings > General > Updates can turn the automatic install off.
 - **Clipboard care** - copies stay out of Windows clipboard history and cloud clipboard, and are cleared after 90 seconds (you can change this) if the clipboard still holds them.
 - **11 item types** - logins, passwords, notes, cards, identities, bank accounts, documents, SSH keys, API credentials, Wi-Fi and licences. Items have typed fields, tags, favourites, an archive, a 30-day trash, password history, revisions you can restore, and a per-item "ask for the master password" switch.
 - **Generator** - random, passphrase (EFF word list) and PIN, with a strength meter that shows how it counts, and a generator history.
@@ -64,6 +65,8 @@ Rust (vault core: `argon2`, `chacha20poly1305`, `zeroize`) · Tauri 2 · React 1
 1. Download `Coffer_0.1.0_x64-setup.exe` from [Releases](https://github.com/011-sam-110/coffer/releases).
 2. Run it. It installs for your Windows user only, so it needs no admin rights. The installer is not code-signed, so Windows SmartScreen may warn first: choose "More info", then "Run anyway".
 3. Coffer opens on its Welcome screen. Create a vault, save or print the Emergency Kit, and look for the Coffer icon under the "^" arrow next to the clock. Drag it onto the taskbar to keep it in view.
+
+From 0.3.0 on, Coffer updates itself (see Auto update above), so you install it by hand only once.
 
 Your vault is in `%USERPROFILE%\Coffer` unless you choose another folder. The settings, this PC's copy of the Secret Key and the backups are in `%LOCALAPPDATA%\Coffer`. Uninstalling leaves both folders where they are.
 

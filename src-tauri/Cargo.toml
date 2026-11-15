@@ -21,6 +21,9 @@ tauri = { version = "2", features = ["image-png", "tray-icon"] }
 tauri-plugin-global-shortcut = "2.4.1"
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-single-instance = "2.5.4"
+# Signed updates from the latest GitHub release (src/updates.rs). Rust only: no JS permissions.
+# No "zip": the update is the NSIS setup .exe itself. rustls + ring, as ureq uses.
+tauri-plugin-updater = { version = "2.14.1", default-features = false, features = ["rustls-tls", "system-proxy"] }
 # Rust-side file and folder dialogs (SPEC 3.7). Same features as Tauri's dialog plugin uses.
 rfd = { version = "0.16", default-features = false, features = ["common-controls-v6"] }
 serde = { version = "1", features = ["derive"] }

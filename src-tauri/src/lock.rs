@@ -45,7 +45,7 @@ pub fn on_signal(app: &AppHandle, signal: Signal) {
     };
     crate::log!("signal: {signal:?} -> {reason:?}");
     if let Some(reason) = reason {
-        lock(app, reason);
+        lock_by_user(app, reason);
     }
 }
 
@@ -53,8 +53,17 @@ pub fn check_idle(app: &AppHandle, idle_millis: u64) {
     let state = app.state::<AppState>();
     let minutes = state.settings.rd().settings.auto_lock_minutes;
     if idle_should_lock(state.is_unlocked(), minutes, idle_millis) {
-        lock(app, LockReason::Idle);
+        lock_by_user(app, LockReason::Idle);
     }
+}
+
+/// A lock the user caused: the Lock button, Ctrl+L, the tray, the lock
+/// shortcut, auto-lock, Windows lock, sleep. After it a downloaded update may
+/// install (SPEC 3.12). A lock inside a flow (a new vault, a password change)
+/// calls `lock` and never starts an install.
+pub fn lock_by_user(app: &AppHandle, reason: LockReason) {
+    lock(app, reason);
+    crate::updates::after_lock(app, reason);
 }
 
 /// Lock: drop the vault keys (phase B: the core session; a write in progress

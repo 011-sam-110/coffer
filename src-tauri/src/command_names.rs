@@ -72,6 +72,9 @@ pub const COMMAND_NAMES: &[&str] = &[
     "autotype",
     "app_quit",
     "main_hide",
+    "update_status",
+    "update_check",
+    "update_install",
 ];
 
 /// Commands the shell needs that are not (yet) in the contract (none now).

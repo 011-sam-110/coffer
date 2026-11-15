@@ -35,6 +35,7 @@ mod ssh;
 mod state;
 mod totp_image;
 mod tray;
+mod updates;
 mod usage;
 mod vault;
 mod win;
@@ -64,7 +65,8 @@ macro_rules! with_commands {
             backups_list, backup_restore,
             settings_get, settings_set, quick_hint_seen, edit_state,
             quick_context, quick_hide, quick_set_modal, main_show, autotype, app_quit,
-            main_hide
+            main_hide,
+            update_status, update_check, update_install
         )
     };
 }
@@ -99,7 +101,10 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
+        // Rust uses it (src/updates.rs); no capability grants its JS commands.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
+        .manage(updates::Updates::default())
         .setup(move |app| {
             let handle = app.handle().clone();
             win::set_app(&handle);
@@ -120,9 +125,12 @@ pub fn run() {
                 let s = handle.state::<AppState>().settings.rd().clone();
                 (s.settings.start_hidden, s.vault_path.is_some())
             };
-            if shell::show_main_at_start(hidden_arg, start_hidden, has_vault) {
+            // After an update the old Coffer said whether its main window was open.
+            let after_update = updates::show_main_after_update(&handle.state::<AppState>().data_dir, &handle.package_info().version.to_string());
+            if after_update.unwrap_or_else(|| shell::show_main_at_start(hidden_arg, start_hidden, has_vault)) {
                 shell::show_main(&handle, None);
             }
+            updates::start(&handle);
             #[cfg(debug_assertions)]
             selftest::maybe_start(&handle);
             Ok(())

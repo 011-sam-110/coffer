@@ -440,6 +440,7 @@ export interface Settings {
   closeNoticeShown: boolean;
   closeBehavior: "hide" | "quit"; // default "hide"
   quickHintsShown: number; // the first 3 Quick Access opens show a hint line
+  autoUpdate: boolean; // default true: a downloaded update installs when Coffer locks; false: only "Restart now" installs (SPEC 3.12)
 }
 
 export interface AppInfo {
@@ -457,6 +458,18 @@ export interface FolderInfo {
   writable: boolean;
   synced: boolean;
   provider: "OneDrive" | "Dropbox" | "Google Drive" | null;
+}
+
+// ---------- updates (SPEC 3.12) ----------
+/** off: this build does not update (no signing key, or a test copy); `error` says why. */
+export type UpdatePhase = "off" | "idle" | "checking" | "downloading" | "ready" | "installing";
+
+export interface UpdateState {
+  phase: UpdatePhase;
+  currentVersion: string;
+  version: string | null; // the newer version (downloading, ready, installing)
+  checkedAt: string | null; // the last check that finished without an error
+  error: string | null; // one plain line: why the last check failed, or why updates are off
 }
 
 // ---------- quick access ----------
@@ -547,6 +560,10 @@ export interface Commands {
   main_hide: [Record<string, never>, void]; // main hides itself, e.g. after the first-close notice
   autotype: [{ id: string; password: string | null; only?: AutotypeOnly | null }, AutotypeResult]; // tier 2; no only: smart fill (or the item's own sequence); see AutotypeOnly
   app_quit: [Record<string, never>, void];
+
+  update_status: [Record<string, never>, UpdateState]; // main window only
+  update_check: [Record<string, never>, UpdateState]; // resolves after the check (and the download of a newer version)
+  update_install: [Record<string, never>, void]; // "Restart now": locks, then installs; "invalid" when nothing is ready
 }
 
 // ---------- events (Rust -> UI) ----------
@@ -566,4 +583,5 @@ export interface Events {
   "edit://discarded": { title: string }; // lock dropped an unsaved edit
   "app://quitRequested": Record<string, never>; // main asks Save / Discard / Cancel, then calls app_quit
   "main://closeNotice": Record<string, never>; // first close with closeBehavior "hide": the window stays open; the UI shows the tray notice, then calls main_hide
+  "update://state": UpdateState; // the auto update moved on (checking, downloading, ready, installing, an error)
 }

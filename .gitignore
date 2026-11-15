@@ -38,3 +38,8 @@ public/fonts/itf/
 # UI check screenshots and design-review captures
 .shots/
 .impeccable/
+
+# Update signing (SPEC 3.12): a private key never goes into the repo
+*.key
+# Update demo run screenshots
+.shots-updates/

@@ -247,6 +247,8 @@ pub mod events {
     pub const APP_QUIT_REQUESTED: &str = "app://quitRequested";
     /// Shell addition, proposed for the contract.
     pub const MAIN_CLOSE_NOTICE: &str = "main://closeNotice";
+    /// The auto update state changed (SPEC 3.12).
+    pub const UPDATE_STATE: &str = "update://state";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -324,3 +326,33 @@ pub struct VaultMissingEvent {
 /// Payload of the events typed `Record<string, never>`: `{}`.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Empty {}
+
+// ---------- updates (SPEC 3.12) ----------
+
+/// Where the auto update is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UpdatePhase {
+    /// This build does not update (no signing key, or a test copy): `error` says why.
+    Off,
+    Idle,
+    Checking,
+    Downloading,
+    /// The installer is downloaded and its signature checked; it waits for a lock.
+    Ready,
+    Installing,
+}
+
+/// `update_status`, `update_check` and the `update://state` event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateState {
+    pub phase: UpdatePhase,
+    pub current_version: String,
+    /// The newer version (downloading, ready, installing).
+    pub version: Option<String>,
+    /// The last check that finished without an error.
+    pub checked_at: Option<String>,
+    /// One plain line: why the last check failed, or why updates are off.
+    pub error: Option<String>,
+}
