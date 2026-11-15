@@ -79,6 +79,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "bridge_pair_answer",
     "bridge_disconnect",
     "bridge_copy_folder",
+    "bridge_reprompt_answer",
 ];
 
 /// Commands the shell needs that are not (yet) in the contract (none now).

@@ -50,7 +50,7 @@ describe("A login named with a web address", () => {
     await user.type(name, "github.com");
     const website = screen.getByLabelText("Website") as HTMLInputElement;
     expect(website.value).toBe("https://github.com");
-    expect(screen.getByText("Taken from the name.")).toBeTruthy();
+    expect(screen.getByText("Taken from the name. Chrome fills this login on this website.")).toBeTruthy();
     expect(website.getAttribute("aria-describedby")).toBeTruthy();
     // The name stays as typed.
     expect(name).toHaveProperty("value", "github.com");
@@ -68,7 +68,7 @@ describe("A login named with a web address", () => {
     open();
     await user.type(await screen.findByLabelText("Item name"), "GitHub");
     expect((screen.getByLabelText("Website") as HTMLInputElement).value).toBe("");
-    expect(screen.queryByText("Taken from the name.")).toBeNull();
+    expect(screen.queryByText("Taken from the name. Chrome fills this login on this website.")).toBeNull();
   });
 
   it("stops following the name once the user edits Website", async () => {
@@ -79,7 +79,7 @@ describe("A login named with a web address", () => {
     const website = screen.getByLabelText("Website") as HTMLInputElement;
     await user.clear(website);
     await user.type(website, "https://gitlab.com");
-    expect(screen.queryByText("Taken from the name.")).toBeNull();
+    expect(screen.queryByText("Taken from the name. Chrome fills this login on this website.")).toBeNull();
     await user.clear(name);
     await user.type(name, "bitbucket.org");
     expect(website.value).toBe("https://gitlab.com");

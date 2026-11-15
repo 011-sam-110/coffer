@@ -1,7 +1,8 @@
-// The service worker: owns the one Session with Coffer and answers the
-// popup. Content scripts (M4, M5) will call Coffer through it too.
+// The service worker: owns the one Session with Coffer, answers the popup,
+// and answers the content scripts (fill, docs/BRIDGE.md section 6).
 import { asBridgeError, NativeLink, type Pairing, Session, type Status } from "./lib/client";
-import { browserKind, hostName, newerVersion, parseWordList } from "./lib/protocol";
+import { answer, type ContentMessage, type ContentRequest, type Desk } from "./lib/fill";
+import { b64, browserKind, hostName, newerVersion, parseWordList } from "./lib/protocol";
 import type { PopupRequest, PopupState } from "./lib/state";
 
 const STORE_KEY = "pairing";
@@ -137,13 +138,53 @@ async function handle(req: PopupRequest): Promise<PopupState> {
   }
 }
 
+/** The content scripts' way to Coffer. The page's address comes from Chrome (`sender.url`). */
+const desk: Desk = {
+  call: (name, args, timeoutMs) => session.call(name, args, timeoutMs),
+  paired: async () => !!(await load()),
+  forget: () => save(null),
+  close: () => session.close(),
+  // The top page's own content script says where it is (frame 0 only).
+  topUrl: (tabId) => chrome.tabs.sendMessage(tabId, { type: "coffer:where" } satisfies ContentMessage, { frameId: 0 }),
+};
+
+let font: Promise<string | null> | null = null;
+/** Switzer for the menu, as base64 (the page cannot fetch the extension's files: none are web accessible). */
+function fontData(): Promise<string | null> {
+  font ??= fetch(chrome.runtime.getURL("fonts/itf/switzer/fonts/Switzer-Variable.woff2"))
+    .then((r) => (r.ok ? r.arrayBuffer() : null))
+    .then((b) => (b ? b64(new Uint8Array(b)) : null))
+    .catch(() => null);
+  return font;
+}
+
+const CONTENT_TYPES = new Set<string>(["coffer:list", "coffer:fill", "coffer:totp", "coffer:unlock", "coffer:font"]);
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Only this extension's own pages (not a content script in a web page).
-  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(""))) return false;
-  const req = message as PopupRequest;
-  if (!req || typeof req !== "object" || typeof req.type !== "string" || !req.type.startsWith("coffer:")) return false;
-  handle(req).then(sendResponse, (e) => sendResponse({ kind: "notRunning", message: asBridgeError(e).message } satisfies PopupState));
+  if (sender.id !== chrome.runtime.id) return false;
+  const req = message as { type?: unknown };
+  if (!req || typeof req !== "object" || typeof req.type !== "string") return false;
+  if (sender.url?.startsWith(chrome.runtime.getURL(""))) {
+    // This extension's own pages: the popup and the first-run page.
+    if (!req.type.startsWith("coffer:") || CONTENT_TYPES.has(req.type)) return false;
+    handle(req as PopupRequest).then(sendResponse, (e) => sendResponse({ kind: "notRunning", message: asBridgeError(e).message } satisfies PopupState));
+    return true;
+  }
+  // A content script in a web page: the fill messages only.
+  if (!sender.tab || !CONTENT_TYPES.has(req.type)) return false;
+  const reply = req.type === "coffer:font" ? fontData() : answer(desk, sender, req as ContentRequest);
+  reply.then(sendResponse, () => sendResponse(null));
   return true;
+});
+
+// Ctrl+Shift+L: the frame with the focus fills the first login (filler.ts).
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== "fill-login") return;
+  const to = async (id: number | undefined) => {
+    if (id !== undefined) await chrome.tabs.sendMessage(id, { type: "coffer:command", command: "fill-login" } satisfies ContentMessage).catch(() => undefined);
+  };
+  if (tab?.id !== undefined) void to(tab.id);
+  else void chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => to(tabs[0]?.id));
 });
 
 chrome.runtime.onInstalled.addListener((details) => {

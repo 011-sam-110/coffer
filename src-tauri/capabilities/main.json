@@ -75,6 +75,7 @@
     "allow-bridge-info",
     "allow-bridge-pair-answer",
     "allow-bridge-disconnect",
-    "allow-bridge-copy-folder"
+    "allow-bridge-copy-folder",
+    "allow-bridge-reprompt-answer"
   ]
 }

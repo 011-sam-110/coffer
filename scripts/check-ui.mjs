@@ -90,6 +90,7 @@ const STATES = [
   ["b02-settings-browsers-none", "/?view=settings&tab=browsers&bridge=none", MAIN, [{ expect: "text=Not connected." }]],
   ["b03-connect-prompt", "/?bridge=pair", MAIN, [{ wait: 1200 }, { expect: "text=maple · river · otter · lamp" }]],
   ["b04-connect-prompt-locked", "/?bridge=pair&state=locked", MAIN, [{ wait: 1200 }, { expect: "text=Connect Chrome to Coffer?" }]],
+  ["b05-fill-asks-master-password", "/?bridge=reprompt", MAIN, [{ wait: 800 }, { expect: "text=Chrome asks to fill Northwind (work) on northwind-shop.example." }]],
   ["m33-shortcuts-f1", "/?dialog=shortcuts", MAIN],
   ["m34-export", "/?dialog=export", MAIN],
   ["m35-close-notice", "/?dialog=closeNotice", MAIN],

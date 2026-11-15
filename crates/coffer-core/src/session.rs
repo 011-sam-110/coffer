@@ -176,6 +176,23 @@ pub enum BulkAction {
     RemoveTag,
 }
 
+/// A login's username and password for a fill in the browser (SPEC 3.13).
+pub struct LoginFill {
+    /// The username.
+    pub username: Zeroizing<String>,
+    /// The password.
+    pub password: Zeroizing<String>,
+    /// The login has a one-time code.
+    pub has_totp: bool,
+}
+
+impl std::fmt::Debug for LoginFill {
+    /// Never prints the values.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginFill").field("has_totp", &self.has_totp).finish_non_exhaustive()
+    }
+}
+
 /// Result of [`Vault::unlock`].
 pub enum UnlockOutcome {
     /// Open.
@@ -1029,6 +1046,59 @@ impl Vault {
             .filter(|i| i.item_type == ItemType::ApiCredential && i.state == ItemState::Active && !i.health_excluded)
             .filter_map(|i| Some((i.id.to_string(), i.title.clone(), health::expiry_date(i)?)))
             .collect()
+    }
+
+    /// Active logins for the browser bridge (SPEC 3.13): names, usernames,
+    /// Website URLs and flags. No password.
+    pub fn login_refs(&self) -> Vec<crate::site::LoginRef> {
+        self.items
+            .values()
+            .map(|s| &s.item)
+            .filter(|i| i.item_type == ItemType::Login && i.state == ItemState::Active)
+            .map(|i| crate::site::LoginRef {
+                id: i.id.to_string(),
+                title: i.title.clone(),
+                username: i.builtin("username").filter(|f| !f.kind.is_secret()).map(|f| f.value.clone()).unwrap_or_default(),
+                urls: i.urls.iter().map(|u| u.url.clone()).collect(),
+                has_totp: i.fields.iter().any(|f| f.kind == FieldKind::Totp && !f.value.trim().is_empty()),
+                reprompt: i.reprompt,
+            })
+            .collect()
+    }
+
+    /// The username and password of an active login, for a fill in the
+    /// browser. Re-prompt applies: without a live grant it fails with
+    /// `RepromptRequired`, and the shell asks for the master password
+    /// ([`Vault::grant`]).
+    ///
+    /// # Errors
+    /// `NotFound` (also for an item that is not an active login), `RepromptRequired`.
+    pub fn login_fill(&mut self, id: &str) -> Result<LoginFill> {
+        let uid = Self::parse_id(id)?;
+        let item = &self.items.get(&uid).ok_or(CoreError::NotFound)?.item;
+        if item.item_type != ItemType::Login || item.state != ItemState::Active {
+            return Err(CoreError::NotFound);
+        }
+        self.check_reprompt(&uid, None)?;
+        let item = &self.items.get(&uid).ok_or(CoreError::NotFound)?.item;
+        Ok(LoginFill {
+            username: Zeroizing::new(item.builtin_value("username").to_owned()),
+            password: Zeroizing::new(item.builtin_value("password").to_owned()),
+            has_totp: item.fields.iter().any(|f| f.kind == FieldKind::Totp && !f.value.trim().is_empty()),
+        })
+    }
+
+    /// Check the master password for one item and start its 60 s re-prompt
+    /// grant (the browser bridge's confirm).
+    ///
+    /// # Errors
+    /// `NotFound`, `BadCredentials`.
+    pub fn grant(&mut self, id: &str, password: &str) -> Result<()> {
+        let uid = Self::parse_id(id)?;
+        self.items.get(&uid).ok_or(CoreError::NotFound)?;
+        self.verify_password(password)?;
+        self.grants.insert(uid, Instant::now());
+        Ok(())
     }
 
     /// Every item in every state, as list rows (no secrets). `lastUsedAt` is

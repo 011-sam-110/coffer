@@ -32,8 +32,9 @@
 //   ?update=ready|found|offline|badsig|off  auto update (SPEC 3.12): 0.3.1 downloaded at start /
 //                        Check now finds and downloads 0.3.1 / the check fails offline / 0.3.1 fails
 //                        its signature and is refused / this build does not update (default: up to date)
-//   ?bridge=none|pair    browser bridge (SPEC 3.13): no browser connected / the Connect prompt is open
-//                        at start (default: Chrome connected, last used 2 minutes ago)
+//   ?bridge=none|pair|reprompt  browser bridge (SPEC 3.13): no browser connected / the Connect prompt is
+//                        open at start / Chrome asks for the master password to fill a login (default:
+//                        Chrome connected, last used 2 minutes ago)
 //
 // Demo-only extra commands (not in the contract; the UI must not call them):
 //   invoke("demo_clipboard")  what the simulated clipboard holds (tests only)
@@ -107,7 +108,7 @@ export interface DemoExtras {
   autotype?: "ok" | "gone" | "admin" | "front" | "modifiers" | "changed" | "keys";
   qr?: "ok" | "none" | "google" | "other" | "noSecret" | "notImage" | "screenFail";
   update?: "none" | "ready" | "found" | "offline" | "badsig" | "off";
-  bridge?: "none" | "chrome" | "pair";
+  bridge?: "none" | "chrome" | "pair" | "reprompt";
   /** Use this instead of location.search for the flags above (tests). */
   search?: string;
 }
@@ -281,7 +282,7 @@ function readFlags(opts: DemoBackendOptions) {
     autotype: opts.autotype ?? pick(q.get("autotype"), ["ok", "gone", "admin", "front", "modifiers", "changed", "keys"] as const, "ok"),
     qr: opts.qr ?? pick(q.get("qr"), ["ok", "none", "google", "other", "noSecret", "notImage", "screenFail"] as const, "ok"),
     update: opts.update ?? pick(q.get("update"), ["none", "ready", "found", "offline", "badsig", "off"] as const, "none"),
-    bridge: opts.bridge ?? pick(q.get("bridge"), ["none", "chrome", "pair"] as const, "chrome"),
+    bridge: opts.bridge ?? pick(q.get("bridge"), ["none", "chrome", "pair", "reprompt"] as const, "chrome"),
     latencyMs: opts.latencyMs ?? (latencyParam !== null && Number.isFinite(Number(latencyParam)) ? Number(latencyParam) : undefined),
   };
 }
@@ -344,14 +345,24 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   });
   const bridge: BridgeInfo = {
     browsers:
-      flags.bridge === "chrome"
+      flags.bridge === "chrome" || flags.bridge === "reprompt"
         ? [{ id: "c0ffee00c0ffee00c0ffee00c0ffee00", browser: "chrome", name: "Chrome", pairedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), lastUsedAt: new Date(Date.now() - 2 * 60_000).toISOString() }]
         : [],
     extensionFolder: DEMO_EXTENSION_FOLDER,
     extensionFound: true,
     pending: flags.bridge === "pair" ? pairRequest() : null,
+    // A fill in Chrome of a login with "Ask for master password" (shown once the vault is open).
+    reprompt:
+      flags.bridge === "reprompt"
+        ? { requestId: "d3m0r3pr0mpt0001", browser: "chrome", name: "Chrome", title: "Northwind (work)", site: "northwind-shop.example", expiresAt: new Date(Date.now() + 120_000).toISOString() }
+        : null,
   };
-  const bridgeInfo = (): BridgeInfo => ({ ...bridge, browsers: bridge.browsers.map((b) => ({ ...b })), pending: bridge.pending ? { ...bridge.pending, words: [...bridge.pending.words] } : null });
+  const bridgeInfo = (): BridgeInfo => ({
+    ...bridge,
+    browsers: bridge.browsers.map((b) => ({ ...b })),
+    pending: bridge.pending ? { ...bridge.pending, words: [...bridge.pending.words] } : null,
+    reprompt: bridge.reprompt ? { ...bridge.reprompt } : null,
+  });
 
   // ---------- helpers ----------
   const now = (): number => Date.now();
@@ -1483,6 +1494,15 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     },
     bridge_copy_folder: () => {
       lastCopied = bridge.extensionFolder;
+    },
+    bridge_reprompt_answer: async ({ requestId, password }) => {
+      const r = bridge.reprompt;
+      if (!r || r.requestId !== requestId) throw fail("notFound", "This request from the browser is no longer open.");
+      // A wrong password keeps the question open; the right one lets the login fill.
+      if (password !== null) await checkMaster(password);
+      bridge.reprompt = null;
+      emit("bridge://changed", bridgeInfo());
+      return bridgeInfo();
     },
   };
 

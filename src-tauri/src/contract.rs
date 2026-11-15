@@ -414,6 +414,21 @@ pub struct PairRequest {
     pub expires_at: String,
 }
 
+/// A fill in the browser waits for the master password (a login with
+/// "Ask for master password"). The main window asks for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeReprompt {
+    pub request_id: String,
+    pub browser: BrowserKind,
+    pub name: String,
+    /// The login's name.
+    pub title: String,
+    /// The registered domain of the page.
+    pub site: String,
+    pub expires_at: String,
+}
+
 /// `bridge_info` and the `bridge://changed` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -422,4 +437,5 @@ pub struct BridgeInfo {
     pub extension_folder: String,
     pub extension_found: bool,
     pub pending: Option<PairRequest>,
+    pub reprompt: Option<BridgeReprompt>,
 }

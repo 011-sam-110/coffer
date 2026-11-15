@@ -796,3 +796,11 @@ pub async fn bridge_disconnect(app: AppHandle, id: String) -> CofferResult<Bridg
 pub async fn bridge_copy_folder() -> CofferResult<()> {
     blocking(crate::bridge::copy_folder).await?
 }
+
+/// A fill in the browser asks for the master password: the password lets
+/// that one login fill (a 60 s grant), `null` is Cancel. A wrong password
+/// answers `badCredentials` and keeps the question open.
+#[tauri::command]
+pub async fn bridge_reprompt_answer(app: AppHandle, request_id: String, password: Option<Secret>) -> CofferResult<BridgeInfo> {
+    blocking(move || crate::bridge::reprompt_answer(&app, &request_id, pw(&password))).await?
+}

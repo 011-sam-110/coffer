@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import cases from "./siteCases.json";
 import { siteFromName, upgradeUnsecuredUrls } from "./url";
 
 describe("Use HTTPS", () => {
@@ -45,4 +46,12 @@ describe("siteFromName", () => {
       expect(siteFromName(name)).toBeNull();
     },
   );
+});
+
+// The same table runs in Rust (crates/coffer-core/src/site.rs): Coffer matches a
+// login by its name with this rule, so the editor and the browser fill agree.
+describe("siteFromName and Rust's site_from_name share one table", () => {
+  it.each(cases.names as Array<[string, string | null]>)("%j reads as %j", (name, site) => {
+    expect(siteFromName(name)).toBe(site);
+  });
 });

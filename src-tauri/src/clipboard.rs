@@ -35,6 +35,15 @@ pub fn timer_may_clear(state: &ClipState, timer_generation: u64) -> bool {
 pub fn copy(app: &AppHandle, value: Zeroizing<String>, label: &str) -> CofferResult<CopyResult> {
     let state = app.state::<AppState>();
     let clear_after = state.settings.rd().settings.clipboard_clear_seconds;
+    // Debug builds only: e2e/browser-fill.mjs runs a QA Coffer beside the
+    // user's own, and must not overwrite the clipboard of this PC.
+    #[cfg(debug_assertions)]
+    if std::env::var_os("COFFER_TEST_NO_CLIPBOARD").is_some() {
+        drop(value);
+        let _ = app.emit(events::CLIPBOARD_COPIED, ClipboardCopiedEvent { label: label.to_string(), clears_in_seconds: clear_after });
+        crate::log!("clipboard: copied ({label}) [test: not written]; clears in {clear_after:?} s");
+        return Ok(CopyResult { clears_in_seconds: clear_after });
+    }
     // The clipboard-history exclusion always applies (SPEC 9).
     let seq = crate::win::clipboard::write_text(&value, true).map_err(|e| {
         crate::log!("clipboard: write failed: {e}");

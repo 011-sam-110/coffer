@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { browserRows, connectedLine, pairWords } from "./bridge";
+import { browserRows, connectedLine, pairWords, repromptReason } from "./bridge";
 import type { BridgeInfo, BrowserLink } from "./contract";
 
 const chrome: BrowserLink = { id: "a".repeat(32), browser: "chrome", name: "Chrome", pairedAt: "2026-11-15T09:00:00Z", lastUsedAt: "2026-11-15T11:58:00Z" };
-const info = (browsers: BrowserLink[]): BridgeInfo => ({ browsers, extensionFolder: "C:\\x\\extension", extensionFound: true, pending: null });
+const info = (browsers: BrowserLink[]): BridgeInfo => ({ browsers, extensionFolder: "C:\\x\\extension", extensionFound: true, pending: null, reprompt: null });
 
 describe("Settings > Browsers", () => {
   it("lists connected browsers and a Not connected row for Chrome and Edge", () => {
@@ -28,5 +28,13 @@ describe("Settings > Browsers", () => {
 
   it("shows the four words with dots", () => {
     expect(pairWords({ words: ["maple", "river", "otter", "lamp"] })).toBe("maple · river · otter · lamp");
+  });
+});
+
+describe("a fill's master-password question", () => {
+  it("names the browser, the login and the site", () => {
+    expect(repromptReason({ name: "Chrome", title: "Northwind (work)", site: "northwind-shop.test" })).toBe(
+      "Chrome asks to fill Northwind (work) on northwind-shop.test. This login asks for your master password.",
+    );
   });
 });

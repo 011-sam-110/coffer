@@ -9,6 +9,7 @@ declare namespace chrome {
     interface MessageSender {
       id?: string;
       url?: string;
+      frameId?: number;
       tab?: { id?: number; url?: string };
     }
     interface Port {
@@ -45,7 +46,16 @@ declare namespace chrome {
   }
 
   namespace tabs {
+    interface Tab {
+      id?: number;
+    }
     function create(props: { url: string }): Promise<unknown>;
+    function query(q: { active?: boolean; currentWindow?: boolean }): Promise<Tab[]>;
+    function sendMessage<T = unknown>(tabId: number, message: unknown, options?: { frameId?: number }): Promise<T>;
+  }
+
+  namespace commands {
+    const onCommand: { addListener(cb: (command: string, tab?: chrome.tabs.Tab) => void): void };
   }
 
   namespace types {

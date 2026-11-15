@@ -653,7 +653,7 @@ export function ItemEditor({
                       {errors[`url:${i}`] && <ErrorText>{errors[`url:${i}`]}</ErrorText>}
                       {i === 0 && fromName && !errors[`url:${i}`] && (
                         <p id={`${uid}-url-hint`} className="text-xs text-muted-foreground">
-                          Taken from the name.
+                          Taken from the name. Chrome fills this login on this website.
                         </p>
                       )}
                     </div>

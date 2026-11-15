@@ -335,6 +335,7 @@ fn bridge_shapes() {
         extension_folder: r"C:\x\extension".into(),
         extension_found: true,
         pending: Some(PairRequest { pair_id: "p".into(), browser: BrowserKind::Chrome, name: "Chrome".into(), words: vec!["a".into()], expires_at: "t".into() }),
+        reprompt: Some(BridgeReprompt { request_id: "r".into(), browser: BrowserKind::Chrome, name: "Chrome".into(), title: "Northwind (work)".into(), site: "northwind-shop.test".into(), expires_at: "t".into() }),
     };
     assert_eq!(
         serde_json::to_value(info).unwrap(),
@@ -342,11 +343,12 @@ fn bridge_shapes() {
             "browsers": [{ "id": "ab", "browser": "edge", "name": "Microsoft Edge", "pairedAt": "t", "lastUsedAt": null }],
             "extensionFolder": r"C:\x\extension",
             "extensionFound": true,
-            "pending": { "pairId": "p", "browser": "chrome", "name": "Chrome", "words": ["a"], "expiresAt": "t" }
+            "pending": { "pairId": "p", "browser": "chrome", "name": "Chrome", "words": ["a"], "expiresAt": "t" },
+            "reprompt": { "requestId": "r", "browser": "chrome", "name": "Chrome", "title": "Northwind (work)", "site": "northwind-shop.test", "expiresAt": "t" }
         })
     );
     // The bridge commands are for the main window only.
-    for c in ["bridge_info", "bridge_pair_answer", "bridge_disconnect", "bridge_copy_folder"] {
+    for c in ["bridge_info", "bridge_pair_answer", "bridge_disconnect", "bridge_copy_folder", "bridge_reprompt_answer"] {
         assert!(MAIN_CAP.contains(&format!("allow-{}", c.replace('_', "-"))), "{c}");
         assert!(!QUICK_CAP.contains(&format!("allow-{}", c.replace('_', "-"))), "{c}");
     }
@@ -382,10 +384,18 @@ fn installer_registers_the_bridge() {
     assert_eq!(hooks.matches(r#"DeleteRegKey HKCU "${COFFER_CHROME_HOSTS}\${BUNDLEID}""#).count(), 1);
     assert_eq!(hooks.matches(r#"DeleteRegKey HKCU "${COFFER_EDGE_HOSTS}\${BUNDLEID}""#).count(), 1);
     assert!(!hooks.lines().filter(|l| !l.trim_start().starts_with(';')).any(|l| l.contains("dev.sampo.coffer")), "no fixed host name outside comments");
-    // The extension asks only for what M3 uses.
+    // The extension asks only for what it uses: the bridge (M3), and for fill (M4) a content
+    // script on https pages and on http://localhost and 127.0.0.1, and the Ctrl+Shift+L command.
     let manifest: serde_json::Value = serde_json::from_str(include_str!("../../extension/manifest.json")).unwrap();
     assert_eq!(manifest["permissions"], serde_json::json!(["nativeMessaging", "storage", "privacy"]));
     assert!(manifest.get("host_permissions").is_none() && manifest.get("externally_connectable").is_none());
+    assert!(manifest.get("web_accessible_resources").is_none(), "no extension file is open to web pages");
+    assert_eq!(
+        manifest["content_scripts"],
+        serde_json::json!([{ "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"], "js": ["content.js"], "all_frames": true, "run_at": "document_idle" }])
+    );
+    assert_eq!(manifest["commands"].as_object().map(|c| c.len()), Some(1));
+    assert_eq!(manifest["commands"]["fill-login"]["suggested_key"]["default"], "Ctrl+Shift+L");
 }
 
 #[test]
