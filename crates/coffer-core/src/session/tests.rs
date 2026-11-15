@@ -1119,3 +1119,98 @@ fn old_api_key_labels_show_new_words_without_a_rewrite() {
     v.item_set_state(&it.id, ItemState::Archived).unwrap();
     assert!(v.api_key_expiries().is_empty());
 }
+
+#[test]
+fn a_save_from_the_browser_is_a_new_login_named_after_the_site() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let view = v.login_save_from_browser("northwind-shop.test", "https://northwind-shop.test", " alex@example.com ", "Shop-pass-4417").unwrap();
+    assert_eq!((view.item_type, view.title.as_str(), view.state), (ItemType::Login, "northwind-shop.test", ItemState::Active));
+    assert_eq!(view.urls, vec![ItemUrl { url: "https://northwind-shop.test".into(), label: None }]);
+    // The login template's fields, in order: username, password (masked), an empty one-time code.
+    let roles: Vec<(Option<&str>, FieldKind, &str)> = view.fields.iter().map(|f| (f.builtin.as_deref(), f.kind, f.value.as_str())).collect();
+    assert_eq!(roles, [(Some("username"), FieldKind::Text, "alex@example.com"), (Some("password"), FieldKind::Concealed, ""), (Some("totp"), FieldKind::Totp, "")]);
+    assert_eq!(view.fields[1].masked, Some(true));
+    assert_eq!(&*v.item_reveal(&view.id, "password", None).unwrap(), "Shop-pass-4417");
+    assert!(view.password_changed_at.is_some());
+    // It is a login like any other: the bridge sees it, and the password compares without leaving the vault.
+    let r = v.login_refs().into_iter().find(|r| r.id == view.id).unwrap();
+    assert_eq!((r.title.as_str(), r.username.as_str(), r.urls.clone()), ("northwind-shop.test", "alex@example.com", vec!["https://northwind-shop.test".to_string()]));
+    assert!(v.login_password_is(&view.id, "Shop-pass-4417").unwrap());
+    assert!(!v.login_password_is(&view.id, "Shop-pass-4418").unwrap());
+    assert!(!v.login_password_is(&view.id, "").unwrap());
+    // Health counts it (a reused password shows).
+    let other = v.login_save_from_browser("example.com", "https://example.com", "alex", "Shop-pass-4417").unwrap();
+    let report = v.health_report(BreachMode::Off);
+    assert!(report.findings.iter().any(|f| f.item_id == other.id && f.check == HealthCheck::Reused), "Health lists the reused password");
+    assert_eq!(v.login_save_from_browser("x.test", "https://x.test", "u", "").unwrap_err(), CoreError::invalid("A login from the browser needs a password."));
+    // It is in the file after a save.
+    let reopened = open(&{ v.to_bytes(0) }, PW, &k).unwrap();
+    assert_eq!(reopened.item_get(&view.id).unwrap().title, "northwind-shop.test");
+}
+
+#[test]
+fn an_update_from_the_browser_keeps_the_old_password_in_history_and_revisions() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let mut input = login("Northwind", "alex@example.com", "Old-pass-1");
+    input.notes = "my notes".into();
+    input.fields.push(field("totp", FieldKind::Totp, "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"));
+    input.reprompt = true;
+    let before = v.item_save(&input, None).unwrap();
+    let after = v.login_set_password(&before.id, "New-pass-2").unwrap();
+    assert_eq!(after.rev, before.rev + 1);
+    // Only the password changed; re-prompt stays on and needs no grant for this write.
+    assert_eq!((after.title.as_str(), after.notes.as_str(), after.reprompt, after.urls.clone()), ("Northwind", "my notes", true, before.urls.clone()));
+    v.grant(&before.id, PW).unwrap();
+    assert_eq!(&*v.item_reveal(&after.id, "password", None).unwrap(), "New-pass-2");
+    assert_eq!(&*v.item_reveal(&after.id, "username", None).unwrap(), "alex@example.com");
+    assert_eq!(&*v.item_reveal(&after.id, "totp", None).unwrap(), "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ");
+    // The old password: in the password history, and in the revision of the item before the change.
+    let history = v.item_password_history(&after.id, None).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(&*v.item_reveal(&after.id, &format!("history:{}", history[0].id), None).unwrap(), "Old-pass-1");
+    let revs = v.item_revisions(&after.id, None).unwrap();
+    assert_eq!(revs.iter().map(|r| r.rev).collect::<Vec<_>>(), [before.rev]);
+    let snap = &v.slot(&after.id).unwrap().item.revisions[0].snapshot;
+    assert_eq!(snap.fields.iter().find(|f| f.builtin.as_deref() == Some("password")).unwrap().value, "Old-pass-1");
+    // Restoring that revision brings the old password back.
+    v.item_restore_revision(&after.id, before.rev, None).unwrap();
+    assert!(v.login_password_is(&after.id, "Old-pass-1").unwrap());
+    // Not a login, a trashed login, an unknown id, an empty password.
+    let note = v.item_save(&ItemInput { item_type: ItemType::Note, fields: vec![], ..login("A note", "", "") }, None).unwrap();
+    assert_eq!(v.login_set_password(&note.id, "x").unwrap_err(), CoreError::NotFound);
+    assert_eq!(v.login_password_is(&note.id, "x").unwrap_err(), CoreError::NotFound);
+    v.item_set_state(&after.id, ItemState::Trashed).unwrap();
+    assert_eq!(v.login_set_password(&after.id, "x").unwrap_err(), CoreError::NotFound);
+    assert_eq!(v.login_set_password("not-an-id", "x").unwrap_err(), CoreError::NotFound);
+    let live = v.item_save(&login("L", "u", "p"), None).unwrap();
+    assert_eq!(v.login_set_password(&live.id, "").unwrap_err(), CoreError::invalid("The new password is empty."));
+}
+
+#[test]
+fn the_never_list_lives_in_the_vault() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    assert!(v.never_save_sites().is_empty());
+    let saved = v.to_bytes(0);
+    v.mark_saved();
+    assert!(!v.is_dirty());
+    assert!(v.never_save_add("northwind-shop.test"));
+    assert!(v.is_dirty(), "the meta record changed");
+    assert!(v.never_save_add("Example.COM"));
+    assert!(!v.never_save_add("northwind-shop.test"), "no repeats");
+    assert!(!v.never_save_add("  "));
+    assert_eq!(v.never_save_sites(), ["example.com", "northwind-shop.test"]);
+    // It goes with the vault file (encrypted in the meta record), so it syncs with it.
+    let bytes = v.to_bytes(0);
+    v.mark_saved();
+    assert!(!String::from_utf8_lossy(&bytes).contains("northwind-shop.test"), "not in clear text in the file");
+    let mut reopened = open(&bytes, PW, &k).unwrap();
+    assert_eq!(reopened.never_save_sites(), ["example.com", "northwind-shop.test"]);
+    assert!(reopened.never_save_remove("example.com"));
+    assert!(!reopened.never_save_remove("example.com"));
+    assert_eq!(reopened.never_save_sites(), ["northwind-shop.test"]);
+    // A vault saved before the list existed opens with an empty list.
+    assert!(open(&saved, PW, &k).unwrap().never_save_sites().is_empty());
+}

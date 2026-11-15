@@ -1010,6 +1010,12 @@ pub struct MetaRecord {
     /// When the breach check last ran.
     #[serde(default)]
     pub breach_checked_at: Option<String>,
+    /// Sites (registered domains) where the browser extension never offers
+    /// to save a login: "Never for this site" (docs/BRIDGE.md section 6).
+    /// Sorted, no repeats. Not written while empty, so a vault that never
+    /// used it keeps the meta record of 0.3.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub never_save: Vec<String>,
 }
 
 impl std::fmt::Debug for MetaRecord {

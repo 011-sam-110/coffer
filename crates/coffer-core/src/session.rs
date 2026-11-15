@@ -1101,6 +1101,158 @@ impl Vault {
         Ok(())
     }
 
+    // ------------------------------------------------------------ browser save (SPEC 3.13, M5)
+
+    /// `true` when `candidate` is the password of this active login. The
+    /// password does not leave the vault (the bridge's `find_login` answers
+    /// only same or changed). Re-prompt does not apply: nothing is revealed.
+    ///
+    /// # Errors
+    /// `NotFound` (also for an item that is not an active login).
+    pub fn login_password_is(&self, id: &str, candidate: &str) -> Result<bool> {
+        use subtle::ConstantTimeEq;
+        let item = &self.slot(id)?.item;
+        if item.item_type != ItemType::Login || item.state != ItemState::Active {
+            return Err(CoreError::NotFound);
+        }
+        Ok(bool::from(item.password().as_bytes().ct_eq(candidate.as_bytes())))
+    }
+
+    /// The browser's Save (`save_login`): a new login named `title` (the
+    /// page's registered domain) with Website `website`, the username and the
+    /// password. It is a new item like any other: Health sees it, and its
+    /// edits keep revisions.
+    ///
+    /// # Errors
+    /// `Invalid` for an empty title or password.
+    pub fn login_save_from_browser(&mut self, title: &str, website: &str, username: &str, password: &str) -> Result<ItemView> {
+        if password.is_empty() {
+            return Err(CoreError::invalid("A login from the browser needs a password."));
+        }
+        let fields = crate::templates::template(ItemType::Login)
+            .fields
+            .iter()
+            .map(|t| FieldInput {
+                id: String::new(),
+                label: t.label.to_owned(),
+                kind: t.kind,
+                value: Some(match t.role {
+                    "username" => username.trim().to_owned(),
+                    "password" => password.to_owned(),
+                    _ => String::new(),
+                }),
+                section: None,
+                builtin: Some(t.role.to_owned()),
+                options: None,
+            })
+            .collect();
+        let input = ItemInput {
+            id: None,
+            base_rev: None,
+            item_type: ItemType::Login,
+            title: title.to_owned(),
+            favorite: false,
+            tags: Vec::new(),
+            fields,
+            notes: String::new(),
+            urls: vec![ItemUrl { url: website.to_owned(), label: None }],
+            apps: Vec::new(),
+            reprompt: false,
+            autotype_sequence: None,
+            health_excluded: false,
+        };
+        self.item_save(&input, None)
+    }
+
+    /// The browser's Update (`update_password`): the active login's password
+    /// becomes `password`. Every other field keeps its value. The old
+    /// password goes to the password history, and the item before the change
+    /// is a revision (`item_save`).
+    ///
+    /// # Errors
+    /// `NotFound` (also for an item that is not an active login), `Invalid`
+    /// for an empty password.
+    pub fn login_set_password(&mut self, id: &str, password: &str) -> Result<ItemView> {
+        if password.is_empty() {
+            return Err(CoreError::invalid("The new password is empty."));
+        }
+        let slot = self.slot(id)?;
+        let item = &slot.item;
+        if item.item_type != ItemType::Login || item.state != ItemState::Active {
+            return Err(CoreError::NotFound);
+        }
+        let mut has_password = false;
+        let mut fields: Vec<FieldInput> = item
+            .fields
+            .iter()
+            .map(|f| {
+                let is_password = f.builtin.as_deref() == Some("password");
+                has_password |= is_password;
+                FieldInput {
+                    id: f.id.clone(),
+                    label: f.label.clone(),
+                    kind: f.kind,
+                    // None keeps the stored value: no other secret is copied.
+                    value: is_password.then(|| password.to_owned()),
+                    section: f.section.clone(),
+                    builtin: f.builtin.clone(),
+                    options: f.options.clone(),
+                }
+            })
+            .collect();
+        if !has_password {
+            fields.push(FieldInput { id: String::new(), label: "Password".into(), kind: FieldKind::Concealed, value: Some(password.to_owned()), section: None, builtin: Some("password".into()), options: None });
+        }
+        let input = ItemInput {
+            id: Some(id.to_owned()),
+            base_rev: Some(slot.rev),
+            item_type: item.item_type,
+            title: item.title.clone(),
+            favorite: item.favorite,
+            tags: item.tags.clone(),
+            fields,
+            notes: item.notes.clone(),
+            urls: item.urls.clone(),
+            apps: item.apps.clone(),
+            reprompt: item.reprompt,
+            autotype_sequence: item.autotype_sequence.clone(),
+            health_excluded: item.health_excluded,
+        };
+        self.item_save(&input, None)
+    }
+
+    /// The sites where the browser never offers to save ("Never for this site"), sorted.
+    pub fn never_save_sites(&self) -> &[String] {
+        &self.meta.never_save
+    }
+
+    /// Add a site (a registered domain, lower case) to the never list.
+    /// Returns `false` when it was there already.
+    pub fn never_save_add(&mut self, site: &str) -> bool {
+        let site = site.trim().to_ascii_lowercase();
+        match self.meta.never_save.binary_search(&site) {
+            Ok(_) => false,
+            Err(at) if !site.is_empty() => {
+                self.meta.never_save.insert(at, site);
+                self.touch_meta();
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Take a site off the never list (Settings, Browsers). Returns `false`
+    /// when it was not there.
+    pub fn never_save_remove(&mut self, site: &str) -> bool {
+        let before = self.meta.never_save.len();
+        self.meta.never_save.retain(|s| s != site);
+        let removed = self.meta.never_save.len() != before;
+        if removed {
+            self.touch_meta();
+        }
+        removed
+    }
+
     /// Every item in every state, as list rows (no secrets). `lastUsedAt` is
     /// `None`: the shell fills it from usage.json.
     pub fn items_list(&self) -> Vec<ItemSummary> {
