@@ -1,7 +1,7 @@
 // The release scripts' checks (SPEC 3.12), with a throwaway key pair made in
 // a temp folder by the real `tauri signer` (never Sam's key).
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -43,13 +43,21 @@ afterAll(() => {
 });
 
 describe("make-update-key", () => {
-  it("refuses to overwrite a key, and refuses a short password", () => {
+  it("refuses to overwrite a key", () => {
     const again = makeKey(join(dir, "k.key"), PW);
     expect(again.status).toBe(1);
     expect(again.stderr).toContain("A key is already at");
-    const short = makeKey(join(dir, "short.key"), "short");
-    expect(short.status).toBe(1);
-    expect(short.stderr).toContain("12 characters or more");
+  });
+
+  // The real key's password is typed into the Tauri CLI's own hidden prompt,
+  // never passed on a command line. With no terminal there is no prompt: refuse.
+  it("refuses the real (prompted) path without a terminal", () => {
+    const env = { ...process.env };
+    delete env.COFFER_UPDATE_KEY_PASSWORD;
+    const r = spawnSync(process.execPath, [join(root, "scripts", "make-update-key.mjs"), "--out", join(dir, "prompted.key")], { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("Run this in a terminal");
+    expect(existsSync(join(dir, "prompted.key"))).toBe(false);
   });
 });
 
