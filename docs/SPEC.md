@@ -52,14 +52,14 @@ Tier 1 is v1. Tier 2 is built tonight only after tier 1 passes QA, in the order 
 
 ### Not doing in v1
 - No account, sync service, sharing, family plans, organisations, emergency access, Send or sharing links: each needs a server.
-- No browser extension and no in-page autofill. Copy and smart fill (tier 2: typed by Windows into the box that has the focus) cover browsers and desktop apps.
+- v1 had no browser extension. The extension (fill and save in Chrome and Edge) is now built in stages from the plan of 15 Nov 2026: section 3.13 and docs/BRIDGE.md. Copy and smart fill (tier 2: typed by Windows into the box that has the focus) still cover desktop apps.
 - No email breach monitoring (it needs a paid HIBP key) and no VPN.
 - No Travel Mode (it needs a server copy to restore from).
 - No passkey use. Imported passkeys stay as data, shown as "Stored passkey (Coffer cannot sign in with it)".
 - No SSH agent, no CLI, no macOS or Linux build. No light theme (Sam picked "Red Dark").
 
 ### Later (after v1, in order)
-1. Attachments. 2. Encrypted Bitwarden JSON import. 3. SSH agent on `\\.\pipe\openssh-ssh-agent` with per-use approval. 4. "2FA available" check from a 2fa.directory snapshot. 5. Windows Hello across restarts (signed challenge). 6. Item-level merge for synced vaults. 7. Browser extension.
+1. Attachments. 2. Encrypted Bitwarden JSON import. 3. SSH agent on `\\.\pipe\openssh-ssh-agent` with per-use approval. 4. "2FA available" check from a 2fa.directory snapshot. 5. Windows Hello across restarts (signed challenge). 6. Item-level merge for synced vaults. (7. Browser extension: no longer Later, see section 3.13.)
 
 ## 3. Security design
 
@@ -219,6 +219,16 @@ One UTF-8 JSON file. Binary values are base64 (standard, padded).
 - **Releases** (only on Sam's word "release"): `node scripts/make-update-key.mjs` (Sam, once) makes the key pair in `%USERPROFILE%\.tauri\` with a password from a hidden prompt. `node scripts/release.mjs build` refuses unless the config's public key matches that pair, and needs no private key. `node scripts/release.mjs publish` (Sam) asks for the password in a hidden prompt, signs with `tauri signer sign --app-version`, checks the new signature against the built-in key, writes latest.json and creates a full GitHub release with the installer and latest.json.
 - **UI**: Settings > General > Updates: the switch, "Coffer <version>" with one status line and "Check now". Above the Settings title: "Coffer X is ready. It installs the next time Coffer locks. [Restart now]".
 
+### 3.13 Browser bridge and the Chrome extension
+The plan of 15 Nov 2026 (https://claude.ai/artifact/7GveHCfQsVmPNduf5HjxJm) has the whole feature: Connect (M3), fill (M4), save and update (M5). The protocol is docs/BRIDGE.md; the threat model is docs/SECURITY.md section 12.
+- **Parts**: the extension (`extension/`, Manifest V3, plain TypeScript, fixed ID `jdnmjnanpckdfdhfclpkcbgimdjbeglj`), `coffer-bridge.exe` (`crates/coffer-bridge`, the native messaging host), and the bridge in Coffer (`src-tauri/src/bridge/`).
+- **Path**: Chrome or Edge starts coffer-bridge.exe for the extension only. The bridge passes each message (4-byte length + JSON, 1 MB at most) over the named pipe `\\.\pipe\coffer-bridge-<user SID>-<install key>`, which only the current Windows user can open, to the Coffer in its own folder. It keeps nothing. With no Coffer running, it starts `coffer.exe --hidden` and waits 6 s, then answers `not_running`.
+- **Connect**: once per browser profile. The extension and Coffer each make an X25519 key; Coffer shows "Connect Chrome to Coffer?" with four words from the EFF list, and the extension shows the same words. Allow (off for the first second) stores the 32-byte bridge key: in Coffer in `browsers.json`, sealed with DPAPI; in the extension in `chrome.storage.local`. Deny, 2 minutes or a closed connection store nothing.
+- **Calls**: every call after Connect carries an HMAC-SHA256 with the bridge key, this connection's nonce and a number that goes up. Coffer refuses a missing, wrong or replayed MAC. Calls that need the vault answer `locked` while Coffer is locked; the extension then offers "Unlock Coffer", which shows Coffer's own unlock (no password crosses the pipe).
+- **Extension**: a toolbar popup (Not connected with Connect, then the four words and "Click Allow in Coffer"; Connected; Coffer is locked with Unlock Coffer; Coffer is not running), and a first-run page with the steps and a button that turns off the browser's own "Offer to save passwords". When Coffer reports a newer version, the extension reloads itself once.
+- **Settings > Browsers**: the connected browsers (connected on, last used) with Disconnect (deletes the key); Chrome and Microsoft Edge show "Not connected." when they are not; how to add the extension, with the folder `<install folder>\extension` and Copy folder; "Offer to save new logins" and "Offer to update changed passwords" (settings `offerSaveLogins`, `offerUpdatePasswords`, default on; the Save bar of M5 reads them).
+- **Installer**: ships coffer-bridge.exe and the extension folder; writes `<install folder>\<identifier>.json` (the host manifest) and the HKCU keys `Software\Google\Chrome\NativeMessagingHosts\<identifier>` and `Software\Microsoft\Edge\NativeMessagingHosts\<identifier>`; uninstall deletes them (an update keeps the keys). The host name is the app identifier, so a QA copy registers its own name.
+
 ## 4. Item model
 
 ```
@@ -342,7 +352,7 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
 8. **Generator** panel (main window and a compact form in Quick Access).
 9. **Health** dashboard.
 10. **Import** wizard; **Export** dialog; **Backups** list.
-11. **Settings**: General, Security (auto-lock, clipboard, capture, Hello, Show Secret Key, Change master password), Vault (location, backups, import, export), Shortcuts, About (version, licences, EFF word list credit, "how Coffer protects your data").
+11. **Settings**: General, Security (auto-lock, clipboard, capture, Hello, Show Secret Key, Change master password), Vault (location, backups, import, export), Browsers (section 3.13), Shortcuts, About (version, licences, EFF word list credit, "how Coffer protects your data").
 12. **Empty states**: no items (one start block in the detail pane: "Your vault is empty" with New item and Import; design review round 1); no search result ("No items match '<q>'" [Create login "<q>"]); no health issues (section 7); no suggestion (section hidden); empty trash; empty archive.
 
 ## 12. Architecture

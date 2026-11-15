@@ -249,6 +249,8 @@ pub mod events {
     pub const MAIN_CLOSE_NOTICE: &str = "main://closeNotice";
     /// The auto update state changed (SPEC 3.12).
     pub const UPDATE_STATE: &str = "update://state";
+    /// A browser connected or disconnected, or the Connect prompt opened or closed (SPEC 3.13).
+    pub const BRIDGE_CHANGED: &str = "bridge://changed";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -355,4 +357,69 @@ pub struct UpdateState {
     pub checked_at: Option<String>,
     /// One plain line: why the last check failed, or why updates are off.
     pub error: Option<String>,
+}
+
+// ---------- browser bridge (SPEC 3.13, docs/BRIDGE.md) ----------
+
+/// Which browser an extension runs in (from its brand list).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserKind {
+    Chrome,
+    Edge,
+    Chromium,
+    Other,
+}
+
+impl BrowserKind {
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "chrome" => Self::Chrome,
+            "edge" => Self::Edge,
+            "chromium" => Self::Chromium,
+            _ => Self::Other,
+        }
+    }
+
+    /// The name Coffer shows (it never shows a name the extension sent).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Chrome => "Chrome",
+            Self::Edge => "Microsoft Edge",
+            Self::Chromium => "Chromium",
+            Self::Other => "Your browser",
+        }
+    }
+}
+
+/// One connected browser (one browser profile).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserLink {
+    pub id: String,
+    pub browser: BrowserKind,
+    pub name: String,
+    pub paired_at: String,
+    pub last_used_at: Option<String>,
+}
+
+/// The open Connect prompt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PairRequest {
+    pub pair_id: String,
+    pub browser: BrowserKind,
+    pub name: String,
+    pub words: Vec<String>,
+    pub expires_at: String,
+}
+
+/// `bridge_info` and the `bridge://changed` event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeInfo {
+    pub browsers: Vec<BrowserLink>,
+    pub extension_folder: String,
+    pub extension_found: bool,
+    pub pending: Option<PairRequest>,
 }

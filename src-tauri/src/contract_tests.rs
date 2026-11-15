@@ -195,6 +195,9 @@ fn enums_match() {
     let phases: BTreeSet<String> =
         [UpdatePhase::Off, UpdatePhase::Idle, UpdatePhase::Checking, UpdatePhase::Downloading, UpdatePhase::Ready, UpdatePhase::Installing].into_iter().map(ser).collect();
     assert_eq!(phases, literals(block("export type UpdatePhase =", ";")));
+
+    let browsers: BTreeSet<String> = [BrowserKind::Chrome, BrowserKind::Edge, BrowserKind::Chromium, BrowserKind::Other].into_iter().map(ser).collect();
+    assert_eq!(browsers, literals(block("export type BrowserKind =", ";")));
 }
 
 /// The quoted value after `key: "` in a line, e.g. `role: "host"`.
@@ -296,6 +299,7 @@ fn events_match() {
         events::APP_QUIT_REQUESTED,
         events::MAIN_CLOSE_NOTICE,
         events::UPDATE_STATE,
+        events::BRIDGE_CHANGED,
     ]
     .into_iter()
     .map(str::to_string)
@@ -322,6 +326,66 @@ fn payload_shapes() {
     }))
     .unwrap();
     assert!(input.id.is_none() && input.fields[0].value.is_none());
+}
+
+#[test]
+fn bridge_shapes() {
+    let info = BridgeInfo {
+        browsers: vec![BrowserLink { id: "ab".into(), browser: BrowserKind::Edge, name: "Microsoft Edge".into(), paired_at: "t".into(), last_used_at: None }],
+        extension_folder: r"C:\x\extension".into(),
+        extension_found: true,
+        pending: Some(PairRequest { pair_id: "p".into(), browser: BrowserKind::Chrome, name: "Chrome".into(), words: vec!["a".into()], expires_at: "t".into() }),
+    };
+    assert_eq!(
+        serde_json::to_value(info).unwrap(),
+        serde_json::json!({
+            "browsers": [{ "id": "ab", "browser": "edge", "name": "Microsoft Edge", "pairedAt": "t", "lastUsedAt": null }],
+            "extensionFolder": r"C:\x\extension",
+            "extensionFound": true,
+            "pending": { "pairId": "p", "browser": "chrome", "name": "Chrome", "words": ["a"], "expiresAt": "t" }
+        })
+    );
+    // The bridge commands are for the main window only.
+    for c in ["bridge_info", "bridge_pair_answer", "bridge_disconnect", "bridge_copy_folder"] {
+        assert!(MAIN_CAP.contains(&format!("allow-{}", c.replace('_', "-"))), "{c}");
+        assert!(!QUICK_CAP.contains(&format!("allow-{}", c.replace('_', "-"))), "{c}");
+    }
+}
+
+/// The extension ID Chrome gives the public key in extension/manifest.json:
+/// the first 16 bytes of SHA-256 of the key, each hex digit as a letter a-p.
+fn extension_id() -> String {
+    use base64::Engine;
+    use sha2::Digest;
+    let manifest: serde_json::Value = serde_json::from_str(include_str!("../../extension/manifest.json")).unwrap();
+    let der = base64::engine::general_purpose::STANDARD.decode(manifest["key"].as_str().unwrap()).unwrap();
+    sha2::Sha256::digest(&der)[..16].iter().flat_map(|b| [b >> 4, b & 15]).map(|n| (b'a' + n) as char).collect()
+}
+
+#[test]
+fn installer_registers_the_bridge() {
+    let hooks = include_str!("../windows/hooks.nsh");
+    let conf: serde_json::Value = serde_json::from_str(TAURI_CONF).unwrap();
+    assert_eq!(conf["bundle"]["windows"]["nsis"]["installerHooks"], "./windows/hooks.nsh");
+    assert!(conf["build"]["beforeBuildCommand"].as_str().unwrap().contains("scripts/stage-bridge.mjs"));
+    // The fixed ID in the host manifest is the one the manifest's key gives.
+    let id = extension_id();
+    assert_eq!(id, "jdnmjnanpckdfdhfclpkcbgimdjbeglj");
+    assert!(hooks.contains(&format!("!define COFFER_EXTENSION_ID \"{id}\"")));
+    assert!(include_str!("../../docs/BRIDGE.md").contains(&id));
+    // Both browsers, keyed by the identifier: a QA build never writes Coffer's own host name.
+    for key in [r"Software\Google\Chrome\NativeMessagingHosts", r"Software\Microsoft\Edge\NativeMessagingHosts"] {
+        assert!(hooks.contains(key), "{key}");
+    }
+    assert_eq!(hooks.matches(r#"WriteRegStr HKCU "${COFFER_CHROME_HOSTS}\${BUNDLEID}""#).count(), 1);
+    assert_eq!(hooks.matches(r#"WriteRegStr HKCU "${COFFER_EDGE_HOSTS}\${BUNDLEID}""#).count(), 1);
+    assert_eq!(hooks.matches(r#"DeleteRegKey HKCU "${COFFER_CHROME_HOSTS}\${BUNDLEID}""#).count(), 1);
+    assert_eq!(hooks.matches(r#"DeleteRegKey HKCU "${COFFER_EDGE_HOSTS}\${BUNDLEID}""#).count(), 1);
+    assert!(!hooks.lines().filter(|l| !l.trim_start().starts_with(';')).any(|l| l.contains("dev.sampo.coffer")), "no fixed host name outside comments");
+    // The extension asks only for what M3 uses.
+    let manifest: serde_json::Value = serde_json::from_str(include_str!("../../extension/manifest.json")).unwrap();
+    assert_eq!(manifest["permissions"], serde_json::json!(["nativeMessaging", "storage", "privacy"]));
+    assert!(manifest.get("host_permissions").is_none() && manifest.get("externally_connectable").is_none());
 }
 
 #[test]

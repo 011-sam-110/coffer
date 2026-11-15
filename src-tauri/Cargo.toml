@@ -41,6 +41,10 @@ time = "0.3.55"
 # The one network client: the opt-in breach check (SPEC 3.10). rustls + ring + webpki roots.
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 coffer-core = { path = "../crates/coffer-core" }
+# The browser bridge's framing, pipe name and pipe ACL (src/bridge).
+coffer-bridge = { path = "../crates/coffer-bridge" }
+# The bridge's pipe server (src/bridge/server.rs). Tauri and the updater already turn these on.
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 # Same versions as Tauri 2.12 / wry 0.57 use, so there is one copy of each.
@@ -53,6 +57,7 @@ windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Security",
   "Win32_Graphics_Gdi",
+  "Win32_Security_Authorization",
   "Win32_Security_Cryptography",
   "Win32_Storage_FileSystem",
   "Win32_System_Com",
@@ -60,6 +65,7 @@ windows = { version = "0.62", features = [
   "Win32_System_LibraryLoader",
   "Win32_System_Memory",
   "Win32_System_Ole",
+  "Win32_System_Pipes",
   "Win32_System_Power",
   "Win32_System_RemoteDesktop",
   "Win32_System_SystemInformation",

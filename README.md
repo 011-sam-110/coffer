@@ -32,6 +32,7 @@ _Status: v0.1.0 pre-release for Windows 10 and 11. The installer is not code-sig
 - **Tray app** - close-to-tray, start with Windows, a tray menu, one instance at a time, and a tray icon that shows locked or unlocked.
 - **Auto-lock** - after a set idle time, when Windows locks and when the PC sleeps. Secrets stay in the Rust process and reach the window only when you press Reveal.
 - **Auto update** - every 6 hours Coffer reads the newest GitHub release, downloads the installer and checks its signature against the public key built into Coffer. A wrong signature is refused. The update installs the next time Coffer locks, never while you use it, or at once with Restart now. Settings > General > Updates can turn the automatic install off.
+- **Chrome and Edge** - the Coffer extension connects to Coffer once, with four words that Coffer and the browser both show. Fill and save in web pages come next; the connection, Settings > Browsers and the installer part are in.
 - **Clipboard care** - copies stay out of Windows clipboard history and cloud clipboard, and are cleared after 90 seconds (you can change this) if the clipboard still holds them.
 - **11 item types** - logins, passwords, notes, cards, identities, bank accounts, documents, SSH keys, API keys (with days left and a Windows notice before they expire), Wi-Fi and licences. Items have typed fields, tags, favourites, an archive, a 30-day trash, password history, revisions you can restore, and a per-item "ask for the master password" switch.
 - **Generator** - random, passphrase (EFF word list) and PIN, with a strength meter that shows how it counts, and a generator history.
@@ -68,6 +69,14 @@ Rust (vault core: `argon2`, `chacha20poly1305`, `zeroize`) · Tauri 2 · React 1
 
 From 0.3.0 on, Coffer updates itself (see Auto update above), so you install it by hand only once.
 
+**Add the Coffer extension to Chrome or Edge.** The installer puts the extension next to Coffer, in `%LOCALAPPDATA%\Coffer\extension`, and registers its bridge for both browsers. It is not in the Chrome Web Store, so you add it once by hand:
+1. In Coffer, open Settings > Browsers and click Copy folder.
+2. In Chrome, open `chrome://extensions` (Edge: `edge://extensions`) and turn on Developer mode.
+3. Click Load unpacked and paste the folder.
+4. Click the Coffer button in the toolbar, then Connect. Coffer and the button show the same four words: check them, then click Allow in Coffer.
+
+Coffer updates update the extension too: it reloads itself when Coffer is newer. Settings > Browsers shows the connected browsers and disconnects one. The protocol is in [`docs/BRIDGE.md`](docs/BRIDGE.md).
+
 Your vault is in `%USERPROFILE%\Coffer` unless you choose another folder. The settings, this PC's copy of the Secret Key and the backups are in `%LOCALAPPDATA%\Coffer`. Uninstalling leaves both folders where they are.
 
 **Build from source** (needs Rust stable, Node 20 or later and pnpm):
@@ -85,6 +94,9 @@ crates/coffer-core   vault file format, crypto, items, import and export, health
 src-tauri            the Windows app: tray, windows, hotkeys, clipboard, lock signals, Hello, auto-type
 src                  the React UI for the main window (index.html) and Quick Access (quick.html)
 src/lib/contract.ts  the IPC contract: every command and event between the UI and Rust
+crates/coffer-bridge coffer-bridge.exe, the native messaging host for the extension
+extension            the Chrome and Edge extension (Manifest V3, plain TypeScript)
+docs/BRIDGE.md       the protocol between the extension and Coffer
 docs/SPEC.md         the product and security spec, with its review history
 docs/SECURITY.md     the threat model, the key design and the known limits
 ```

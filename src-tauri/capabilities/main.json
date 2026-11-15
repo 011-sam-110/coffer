@@ -71,6 +71,10 @@
     "allow-main-hide",
     "allow-update-status",
     "allow-update-check",
-    "allow-update-install"
+    "allow-update-install",
+    "allow-bridge-info",
+    "allow-bridge-pair-answer",
+    "allow-bridge-disconnect",
+    "allow-bridge-copy-folder"
   ]
 }

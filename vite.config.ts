@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
     host: host || false,
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
-    watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/.shots/**"] },
+    watch: { ignored: ["**/src-tauri/**", "**/crates/**", "**/.shots/**", "**/extension/**", "**/bridge-stage/**"] },
   },
   build: {
     target: "es2022",
@@ -36,6 +36,6 @@ export default defineConfig(({ mode }) => ({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs", "extension/src/**/*.test.ts"],
   },
 }));

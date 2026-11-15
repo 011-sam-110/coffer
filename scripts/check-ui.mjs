@@ -85,6 +85,11 @@ const STATES = [
   ["u01-settings-update-ready", "/?view=settings&tab=general&update=ready", MAIN],
   ["u02-settings-update-found", "/?view=settings&tab=general&update=found", MAIN, [{ click: "button:has-text('Check now')" }, { wait: 3600 }, { expect: "text=Coffer 0.3.1 is ready." }]],
   ["u03-settings-update-off", "/?view=settings&tab=general&update=off", MAIN],
+  // Browser bridge (SPEC 3.13): Settings > Browsers and the Connect prompt.
+  ["b01-settings-browsers", "/?view=settings&tab=browsers", MAIN, [{ expect: "text=Connected on" }]],
+  ["b02-settings-browsers-none", "/?view=settings&tab=browsers&bridge=none", MAIN, [{ expect: "text=Not connected." }]],
+  ["b03-connect-prompt", "/?bridge=pair", MAIN, [{ wait: 1200 }, { expect: "text=maple · river · otter · lamp" }]],
+  ["b04-connect-prompt-locked", "/?bridge=pair&state=locked", MAIN, [{ wait: 1200 }, { expect: "text=Connect Chrome to Coffer?" }]],
   ["m33-shortcuts-f1", "/?dialog=shortcuts", MAIN],
   ["m34-export", "/?dialog=export", MAIN],
   ["m35-close-notice", "/?dialog=closeNotice", MAIN],

@@ -1,0 +1,209 @@
+/* Coffer's Red Dark tokens (a copy of src/styles/theme.css, the parts the
+   extension uses), Switzer and JetBrains Mono. The fonts come from the
+   install folder (fonts/, copied at build). */
+@font-face {
+  font-family: "Switzer";
+  src: url("/fonts/itf/switzer/fonts/Switzer-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/ofl/jetbrains-mono/fonts/JetBrainsMono-Variable.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --type-scale: 1.1;
+  --background: oklch(0.216 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.238 0 0);
+  --primary: oklch(0.584 0.235 20.651);
+  --primary-foreground: oklch(1 0 0);
+  --primary-hover: oklch(0.62 0.235 20.651);
+  --secondary: oklch(0.321 0 0);
+  --secondary-hover: oklch(0.36 0 0);
+  --muted: oklch(0.27 0 0);
+  --muted-foreground: oklch(0.724 0 0);
+  --border: oklch(0.321 0 0);
+  --ring: oklch(0.584 0.235 20.651);
+  --danger-text: oklch(0.72 0.16 25.94);
+  --radius: 4px;
+  --font-sans: "Switzer", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --text-sm: calc(0.8125rem * var(--type-scale));
+  --text-base: calc(0.875rem * var(--type-scale));
+  --text-md: calc(1rem * var(--type-scale));
+  --text-lg: calc(1.25rem * var(--type-scale));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: var(--text-base);
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+  font-size: var(--text-base);
+}
+
+.btn {
+  font: inherit;
+  font-weight: 600;
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn.primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.btn.secondary {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.btn.secondary:hover:not(:disabled) {
+  background: var(--secondary-hover);
+}
+.btn.quiet {
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 0 8px;
+}
+.btn.quiet:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+/* ---------- the toolbar popup ---------- */
+body.popup {
+  width: 320px;
+}
+body.popup .head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 16px;
+}
+.title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 650;
+}
+.text {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+.words {
+  margin: 4px 0 0;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  text-align: center;
+  user-select: text;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.words .sep {
+  display: none;
+}
+.message {
+  margin: 0;
+  color: var(--danger-text);
+  font-size: var(--text-sm);
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.body[data-state="connected"] .actions {
+  justify-content: flex-start;
+  margin-left: -8px;
+}
+
+/* ---------- the first-run page ---------- */
+body.page {
+  min-height: 100vh;
+}
+.sheet {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+.sheet h1 {
+  margin: 28px 0 8px;
+  font-size: var(--text-lg);
+  font-weight: 650;
+}
+.sheet h2 {
+  margin: 32px 0 8px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.sheet p {
+  margin: 0 0 8px;
+}
+.lead {
+  color: var(--muted-foreground);
+}
+.steps {
+  margin: 0;
+  padding-left: 1.4em;
+  display: grid;
+  gap: 6px;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.row .text {
+  margin: 0;
+}

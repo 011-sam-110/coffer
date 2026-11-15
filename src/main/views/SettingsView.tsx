@@ -1,13 +1,14 @@
-// Settings (SPEC 9, 11): General, Security, Vault, Shortcuts, About.
-import { FolderInput, KeyRound, Printer, Upload } from "lucide-react";
+// Settings (SPEC 9, 11): General, Security, Vault, Browsers (SPEC 3.13), Shortcuts, About.
+import { Copy, FolderInput, KeyRound, Printer, Upload } from "lucide-react";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
 import { RotateSecretKey } from "../../components/RotateSecretKey";
 import { Dialog, useToast } from "../../components/overlays";
 import { Button, Checkbox, cx, ErrorText, FormRow, Input, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
-import type { EmergencyKit, ExportKind, Settings } from "../../lib/contract";
-import { call, isCofferError } from "../../lib/ipc";
+import { browserRows, connectedLine } from "../../lib/bridge";
+import type { BridgeInfo, EmergencyKit, ExportKind, Settings } from "../../lib/contract";
+import { call, isCofferError, on } from "../../lib/ipc";
 import { autoUpdateHint, canCheck, updateBanner, updateLine } from "../../lib/updates";
 import { useListDensity } from "../prefs";
 import { BackupList } from "../screens/Locked";
@@ -75,6 +76,7 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: "general", label: "General" },
   { id: "security", label: "Security" },
   { id: "vault", label: "Vault" },
+  { id: "browsers", label: "Browsers" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "about", label: "About" },
 ];
@@ -96,6 +98,7 @@ export function SettingsView({ tab, onTab, go }: { tab: SettingsTab; onTab: (t: 
         )}
         {tab === "security" && <Security settings={settings} set={set} />}
         {tab === "vault" && <VaultTab go={go} />}
+        {tab === "browsers" && <BrowsersTab settings={settings} set={set} />}
         {tab === "shortcuts" && <Shortcuts settings={settings} set={set} />}
         {tab === "about" && <About />}
       </div>
@@ -654,6 +657,93 @@ function VaultTab({ go }: { go: (p: Partial<Nav>) => void }) {
         <BackupList onRestored={setStatus} />
       </section>
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+    </>
+  );
+}
+
+/** Settings > Browsers (SPEC 3.13): connected browsers, how to add the extension, the save and update offers. */
+function BrowsersTab({ settings, set }: { settings: Settings; set: SetFn }) {
+  const [info, setInfo] = useState<BridgeInfo | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [leaving, setLeaving] = useState<string | null>(null);
+  const { error, toast } = useToast();
+  useEffect(() => {
+    let live = true;
+    call("bridge_info")
+      .then((i) => live && setInfo(i))
+      .catch(() => undefined);
+    const off = on("bridge://changed", (i) => setInfo(i));
+    // "Last used 2 minutes ago" stays true.
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => {
+      live = false;
+      off();
+      window.clearInterval(timer);
+    };
+  }, []);
+  const disconnect = async (id: string, name: string) => {
+    setLeaving(id);
+    try {
+      setInfo(await call("bridge_disconnect", { id }));
+      toast(`${name} is disconnected. It must connect again to fill logins.`);
+    } catch (e) {
+      error(e);
+    } finally {
+      setLeaving(null);
+    }
+  };
+  const folder = info?.extensionFolder ?? "";
+  return (
+    <>
+      <Section title="Connected browsers">
+        {browserRows(info).map((r) => (
+          <Row key={r.key} title={r.name} description={r.link ? connectedLine(r.link, now) : "Not connected."}>
+            {r.link ? (
+              <Button loading={leaving === r.link.id} onClick={() => r.link && disconnect(r.link.id, r.name)}>
+                Disconnect
+              </Button>
+            ) : null}
+          </Row>
+        ))}
+      </Section>
+      <Section title="Coffer for Chrome and Edge">
+        <Row
+          title="Add the extension"
+          description={
+            <span className="flex flex-col gap-0.5">
+              <span>
+                1. Open <span className="font-mono">chrome://extensions</span> and turn on Developer mode.
+              </span>
+              <span>2. Click Load unpacked and choose the folder below.</span>
+              <span data-extension-folder data-selectable className="mt-0.5 font-mono font-semibold break-all text-foreground">
+                {folder}
+              </span>
+              {info && !info.extensionFound && <span className="text-danger-text">This folder is not there. Install Coffer again to put it back.</span>}
+            </span>
+          }
+        >
+          <Button
+            icon={<Copy className="size-4" />}
+            disabled={!folder}
+            onClick={async () => {
+              try {
+                await call("bridge_copy_folder");
+                toast("Folder copied.");
+              } catch (e) {
+                error(e);
+              }
+            }}
+          >
+            Copy folder
+          </Button>
+        </Row>
+        <Row title="Offer to save new logins" description="After you sign in on a site Coffer does not know, Chrome shows a Save bar.">
+          <Switch label="Offer to save new logins" checked={settings.offerSaveLogins} onChange={(v) => set({ offerSaveLogins: v })} />
+        </Row>
+        <Row title="Offer to update changed passwords" description="After you sign in with a new password for a saved login.">
+          <Switch label="Offer to update changed passwords" checked={settings.offerUpdatePasswords} onChange={(v) => set({ offerUpdatePasswords: v })} />
+        </Row>
+      </Section>
     </>
   );
 }

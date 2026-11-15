@@ -32,12 +32,14 @@
 //   ?update=ready|found|offline|badsig|off  auto update (SPEC 3.12): 0.3.1 downloaded at start /
 //                        Check now finds and downloads 0.3.1 / the check fails offline / 0.3.1 fails
 //                        its signature and is refused / this build does not update (default: up to date)
+//   ?bridge=none|pair    browser bridge (SPEC 3.13): no browser connected / the Connect prompt is open
+//                        at start (default: Chrome connected, last used 2 minutes ago)
 //
 // Demo-only extra commands (not in the contract; the UI must not call them):
 //   invoke("demo_clipboard")  what the simulated clipboard holds (tests only)
 //   invoke("demo_simulate", { what, title? }) with what = "idleLock" | "systemLock" |
 //   "sleepLock" | "quitLock" | "fileMissing" | "conflict" | "reloaded" | "quickShown" |
-//   "editDiscarded" | "quitRequested" | "keyChanged" | "closeNotice". In a browser:
+//   "editDiscarded" | "quitRequested" | "keyChanged" | "closeNotice" | "pairRequest". In a browser:
 //   window.__cofferDemo.simulate(what).
 //
 // A banner event that fires before any listener exists is delivered to the first
@@ -46,6 +48,8 @@ import { BUILTIN_FIELDS } from "../contract";
 import type {
   AppInfo,
   BackupEntry,
+  BridgeInfo,
+  PairRequest,
   Commands,
   CofferError,
   EmergencyKit,
@@ -103,6 +107,7 @@ export interface DemoExtras {
   autotype?: "ok" | "gone" | "admin" | "front" | "modifiers" | "changed" | "keys";
   qr?: "ok" | "none" | "google" | "other" | "noSecret" | "notImage" | "screenFail";
   update?: "none" | "ready" | "found" | "offline" | "badsig" | "off";
+  bridge?: "none" | "chrome" | "pair";
   /** Use this instead of location.search for the flags above (tests). */
   search?: string;
 }
@@ -154,7 +159,14 @@ const DEFAULT_SETTINGS: Settings = {
   closeBehavior: "hide",
   quickHintsShown: 0,
   autoUpdate: true,
+  offerSaveLogins: true,
+  offerUpdatePasswords: true,
 };
+
+/** The extension folder the demo shows in Settings > Browsers. */
+export const DEMO_EXTENSION_FOLDER = "C:\\Users\\alex\\AppData\\Local\\Coffer\\extension";
+/** The four words of the demo's Connect prompt (the plan's mockup). */
+export const DEMO_PAIR_WORDS = ["maple", "river", "otter", "lamp"];
 
 /** The demo's own version and the one its "GitHub" offers (SPEC 3.12). */
 export const DEMO_VERSION = "0.3.0";
@@ -269,6 +281,7 @@ function readFlags(opts: DemoBackendOptions) {
     autotype: opts.autotype ?? pick(q.get("autotype"), ["ok", "gone", "admin", "front", "modifiers", "changed", "keys"] as const, "ok"),
     qr: opts.qr ?? pick(q.get("qr"), ["ok", "none", "google", "other", "noSecret", "notImage", "screenFail"] as const, "ok"),
     update: opts.update ?? pick(q.get("update"), ["none", "ready", "found", "offline", "badsig", "off"] as const, "none"),
+    bridge: opts.bridge ?? pick(q.get("bridge"), ["none", "chrome", "pair"] as const, "chrome"),
     latencyMs: opts.latencyMs ?? (latencyParam !== null && Number.isFinite(Number(latencyParam)) ? Number(latencyParam) : undefined),
   };
 }
@@ -320,6 +333,25 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     checkedAt: flags.update === "off" ? null : new Date(Date.now() - 5 * 60_000).toISOString(),
     error: flags.update === "off" ? "This build does not update: it has no update signing key." : null,
   };
+
+  /** Browser bridge (SPEC 3.13): who is connected, and the open Connect prompt. Keys never exist here. */
+  const pairRequest = (): PairRequest => ({
+    pairId: uuid().replace(/-/g, "").slice(0, 16),
+    browser: "chrome",
+    name: "Chrome",
+    words: [...DEMO_PAIR_WORDS],
+    expiresAt: new Date(Date.now() + 120_000).toISOString(),
+  });
+  const bridge: BridgeInfo = {
+    browsers:
+      flags.bridge === "chrome"
+        ? [{ id: "c0ffee00c0ffee00c0ffee00c0ffee00", browser: "chrome", name: "Chrome", pairedAt: new Date(Date.now() - 3 * 3_600_000).toISOString(), lastUsedAt: new Date(Date.now() - 2 * 60_000).toISOString() }]
+        : [],
+    extensionFolder: DEMO_EXTENSION_FOLDER,
+    extensionFound: true,
+    pending: flags.bridge === "pair" ? pairRequest() : null,
+  };
+  const bridgeInfo = (): BridgeInfo => ({ ...bridge, browsers: bridge.browsers.map((b) => ({ ...b })), pending: bridge.pending ? { ...bridge.pending, words: [...bridge.pending.words] } : null });
 
   // ---------- helpers ----------
   const now = (): number => Date.now();
@@ -1429,6 +1461,29 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       lockNow("manual", false);
       installUpdate();
     },
+
+    // ----- browser bridge (SPEC 3.13) -----
+    bridge_info: () => bridgeInfo(),
+    bridge_pair_answer: ({ pairId, allow }) => {
+      const p = bridge.pending;
+      if (!p || p.pairId !== pairId) throw fail("notFound", "This Connect request is no longer open.");
+      bridge.pending = null;
+      if (allow) {
+        bridge.browsers = bridge.browsers.filter((b) => b.browser !== p.browser);
+        bridge.browsers.push({ id: uuid().replace(/-/g, ""), browser: p.browser, name: p.name, pairedAt: iso(), lastUsedAt: null });
+      }
+      emit("bridge://changed", bridgeInfo());
+      return bridgeInfo();
+    },
+    bridge_disconnect: ({ id }) => {
+      if (!bridge.browsers.some((b) => b.id === id)) throw fail("notFound", "That browser is not connected.");
+      bridge.browsers = bridge.browsers.filter((b) => b.id !== id);
+      emit("bridge://changed", bridgeInfo());
+      return bridgeInfo();
+    },
+    bridge_copy_folder: () => {
+      lastCopied = bridge.extensionFolder;
+    },
   };
 
   // ---------- demo-only ----------
@@ -1472,6 +1527,11 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       case "closeNotice":
         // A browser tab has no window close; this stands in for the first close with closeBehavior "hide".
         emit("main://closeNotice", {});
+        return true;
+      case "pairRequest":
+        // A browser's extension asks to connect (Rust shows the main window and the prompt).
+        bridge.pending = pairRequest();
+        emit("bridge://changed", bridgeInfo());
         return true;
       case "keyChanged": {
         // Like Rust (SPEC 3.5): write the open state to a conflict file, say so, then lock.
