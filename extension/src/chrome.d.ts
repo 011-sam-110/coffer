@@ -52,6 +52,8 @@ declare namespace chrome {
     function create(props: { url: string }): Promise<unknown>;
     function query(q: { active?: boolean; currentWindow?: boolean }): Promise<Tab[]>;
     function sendMessage<T = unknown>(tabId: number, message: unknown, options?: { frameId?: number }): Promise<T>;
+    /** Needs no "tabs" permission: only the id of the tab that closed. */
+    const onRemoved: { addListener(cb: (tabId: number) => void): void };
   }
 
   namespace commands {

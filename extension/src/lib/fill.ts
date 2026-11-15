@@ -28,8 +28,8 @@ export type ContentRequest =
   | { type: "coffer:unlock" }
   | { type: "coffer:font" };
 
-/** Service worker -> content script. */
-export type ContentMessage = { type: "coffer:where" } | { type: "coffer:command"; command: "fill-login" };
+/** Service worker -> content script. `coffer:show`: a frame's sign-in settled, so the top page asks for the Save bar. */
+export type ContentMessage = { type: "coffer:where" } | { type: "coffer:command"; command: "fill-login" } | { type: "coffer:show" };
 
 export type FillAnswer = { ok: true; username: string; password: string; hasTotp: boolean } | { ok: false; code: string; message: string };
 export type TotpAnswer = { ok: true; clearsInSeconds: number | null } | { ok: false; code: string; message: string };

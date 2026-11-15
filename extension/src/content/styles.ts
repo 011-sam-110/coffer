@@ -32,6 +32,7 @@ export const CSS = `
   --primary-foreground: oklch(1 0 0);
   --primary-hover: oklch(0.62 0.235 20.651);
   --secondary: oklch(0.321 0 0);
+  --secondary-hover: oklch(0.36 0 0);
   --accent: oklch(0.324 0.13 17.463);
   --muted-foreground: oklch(0.724 0 0);
   --border: oklch(0.321 0 0);
@@ -146,6 +147,54 @@ export const CSS = `
 }
 .cf-act:hover { background: var(--primary-hover); }
 .cf-btn:focus-visible, .cf-act:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.cf-bar {
+  top: 16px;
+  right: 16px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 25px 0 hsl(0 0% 0% / 0.5);
+}
+.cf-bar-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.cf-bar-title { font-size: 15px; font-weight: 600; }
+.cf-x {
+  width: 24px;
+  height: 24px;
+  margin: -4px -4px -4px 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: 400 18px/1 var(--font-sans);
+  cursor: pointer;
+  flex: none;
+}
+.cf-x:hover { background: var(--secondary); color: var(--foreground); }
+.cf-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-size: 13.5px; }
+.cf-fk { color: var(--muted-foreground); }
+.cf-fv { overflow-wrap: anywhere; }
+.cf-none { color: var(--muted-foreground); }
+.cf-bar-line { font-size: 13px; color: var(--muted-foreground); }
+.cf-row { display: flex; gap: 8px; justify-content: flex-end; }
+.cf-b {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--secondary);
+  color: var(--foreground);
+  font: 500 14px/1 var(--font-sans);
+  cursor: pointer;
+}
+.cf-b:hover { background: var(--secondary-hover); }
+.cf-b-p { background: var(--primary); color: var(--primary-foreground); }
+.cf-b-p:hover { background: var(--primary-hover); }
+.cf-b:focus-visible, .cf-x:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .cf-note {
   transform: translateX(-100%);
   padding: 8px 12px;
