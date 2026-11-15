@@ -36,8 +36,9 @@ pub const PAIR_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long `get_login` waits for the master password of a re-prompt login.
 pub const REPROMPT_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Calls that read or write the vault (M4 and M5, docs/BRIDGE.md). A locked
-/// Coffer answers each with `locked`.
+/// Calls that read or write the vault (M4 and M5, docs/BRIDGE.md): the fill
+/// and save calls. A locked Coffer answers each with `locked`.
+#[cfg(test)]
 pub const VAULT_CALLS: &[&str] = &["list_logins", "get_login", "copy_totp", "find_login", "save_login", "update_password", "never_for_site"];
 
 /// What the gate needs from the app.
@@ -61,6 +62,16 @@ pub trait Host {
     fn copy_totp(&self, id: &str) -> Result<Option<u32>, VaultErr>;
     /// A fill used this login (its "last used").
     fn used(&self, id: &str);
+    /// `candidate` is this login's password (the password stays in the vault).
+    fn password_is(&self, id: &str, candidate: &str) -> Result<bool, VaultErr>;
+    /// Save a new login from the browser: (item id, name).
+    fn save_login(&self, title: &str, website: &str, username: &str, password: &str) -> Result<(String, String), VaultErr>;
+    /// Give a login a new password (the old one goes to its history and revisions).
+    fn update_password(&self, id: &str, password: &str) -> Result<(), VaultErr>;
+    /// The never list ("Never for this site"), or `None` while Coffer is locked.
+    fn never_sites(&self) -> Option<Vec<String>>;
+    /// Add a site to the never list.
+    fn never_add(&self, site: &str) -> Result<(), VaultErr>;
 }
 
 
@@ -91,6 +102,8 @@ fn locked() -> (&'static str, String) {
 
 /// Calls that fill (M4). They read the page's URL before anything else.
 pub const FILL_CALLS: &[&str] = &["list_logins", "get_login", "copy_totp"];
+/// Calls that save (M5). They read the page's URL first too.
+pub const SAVE_CALLS: &[&str] = &["find_login", "save_login", "update_password", "never_for_site"];
 
 /// One pipe connection (one bridge process, one extension port).
 pub struct Conn {
@@ -457,7 +470,7 @@ impl Core {
                 host.changed(false);
                 now(Ok(json!({ "disconnected": true })))
             }
-            c if FILL_CALLS.contains(&c) => {
+            c if FILL_CALLS.contains(&c) || SAVE_CALLS.contains(&c) => {
                 // The page first: a page Coffer does not fill on gets nothing, locked or not.
                 let page = match page_of(args) {
                     Ok(p) => p,
@@ -466,14 +479,11 @@ impl Core {
                 match c {
                     "list_logins" => now(list_logins(host, &page)),
                     "get_login" => self.get_login(host, conn, &page, args),
-                    _ => now(copy_totp(host, &page, args)),
-                }
-            }
-            c if VAULT_CALLS.contains(&c) => {
-                if host.locked() {
-                    now(Err(locked()))
-                } else {
-                    now(Err(("unknown_call", format!("Coffer {} does not answer {c} yet.", host.version()))))
+                    "copy_totp" => now(copy_totp(host, &page, args)),
+                    "find_login" => now(find_login(host, &page, args)),
+                    "save_login" => now(save_login(host, &page, args)),
+                    "update_password" => now(update_password(host, &page, args)),
+                    _ => now(never_for_site(host, &page)),
                 }
             }
             _ => now(Err(("unknown_call", format!("Coffer does not know the call \"{call}\".")))),
@@ -481,7 +491,7 @@ impl Core {
     }
 
     fn get_login(&self, host: &dyn Host, conn: &Conn, page: &Page, args: &Value) -> Answer {
-        let login = match find_login(host, page, args) {
+        let login = match login_of(host, page, args) {
             Ok(l) => l,
             Err(e) => return Answer::Now(Err(e)),
         };
@@ -632,7 +642,7 @@ fn list_logins(host: &dyn Host, page: &Page) -> Result<Value, (&'static str, Str
 }
 
 /// The login with `args.id`, when it fits the page.
-fn find_login(host: &dyn Host, page: &Page, args: &Value) -> Result<LoginRef, (&'static str, String)> {
+fn login_of(host: &dyn Host, page: &Page, args: &Value) -> Result<LoginRef, (&'static str, String)> {
     let id = args.get("id").and_then(Value::as_str).ok_or(("bad_request", "The call needs the login's id.".to_string()))?;
     let logins = host.logins().ok_or_else(locked)?;
     let login = logins.into_iter().find(|l| l.id == id).ok_or(("not_found", "Coffer has no such login.".to_string()))?;
@@ -650,12 +660,91 @@ fn filled(host: &dyn Host, id: &str, fill: LoginFill) -> Value {
 }
 
 fn copy_totp(host: &dyn Host, page: &Page, args: &Value) -> Result<Value, (&'static str, String)> {
-    let login = find_login(host, page, args)?;
+    let login = login_of(host, page, args)?;
     if !login.has_totp {
         return Err(("no_totp", "This login has no one-time code.".into()));
     }
     let clears = host.copy_totp(&login.id).map_err(VaultErr::answer)?;
     Ok(json!({ "clearsInSeconds": clears }))
+}
+
+/// A text argument of a save call. `password` must not be empty.
+fn text_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, (&'static str, String)> {
+    let v = args.get(name).and_then(Value::as_str).ok_or_else(|| ("bad_request", format!("The call needs {name}.")))?;
+    if name == "password" && v.is_empty() {
+        return Err(("bad_request", "The call needs a password.".into()));
+    }
+    Ok(v)
+}
+
+/// Two usernames are the same login's: trimmed, and the case does not count
+/// (`Alex@Example.com` is `alex@example.com`).
+fn same_username(a: &str, b: &str) -> bool {
+    a.trim().to_lowercase() == b.trim().to_lowercase()
+}
+
+/// `find_login`: does Coffer know the login the user just sent on this
+/// page? `match`: `never` (the site is on the never list), `none` (no login of
+/// the site has this username), `same` (one has this password too),
+/// `changed` (it has another password). `offer` applies the two switches of
+/// Settings, Browsers: `save`, `update` or null. The password never comes
+/// back: Coffer only compares.
+fn find_login(host: &dyn Host, page: &Page, args: &Value) -> Result<Value, (&'static str, String)> {
+    let username = text_arg(args, "username")?;
+    let password = text_arg(args, "password")?;
+    let never = host.never_sites().ok_or_else(locked)?;
+    if never.iter().any(|s| *s == page.site) {
+        return Ok(json!({ "match": "never", "offer": null, "site": page.site }));
+    }
+    let logins = host.logins().ok_or_else(locked)?;
+    let (offer_save, offer_update) = host.offers();
+    let ranked = site::rank(page, &logins, &host.last_used());
+    let known: Vec<&LoginRef> = ranked.into_iter().filter(|l| same_username(&l.username, username)).collect();
+    let Some(first) = known.first() else {
+        return Ok(json!({ "match": "none", "offer": offer_save.then_some("save"), "site": page.site }));
+    };
+    for l in &known {
+        if host.password_is(&l.id, password).map_err(VaultErr::answer)? {
+            return Ok(json!({ "match": "same", "id": l.id, "title": l.title, "offer": null, "site": page.site }));
+        }
+    }
+    Ok(json!({ "match": "changed", "id": first.id, "title": first.title, "offer": offer_update.then_some("update"), "site": page.site }))
+}
+
+/// `save_login`: a new login named after the page's registered domain, with
+/// Website `https://<domain>` (`http://localhost` on localhost). The
+/// extension sends it only after the user's click on Save.
+fn save_login(host: &dyn Host, page: &Page, args: &Value) -> Result<Value, (&'static str, String)> {
+    let username = text_arg(args, "username")?;
+    let password = text_arg(args, "password")?;
+    if host.locked() {
+        return Err(locked());
+    }
+    let website = format!("{}://{}", page.scheme, page.site);
+    let (id, title) = host.save_login(&page.site, &website, username, password).map_err(VaultErr::answer)?;
+    crate::log!("bridge: saved a new login from the browser");
+    Ok(json!({ "id": id, "title": title }))
+}
+
+/// `update_password`: the picked login gets the new password, only when it
+/// fits the page. The extension sends it only after the user's click on Update.
+fn update_password(host: &dyn Host, page: &Page, args: &Value) -> Result<Value, (&'static str, String)> {
+    let password = text_arg(args, "password")?;
+    let login = login_of(host, page, args)?;
+    host.update_password(&login.id, password).map_err(VaultErr::answer)?;
+    crate::log!("bridge: updated a login's password from the browser");
+    Ok(json!({ "id": login.id }))
+}
+
+/// `never_for_site`: Coffer offers nothing on this site again (Settings,
+/// Browsers can take it off the list).
+fn never_for_site(host: &dyn Host, page: &Page) -> Result<Value, (&'static str, String)> {
+    if host.locked() {
+        return Err(locked());
+    }
+    host.never_add(&page.site).map_err(VaultErr::answer)?;
+    crate::log!("bridge: a site went on the never list");
+    Ok(json!({ "site": page.site }))
 }
 
 #[cfg(test)]
@@ -678,6 +767,13 @@ mod tests {
         granted: Mutex<HashSet<String>>,
         copies: AtomicUsize,
         used: Mutex<Vec<String>>,
+        /// "Offer to save", "Offer to update" (None: on, off).
+        offers: Mutex<Option<(bool, bool)>>,
+        /// Saved from the browser: (title, website, username, password).
+        saved: Mutex<Vec<(String, String, String, String)>>,
+        /// Item id to its new password.
+        passwords: Mutex<HashMap<String, String>>,
+        never: Mutex<Vec<String>>,
     }
 
     impl Host for TestHost {
@@ -688,7 +784,7 @@ mod tests {
             self.locked.load(Ordering::SeqCst)
         }
         fn offers(&self) -> (bool, bool) {
-            (true, false)
+            self.offers.lck().unwrap_or((true, false))
         }
         fn open_unlock(&self) {
             self.unlock_shown.fetch_add(1, Ordering::SeqCst);
@@ -724,6 +820,30 @@ mod tests {
         }
         fn used(&self, id: &str) {
             self.used.lck().push(id.to_string());
+        }
+        fn password_is(&self, id: &str, candidate: &str) -> Result<bool, VaultErr> {
+            if self.locked() {
+                return Err(VaultErr::Locked);
+            }
+            self.logins.iter().find(|l| l.id == id).ok_or(VaultErr::NotFound)?;
+            let current = self.passwords.lck().get(id).cloned().unwrap_or_else(|| format!("pw-{id}"));
+            Ok(current == candidate)
+        }
+        fn save_login(&self, title: &str, website: &str, username: &str, password: &str) -> Result<(String, String), VaultErr> {
+            let mut saved = self.saved.lck();
+            saved.push((title.into(), website.into(), username.into(), password.into()));
+            Ok((format!("new{}", saved.len()), title.into()))
+        }
+        fn update_password(&self, id: &str, password: &str) -> Result<(), VaultErr> {
+            self.passwords.lck().insert(id.into(), password.into());
+            Ok(())
+        }
+        fn never_sites(&self) -> Option<Vec<String>> {
+            (!self.locked()).then(|| self.never.lck().clone())
+        }
+        fn never_add(&self, site: &str) -> Result<(), VaultErr> {
+            self.never.lck().push(site.into());
+            Ok(())
         }
     }
 
@@ -1094,6 +1214,136 @@ mod tests {
         let s = open_signed(&key, &client, &serde_json::from_str(&core.finish(&host, &wait.ticket, &RepromptEnd::Gone)).unwrap());
         assert_eq!(s["error"], "locked");
         assert_eq!(*host.used.lck(), ["nw"], "only the confirmed fill was used");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// find_login for a username and password on a page: the opened result.
+    fn find(core: &Core, host: &TestHost, conn: &mut Conn, key: &Key, client: &str, nonce: &str, seq: u64, url: &str, username: &str, password: &str) -> Value {
+        call(core, host, conn, key, client, nonce, seq, "find_login", json!({ "url": url, "username": username, "password": password }))["result"].clone()
+    }
+
+    #[test]
+    fn find_login_tells_new_same_and_changed_apart_and_never_sends_a_password() {
+        let (core, dir, host, mut conn, client, key, nonce) = paired_with("find", northwind());
+        *host.offers.lck() = Some((true, true));
+        let page = "https://northwind-shop.test/sign-in";
+        // A username Coffer does not have on this site: offer Save.
+        let r = find(&core, &host, &mut conn, &key, &client, &nonce, 1, page, "new@example.com", "Fresh-1");
+        assert_eq!(r, json!({ "match": "none", "offer": "save", "site": "northwind-shop.test" }));
+        // The same username and password: nothing to offer.
+        let r = find(&core, &host, &mut conn, &key, &client, &nonce, 2, page, "alex@example.com", "pw-ns");
+        assert_eq!(r, json!({ "match": "same", "id": "ns", "title": "northwind-shop.test", "offer": null, "site": "northwind-shop.test" }));
+        // The case of the username does not count.
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 3, page, " Alex@Example.COM", "pw-ns")["match"], "same");
+        // The same username, another password: offer Update, naming the login.
+        let r = find(&core, &host, &mut conn, &key, &client, &nonce, 4, page, "alex@example.com", "New-pass-2");
+        assert_eq!(r, json!({ "match": "changed", "id": "ns", "title": "northwind-shop.test", "offer": "update", "site": "northwind-shop.test" }));
+        assert!(!r.to_string().contains("pw-ns"), "the stored password never comes back");
+        // The look-alike site does not see the real site's logins: a new login there.
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 5, "https://northwind-sh0p.test/", "alex@example.com", "pw-ns")["match"], "none");
+        // A subdomain is the same site.
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 6, "https://www.northwind-shop.test/", "alex@example.com", "pw-ns")["match"], "same");
+        // Bad pages and bad args: refused before anything else.
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 7, "find_login", json!({ "url": "http://northwind-shop.test/", "username": "a", "password": "b" }))["error"], "bad_request");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 8, "find_login", json!({ "url": page, "username": "a", "password": "" }))["error"], "bad_request");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 9, "find_login", json!({ "url": page, "password": "b" }))["error"], "bad_request");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 10, "find_login", json!({ "url": "https://northwind-shop.test/f", "top": "https://evil.test/", "username": "a", "password": "b" }))["error"], "cross_site");
+        assert!(host.saved.lck().is_empty() && host.passwords.lck().is_empty(), "find_login writes nothing");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_two_switches_turn_the_offers_off() {
+        let (core, dir, host, mut conn, client, key, nonce) = paired_with("switches", northwind());
+        let page = "https://northwind-shop.test/";
+        *host.offers.lck() = Some((false, false));
+        let r = find(&core, &host, &mut conn, &key, &client, &nonce, 1, page, "new@example.com", "x");
+        assert_eq!((r["match"].clone(), r["offer"].clone()), (json!("none"), Value::Null));
+        let r = find(&core, &host, &mut conn, &key, &client, &nonce, 2, page, "alex@example.com", "changed");
+        assert_eq!((r["match"].clone(), r["offer"].clone()), (json!("changed"), Value::Null));
+        // Each switch alone.
+        *host.offers.lck() = Some((true, false));
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 3, page, "new@example.com", "x")["offer"], "save");
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 4, page, "alex@example.com", "changed")["offer"], Value::Null);
+        *host.offers.lck() = Some((false, true));
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 5, page, "new@example.com", "x")["offer"], Value::Null);
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 6, page, "alex@example.com", "changed")["offer"], "update");
+        // status reports both, for the extension.
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 7, "status", json!({}))["result"]["offerSave"], false);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_login_makes_a_login_named_after_the_registered_domain() {
+        let (core, dir, host, mut conn, client, key, nonce) = paired_with("save", northwind());
+        let s = call(&core, &host, &mut conn, &key, &client, &nonce, 1, "save_login", json!({ "url": "https://accounts.northwind-shop.test/sign-in?next=/", "username": "new@example.com", "password": "Fresh-1" }));
+        assert_eq!(s["result"], json!({ "id": "new1", "title": "northwind-shop.test" }));
+        assert_eq!(*host.saved.lck(), [("northwind-shop.test".to_string(), "https://northwind-shop.test".to_string(), "new@example.com".to_string(), "Fresh-1".to_string())]);
+        // localhost keeps http; a public suffix host is its own site.
+        call(&core, &host, &mut conn, &key, &client, &nonce, 2, "save_login", json!({ "url": "http://localhost:3000/login", "username": "", "password": "p" }));
+        call(&core, &host, &mut conn, &key, &client, &nonce, 3, "save_login", json!({ "url": "https://alex.github.io/app", "username": "a", "password": "p" }));
+        let saved = host.saved.lck().clone();
+        assert_eq!((saved[1].0.as_str(), saved[1].1.as_str()), ("localhost", "http://localhost"));
+        assert_eq!((saved[2].0.as_str(), saved[2].1.as_str()), ("alex.github.io", "https://alex.github.io"));
+        // An http page, a cross-site frame, no password: nothing saved.
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 4, "save_login", json!({ "url": "http://northwind-shop.test/", "username": "a", "password": "p" }))["error"], "bad_request");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 5, "save_login", json!({ "url": "https://northwind-shop.test/", "top": "https://evil.test/", "username": "a", "password": "p" }))["error"], "cross_site");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 6, "save_login", json!({ "url": "https://northwind-shop.test/", "username": "a" }))["error"], "bad_request");
+        assert_eq!(host.saved.lck().len(), 3);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn update_password_changes_only_a_login_of_the_site() {
+        let (core, dir, host, mut conn, client, key, nonce) = paired_with("update", northwind());
+        let page = "https://northwind-shop.test/sign-in";
+        let s = call(&core, &host, &mut conn, &key, &client, &nonce, 1, "update_password", json!({ "url": page, "id": "ns", "password": "New-pass-2" }));
+        assert_eq!(s["result"], json!({ "id": "ns" }));
+        assert_eq!(host.passwords.lck().get("ns").map(String::as_str), Some("New-pass-2"));
+        // Now the same password is "same".
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 2, page, "alex@example.com", "New-pass-2")["match"], "same");
+        // Another site's login, an unknown id, no password: refused, nothing changed.
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 3, "update_password", json!({ "url": page, "id": "ev", "password": "x" }))["error"], "no_match");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 4, "update_password", json!({ "url": page, "id": "zz", "password": "x" }))["error"], "not_found");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 5, "update_password", json!({ "url": page, "id": "ns", "password": "" }))["error"], "bad_request");
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 6, "update_password", json!({ "url": "https://northwind-sh0p.test/", "id": "ns", "password": "x" }))["error"], "no_match");
+        assert_eq!(host.passwords.lck().len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn never_for_site_then_find_login_says_never() {
+        let (core, dir, host, mut conn, client, key, nonce) = paired_with("never", northwind());
+        let s = call(&core, &host, &mut conn, &key, &client, &nonce, 1, "never_for_site", json!({ "url": "https://accounts.northwind-shop.test/sign-in" }));
+        assert_eq!(s["result"], json!({ "site": "northwind-shop.test" }));
+        assert_eq!(*host.never.lck(), ["northwind-shop.test"], "the registered domain, not the host");
+        for (i, (user, pw)) in [("new@example.com", "x"), ("alex@example.com", "changed"), ("alex@example.com", "pw-ns")].iter().enumerate() {
+            let r = find(&core, &host, &mut conn, &key, &client, &nonce, 2 + i as u64, "https://www.northwind-shop.test/", user, pw);
+            assert_eq!(r, json!({ "match": "never", "offer": null, "site": "northwind-shop.test" }), "{user}");
+        }
+        // Another site is not on the list.
+        assert_eq!(find(&core, &host, &mut conn, &key, &client, &nonce, 9, "https://northwind-sh0p.test/", "a", "b")["match"], "none");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_calls_answer_locked_and_write_nothing() {
+        let (core, dir, host, mut conn, client, key, nonce) = paired_with("save-locked", northwind());
+        host.locked.store(true, Ordering::SeqCst);
+        let page = "https://northwind-shop.test/sign-in";
+        let calls = [
+            ("find_login", json!({ "url": page, "username": "alex@example.com", "password": "x" })),
+            ("save_login", json!({ "url": page, "username": "new@example.com", "password": "x" })),
+            ("update_password", json!({ "url": page, "id": "ns", "password": "x" })),
+            ("never_for_site", json!({ "url": page })),
+        ];
+        for (i, (name, args)) in calls.iter().enumerate() {
+            assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 1 + i as u64, name, args.clone())["error"], "locked", "{name}");
+        }
+        assert!(host.saved.lck().is_empty() && host.passwords.lck().is_empty() && host.never.lck().is_empty());
+        // After the unlock, the same Save works.
+        host.locked.store(false, Ordering::SeqCst);
+        assert_eq!(call(&core, &host, &mut conn, &key, &client, &nonce, 9, "save_login", calls[1].1.clone())["result"]["title"], "northwind-shop.test");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -356,12 +356,15 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       flags.bridge === "reprompt"
         ? { requestId: "d3m0r3pr0mpt0001", browser: "chrome", name: "Chrome", title: "Northwind (work)", site: "northwind-shop.example", expiresAt: new Date(Date.now() + 120_000).toISOString() }
         : null,
+    // "Never for this site" in Chrome's Save bar (kept in the vault).
+    neverSites: flags.bridge === "chrome" ? ["forum.example"] : [],
   };
   const bridgeInfo = (): BridgeInfo => ({
     ...bridge,
     browsers: bridge.browsers.map((b) => ({ ...b })),
     pending: bridge.pending ? { ...bridge.pending, words: [...bridge.pending.words] } : null,
     reprompt: bridge.reprompt ? { ...bridge.reprompt } : null,
+    neverSites: vault && state === "unlocked" ? [...bridge.neverSites] : [],
   });
 
   // ---------- helpers ----------
@@ -1501,6 +1504,13 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
       // A wrong password keeps the question open; the right one lets the login fill.
       if (password !== null) await checkMaster(password);
       bridge.reprompt = null;
+      emit("bridge://changed", bridgeInfo());
+      return bridgeInfo();
+    },
+    bridge_never_remove: ({ site }) => {
+      requireUnlocked();
+      if (!bridge.neverSites.includes(site)) throw fail("notFound", "That site is not on the list.");
+      bridge.neverSites = bridge.neverSites.filter((s) => s !== site);
       emit("bridge://changed", bridgeInfo());
       return bridgeInfo();
     },

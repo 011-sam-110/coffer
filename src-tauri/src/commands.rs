@@ -804,3 +804,9 @@ pub async fn bridge_copy_folder() -> CofferResult<()> {
 pub async fn bridge_reprompt_answer(app: AppHandle, request_id: String, password: Option<Secret>) -> CofferResult<BridgeInfo> {
     blocking(move || crate::bridge::reprompt_answer(&app, &request_id, pw(&password))).await?
 }
+
+/// Take a site off the never list ("Never for this site"): the Save bar shows there again.
+#[tauri::command]
+pub async fn bridge_never_remove(app: AppHandle, site: String) -> CofferResult<BridgeInfo> {
+    blocking(move || crate::bridge::never_remove(&app, &site)).await?
+}

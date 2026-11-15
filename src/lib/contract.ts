@@ -524,6 +524,7 @@ export interface BridgeInfo {
   extensionFound: boolean; // the folder holds manifest.json
   pending: PairRequest | null;
   reprompt: BridgeReprompt | null;
+  neverSites: string[]; // "Never for this site" in the Save bar: registered domains, sorted; [] while locked
 }
 
 // ---------- quick access ----------
@@ -624,6 +625,7 @@ export interface Commands {
   bridge_disconnect: [{ id: string }, BridgeInfo]; // deletes that browser's key; it must connect again
   bridge_copy_folder: [Record<string, never>, void]; // copies extensionFolder (not a secret: no clear timer)
   bridge_reprompt_answer: [{ requestId: string; password: string | null }, BridgeInfo]; // the master password lets that one login fill; null = Cancel; "badCredentials" keeps it open
+  bridge_never_remove: [{ site: string }, BridgeInfo]; // takes a site off the never list: the Save bar shows there again; "notFound" when it is not on it
 }
 
 // ---------- events (Rust -> UI) ----------

@@ -65,4 +65,19 @@ describe("demo browser bridge", () => {
     const c = mk({ bridge: "reprompt" });
     expect((await call<BridgeInfo>(c, "bridge_reprompt_answer", { requestId, password: null })).reprompt).toBeNull();
   });
+
+  it("the never list: shown while unlocked, Remove takes a site off with an event", async () => {
+    const b = mk();
+    const seen: BridgeInfo[] = [];
+    b.listen("bridge://changed", (p) => seen.push(p as BridgeInfo));
+    expect((await call<BridgeInfo>(b, "bridge_info")).neverSites).toEqual(["forum.example"]);
+    expect((await call<BridgeInfo>(b, "bridge_never_remove", { site: "forum.example" })).neverSites).toEqual([]);
+    await flush();
+    expect(seen.at(-1)?.neverSites).toEqual([]);
+    expect(((await b.invoke("bridge_never_remove", { site: "forum.example" }).catch((e) => e)) as CofferError).code).toBe("notFound");
+    // Locked: the list is not shown, and Remove needs the vault.
+    const locked = mk({ startState: "locked" });
+    expect((await call<BridgeInfo>(locked, "bridge_info")).neverSites).toEqual([]);
+    expect(((await locked.invoke("bridge_never_remove", { site: "forum.example" }).catch((e) => e)) as CofferError).code).toBe("locked");
+  });
 });

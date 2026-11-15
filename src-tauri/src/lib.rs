@@ -69,7 +69,7 @@ macro_rules! with_commands {
             quick_context, quick_hide, quick_set_modal, main_show, autotype, app_quit,
             main_hide,
             update_status, update_check, update_install,
-            bridge_info, bridge_pair_answer, bridge_disconnect, bridge_copy_folder, bridge_reprompt_answer
+            bridge_info, bridge_pair_answer, bridge_disconnect, bridge_copy_folder, bridge_reprompt_answer, bridge_never_remove
         )
     };
 }

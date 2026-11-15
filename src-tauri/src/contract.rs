@@ -438,4 +438,6 @@ pub struct BridgeInfo {
     pub extension_found: bool,
     pub pending: Option<PairRequest>,
     pub reprompt: Option<BridgeReprompt>,
+    /// The never list (registered domains, sorted); empty while locked.
+    pub never_sites: Vec<String>,
 }
