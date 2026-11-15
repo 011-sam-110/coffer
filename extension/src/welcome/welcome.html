@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Coffer for Chrome and Edge</title>
+    <link rel="stylesheet" href="../styles/coffer.css" />
+  </head>
+  <body class="page">
+    <main class="sheet">
+      <header class="head">
+        <img src="/icons/icon-32.png" alt="" width="24" height="24" />
+        <span>Coffer</span>
+      </header>
+      <h1>Coffer is in this browser</h1>
+      <p class="lead">Coffer fills and saves your logins from the Coffer app on this PC. Your passwords stay in Coffer's vault on this PC.</p>
+
+      <section>
+        <h2>Connect it to Coffer</h2>
+        <ol class="steps">
+          <li>Pin the Coffer button: click the puzzle piece in the toolbar, then the pin next to Coffer.</li>
+          <li>Click the Coffer button, then Connect.</li>
+          <li>Coffer shows four words. Check that the Coffer button shows the same words, then click Allow in Coffer.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Your browser's own password offers</h2>
+        <p>This browser also offers to save passwords. Turn its offers off, so you see one offer, from Coffer.</p>
+        <div class="row">
+          <button type="button" class="btn primary" id="turn-off">Turn off the browser's offers</button>
+          <p class="text" id="offers" role="status"></p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./welcome.ts"></script>
+  </body>
+</html>

@@ -770,3 +770,29 @@ pub async fn update_check(app: AppHandle) -> CofferResult<UpdateState> {
 pub async fn update_install(app: AppHandle) -> CofferResult<()> {
     blocking(move || crate::updates::restart_now(&app)).await?
 }
+
+// ---------- browser bridge (SPEC 3.13) ----------
+
+/// The connected browsers, the extension folder and the open Connect prompt.
+#[tauri::command]
+pub async fn bridge_info(app: AppHandle) -> CofferResult<BridgeInfo> {
+    blocking(move || crate::bridge::info(&app)).await
+}
+
+/// Allow or Deny in the Connect prompt. Allow stores the browser's key; Deny stores nothing.
+#[tauri::command]
+pub async fn bridge_pair_answer(app: AppHandle, pair_id: String, allow: bool) -> CofferResult<BridgeInfo> {
+    blocking(move || crate::bridge::answer(&app, &pair_id, allow)).await?
+}
+
+/// Delete a browser's key: that browser must connect again.
+#[tauri::command]
+pub async fn bridge_disconnect(app: AppHandle, id: String) -> CofferResult<BridgeInfo> {
+    blocking(move || crate::bridge::disconnect(&app, &id)).await?
+}
+
+/// Copy the extension folder (for Load unpacked).
+#[tauri::command]
+pub async fn bridge_copy_folder() -> CofferResult<()> {
+    blocking(crate::bridge::copy_folder).await?
+}

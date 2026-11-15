@@ -75,6 +75,10 @@ pub const COMMAND_NAMES: &[&str] = &[
     "update_status",
     "update_check",
     "update_install",
+    "bridge_info",
+    "bridge_pair_answer",
+    "bridge_disconnect",
+    "bridge_copy_folder",
 ];
 
 /// Commands the shell needs that are not (yet) in the contract (none now).

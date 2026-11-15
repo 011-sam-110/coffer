@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/coffer-core", "src-tauri"]
+members = ["crates/coffer-core", "crates/coffer-bridge", "src-tauri"]
 
 [workspace.package]
 version = "0.3.0"

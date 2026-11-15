@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check-ui": "node scripts/check-ui.mjs",
+    "build:extension": "tsc -p extension && node extension/build.mjs",
+    "stage:bridge": "node scripts/stage-bridge.mjs",
     "brand": "node scripts/render-brand.mjs",
     "fonts": "node scripts/fetch-fonts.mjs",
     "tauri": "tauri"

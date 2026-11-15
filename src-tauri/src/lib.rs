@@ -8,6 +8,7 @@ compile_error!("Coffer's app shell builds on Windows only (coffer-core is portab
 mod logging;
 mod autostart;
 mod autotype;
+mod bridge;
 mod clipboard;
 mod clock;
 // Used by build.rs and the contract tests.
@@ -67,7 +68,8 @@ macro_rules! with_commands {
             settings_get, settings_set, quick_hint_seen, edit_state,
             quick_context, quick_hide, quick_set_modal, main_show, autotype, app_quit,
             main_hide,
-            update_status, update_check, update_install
+            update_status, update_check, update_install,
+            bridge_info, bridge_pair_answer, bridge_disconnect, bridge_copy_folder
         )
     };
 }
@@ -90,6 +92,7 @@ pub fn run() {
     let (settings_file, first_run) = settings::load(&data_dir.join("settings.json"));
     let hidden_arg = std::env::args().any(|a| a == "--hidden");
     log!("start: Coffer {} hiddenArg={hidden_arg} firstRun={first_run}", env!("CARGO_PKG_VERSION"));
+    let bridge_state = bridge::BridgeState::new(&data_dir);
     let app_state = AppState::new(data_dir, settings_file, first_run);
 
     let app = tauri::Builder::default()
@@ -106,6 +109,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
         .manage(updates::Updates::default())
+        .manage(bridge_state)
         .setup(move |app| {
             let handle = app.handle().clone();
             win::set_app(&handle);
@@ -113,6 +117,7 @@ pub fn run() {
             vault::start_watcher(&handle);
             hello::start(&handle);
             expiry::start(&handle);
+            bridge::start(&handle);
             shell::create_windows(&handle)?;
             tray::create(&handle)?;
             log!("tray ready");

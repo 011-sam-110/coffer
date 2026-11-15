@@ -595,6 +595,7 @@ name = "coffer"
 version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
+ "coffer-bridge",
  "coffer-core",
  "image",
  "rfd",
@@ -610,11 +611,22 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "time",
+ "tokio",
  "ureq",
  "webview2-com",
  "windows",
  "windows-future",
  "zeroize",
+]
+
+[[package]]
+name = "coffer-bridge"
+version = "0.3.0"
+dependencies = [
+ "serde_json",
+ "sha2 0.11.1",
+ "tokio",
+ "windows",
 ]
 
 [[package]]

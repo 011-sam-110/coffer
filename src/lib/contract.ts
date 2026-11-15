@@ -454,6 +454,8 @@ export interface Settings {
   closeBehavior: "hide" | "quit"; // default "hide"
   quickHintsShown: number; // the first 3 Quick Access opens show a hint line
   autoUpdate: boolean; // default true: a downloaded update installs when Coffer locks; false: only "Restart now" installs (SPEC 3.12)
+  offerSaveLogins: boolean; // default true: the Chrome extension offers to save a login after a sign-in on a new site (SPEC 3.13)
+  offerUpdatePasswords: boolean; // default true: the Chrome extension offers to update a saved password after a sign-in with a new one
 }
 
 export interface AppInfo {
@@ -483,6 +485,34 @@ export interface UpdateState {
   version: string | null; // the newer version (downloading, ready, installing)
   checkedAt: string | null; // the last check that finished without an error
   error: string | null; // one plain line: why the last check failed, or why updates are off
+}
+
+// ---------- browser bridge (SPEC 3.13, docs/BRIDGE.md) ----------
+export type BrowserKind = "chrome" | "edge" | "chromium" | "other";
+
+/** One connected browser (one browser profile). Holds no key. */
+export interface BrowserLink {
+  id: string;
+  browser: BrowserKind;
+  name: string; // "Chrome", "Microsoft Edge", "Chromium", "Your browser": Coffer's own words, never the extension's
+  pairedAt: string;
+  lastUsedAt: string | null; // the last call with a right MAC (written at most once a minute)
+}
+
+/** The open Connect prompt: the extension shows the same four words. */
+export interface PairRequest {
+  pairId: string;
+  browser: BrowserKind;
+  name: string;
+  words: string[];
+  expiresAt: string; // 2 minutes after the request; then it closes and stores nothing
+}
+
+export interface BridgeInfo {
+  browsers: BrowserLink[];
+  extensionFolder: string; // <install folder>\extension, the folder for Load unpacked
+  extensionFound: boolean; // the folder holds manifest.json
+  pending: PairRequest | null;
 }
 
 // ---------- quick access ----------
@@ -577,6 +607,11 @@ export interface Commands {
   update_status: [Record<string, never>, UpdateState]; // main window only
   update_check: [Record<string, never>, UpdateState]; // resolves after the check (and the download of a newer version)
   update_install: [Record<string, never>, void]; // "Restart now": locks, then installs; "invalid" when nothing is ready
+
+  bridge_info: [Record<string, never>, BridgeInfo]; // main window only
+  bridge_pair_answer: [{ pairId: string; allow: boolean }, BridgeInfo]; // the Connect prompt; "notFound" when it closed already
+  bridge_disconnect: [{ id: string }, BridgeInfo]; // deletes that browser's key; it must connect again
+  bridge_copy_folder: [Record<string, never>, void]; // copies extensionFolder (not a secret: no clear timer)
 }
 
 // ---------- events (Rust -> UI) ----------
@@ -597,4 +632,5 @@ export interface Events {
   "app://quitRequested": Record<string, never>; // main asks Save / Discard / Cancel, then calls app_quit
   "main://closeNotice": Record<string, never>; // first close with closeBehavior "hide": the window stays open; the UI shows the tray notice, then calls main_hide
   "update://state": UpdateState; // the auto update moved on (checking, downloading, ready, installing, an error)
+  "bridge://changed": BridgeInfo; // a browser connected or disconnected, or the Connect prompt opened or closed
 }

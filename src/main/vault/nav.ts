@@ -11,7 +11,7 @@ export type Filter =
 
 export type View = "items" | "generator" | "health" | "settings" | "import";
 export type HealthTab = "breached" | "reused" | "weak" | "unsecured" | "old" | "expiring" | "duplicate" | "excluded";
-export type SettingsTab = "general" | "security" | "vault" | "shortcuts" | "about";
+export type SettingsTab = "general" | "security" | "vault" | "browsers" | "shortcuts" | "about";
 
 export interface Nav {
   view: View;

@@ -43,3 +43,6 @@ public/fonts/itf/
 *.key
 # Update demo run screenshots
 .shots-updates/
+# Browser bridge (SPEC 3.13): the built extension and the installer's staging folder
+extension/dist/
+bridge-stage/

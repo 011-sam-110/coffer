@@ -15,6 +15,7 @@ Coffer is a local-first password manager. It keeps the vault in one encrypted fi
 | Code that runs as the same Windows user while Coffer is locked | Partial protection only. Such code can read the Secret Key that DPAPI protects. It can also record keystrokes. With Windows Hello on, it can open the vault. With a PIN set, it can try every PIN offline (section 8). |
 | Code that runs as the same Windows user while Coffer is unlocked | Out of scope. Such code can read the memory of the Coffer process. |
 | Script injected into the UI (for example, from imported data) | The UI cannot load remote code, cannot navigate away, and can call only the commands of its window. It cannot open a file or a URL of its choice. |
+| A program on this PC that asks Coffer for passwords through the browser bridge | It must first be connected: Coffer shows a Connect prompt with four words and stores a key only after the user clicks Allow. Every later call needs a MAC with that key (section 12). |
 | Control of the network path, or of a GitHub release (a changed latest.json or installer) | Coffer installs only an installer whose minisign signature checks against the public key built into Coffer, and whose signed comment names the version that latest.json announces. A wrong or missing signature is refused and logged (section 10). |
 | A view of the screen, a screen capture, or clipboard history | Secret fields are masked by default. Windows are excluded from most screen capture (a setting, on by default). Copied values stay out of clipboard history and are cleared. |
 
@@ -253,7 +254,7 @@ What the signature does not cover:
 
 - A person with the private key and its password can send any code to every Coffer. Keep both safe. If the key is lost, installed copies accept no further update: Sam then installs a build with a new key by hand.
 - A person who controls the network or the release can hold back an update (Coffer then stays on its version), and can see that this PC checks GitHub.
-- The installer has no Windows code signature (section 12). The minisign signature is what Coffer trusts.
+- The installer has no Windows code signature (section 13). The minisign signature is what Coffer trusts.
 - A copy with another identifier (a QA copy) and a debug build update only from a server on this PC, so a test copy cannot install over the real Coffer.
 
 ## 11. Backups
@@ -264,7 +265,33 @@ What the signature does not cover:
 - After a re-key, the shell deletes the old backups, because they open with the old vault key.
 - A restore while unlocked takes only a backup of the same vault and vault key. It needs the master password when it would weaken re-prompt on an item.
 
-## 12. Known limits
+## 12. Browser bridge
+
+The Coffer extension in Chrome or Edge reaches Coffer through `coffer-bridge.exe` (native messaging) and a named pipe. [BRIDGE.md](BRIDGE.md) has the protocol. Today the bridge answers only `hello`, the Connect calls, `status`, `unlock` and `disconnect`, so no item data crosses it yet. Fill and save come next (BRIDGE.md section 6).
+
+**Who can reach Coffer.**
+
+- Chrome starts `coffer-bridge.exe` only for the extension ID in the host manifest (`allowed_origins`). The ID is fixed by a public key in the extension's manifest. The private key was never kept, so nobody can sign another extension with that ID.
+- The pipe's ACL (`D:P(A;;GA;;;<user SID>)`) lets only the current Windows user open it, and the pipe refuses remote clients. Coffer creates the first instance with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so a program that took the name first makes Coffer's server fail (logged) instead of sharing it.
+- The bridge connects only when the pipe's server process runs an exe from the bridge's own folder (`GetNamedPipeServerProcessId`), so a program that took the name gets no message.
+- Any program of the same user can still open the pipe. That is why every call that does more than `hello` needs the Connect and a MAC.
+
+**The Connect (pairing).** The extension and Coffer each make an X25519 key for this one Connect (WebCrypto with a key that cannot be exported; ring). Both derive a transcript hash from the two public keys and a random client id, show four words from it (about 51 bits), and derive the 32-byte bridge key with HKDF-SHA256. The user compares the words and clicks Allow. A second program that asks at the same time gets other words. A program in the middle cannot choose its keys so that both sides show the same words within the 2 minutes: Coffer makes its key after it gets the extension's, so a match needs about 2^51 tries. After Allow, Coffer sends an HMAC confirm of the transcript, so the extension knows both sides hold the same key.
+
+- One prompt at a time; a second request gets `busy`.
+- Allow is off for the first second after the prompt opens, so a click meant for another window cannot allow.
+- Deny, 2 minutes, or a closed connection stores nothing on either side.
+- Coffer shows its own name for the browser (Chrome, Microsoft Edge, Chromium), never text from the extension.
+
+**Calls.** A signed call carries HMAC-SHA256 over the exact body with the bridge key. The body names a nonce that Coffer made for this connection and a number that only goes up. Coffer refuses a missing or wrong MAC (`bad_mac`), an old number or a nonce of another connection (`replay`), and an unknown client (`not_paired`), and runs nothing. Coffer signs its answers too; the extension checks the MAC, the number and the nonce. The MACs are checked in constant time (ring, WebCrypto). The log names a refused call, never a key or a body.
+
+**Keys.** Coffer keeps each browser's key in `browsers.json`, sealed with DPAPI for the current user (entropy `coffer/v1/bridge-key` and the client id), as the PIN record is. Disconnect in Settings, Browsers deletes the record; that browser must connect again. The extension keeps its copy in `chrome.storage.local`.
+
+**Unlock.** `unlock` only shows Coffer's own unlock window (PIN, Hello or master password). No password or PIN crosses the pipe.
+
+**What the bridge does not protect against.** A program that runs as the same Windows user can read the extension's key from the browser profile, then call Coffer as that browser. From M4 on, such a program could then ask for logins while Coffer is unlocked. This is the same limit as the rest of section 1: code running as the user while Coffer is unlocked is out of scope.
+
+## 13. Known limits
 
 - **Third-party buffers.** The `csv` crate and the `serde_json` parser keep internal copies of plain text that Coffer cannot wipe:
   - the CSV writer buffer when Coffer writes a CSV export
@@ -279,9 +306,10 @@ What the signature does not cover:
 - **Whole-file rollback.** A PC that never saw the newer file cannot detect an older valid file (section 3).
 - **No key commitment.** The header has no commitment to the KEK. An attack on this needs the Secret Key and many unlocks of crafted files.
 - **Expiry notices.** A notice shows the title of an API key on the screen. Windows keeps the notice in its notification list until the next restart. `notices.json` keeps only item ids and which notice went out.
+- **Browser keys.** The extension keeps its bridge key in `chrome.storage.local`, which the browser stores in the profile folder without encryption of its own. A program that runs as the same Windows user can read it and then call Coffer as that browser (section 12).
 - **Unsigned installer.** The installer has no code signature. Windows SmartScreen warns on the first run. A user cannot check the publisher of the file through Windows.
 
-## 13. Test vectors
+## 14. Test vectors
 
 The tests copy each vector from the source document, not from memory.
 

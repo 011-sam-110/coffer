@@ -48,6 +48,10 @@ pub struct Settings {
     pub quick_hints_shown: u32,
     /// Install a downloaded update when Coffer locks (SPEC 3.12). Off: only "Restart now" installs.
     pub auto_update: bool,
+    /// The Chrome extension offers to save a login after a sign-in on a new site (SPEC 3.13).
+    pub offer_save_logins: bool,
+    /// The Chrome extension offers to update a saved password after a sign-in with a new one.
+    pub offer_update_passwords: bool,
 }
 
 impl Default for Settings {
@@ -70,6 +74,8 @@ impl Default for Settings {
             close_behavior: CloseBehavior::Hide,
             quick_hints_shown: 0,
             auto_update: true,
+            offer_save_logins: true,
+            offer_update_passwords: true,
         }
     }
 }
@@ -239,7 +245,9 @@ mod tests {
                 "closeNoticeShown": false,
                 "closeBehavior": "hide",
                 "quickHintsShown": 0,
-                "autoUpdate": true
+                "autoUpdate": true,
+                "offerSaveLogins": true,
+                "offerUpdatePasswords": true
             })
         );
     }
@@ -273,6 +281,8 @@ mod tests {
         assert_eq!(partial.settings.clipboard_clear_seconds, Some(90));
         // A 0.2.0 file has no autoUpdate: it takes the default (on).
         assert!(partial.settings.auto_update);
+        // A 0.3.0 file has no browser offers: both default to on.
+        assert!(partial.settings.offer_save_logins && partial.settings.offer_update_passwords);
         let off: SettingsFile = serde_json::from_str(r#"{"version":1,"autoUpdate":false}"#).unwrap();
         assert!(!off.settings.auto_update);
         assert!(serde_json::to_string(&off).unwrap().contains("\"autoUpdate\":false"));
@@ -301,6 +311,8 @@ mod tests {
         // Auto update: a boolean, off keeps the rest.
         assert!(!apply_patch(&base, &json!({ "autoUpdate": false })).unwrap().auto_update);
         assert!(apply_patch(&base, &json!({ "autoUpdate": "no" })).is_err());
+        let off = apply_patch(&base, &json!({ "offerSaveLogins": false, "offerUpdatePasswords": false })).unwrap();
+        assert!(!off.offer_save_logins && !off.offer_update_passwords);
         // An empty Quick Access shortcut turns it off.
         assert_eq!(apply_patch(&base, &json!({ "hotkeyQuick": "" })).unwrap().hotkey_quick, "");
     }
