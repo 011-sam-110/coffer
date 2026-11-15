@@ -234,6 +234,7 @@ try {
     channel: "chromium",
     headless: true,
     viewport: { width: 1000, height: 760 },
+    deviceScaleFactor: 2,
     args: [`--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`],
     // A Coffer the bridge starts must use the QA folders too.
     env: { ...process.env, ...QA_ENV },
