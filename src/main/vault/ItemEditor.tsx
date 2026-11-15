@@ -24,6 +24,7 @@ import {
   type ItemForm,
 } from "../../lib/itemForm";
 import { FIELD_KIND_LABELS, ITEM_TYPES } from "../../lib/itemTypes";
+import { siteFromName } from "../../lib/url";
 import { useStore } from "../store";
 import { editInfo, useKeyHandlers } from "./nav";
 
@@ -321,6 +322,10 @@ export function ItemEditor({
   const { withReprompt } = useReprompt();
   const [form, setForm] = useState<ItemForm | null>(mode === "new" ? newItemForm(newType, newTitle ?? "") : null);
   const [base, setBase] = useState<ItemForm | null>(form);
+  // A login named with a web address ("github.com") gets that site as its Website. The Website follows
+  // the name while it is empty or holds what Coffer put there, until the user edits the Website.
+  const [autoUrl, setAutoUrl] = useState<string | null>(null);
+  const [urlEdited, setUrlEdited] = useState(false);
   const [view, setView] = useState<ItemView | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
@@ -373,6 +378,26 @@ export function ItemEditor({
   const allTags = useMemo(() => [...new Set(items.flatMap((i) => i.tags))].sort(), [items]);
 
   const patch = (p: Partial<ItemForm>) => setForm((f) => (f ? { ...f, ...p } : f));
+  const setTitle = (title: string) => {
+    if (!form) return;
+    const urls = form.urls;
+    const follows = ITEM_TYPES[form.type].hasUrls && !urlEdited && urls.length === 1 && (urls[0].url.trim() === "" || urls[0].url === autoUrl);
+    if (!follows) return patch({ title });
+    const site = siteFromName(title) ?? "";
+    setAutoUrl(site || null);
+    patch({ title, urls: [{ ...urls[0], url: site }] });
+  };
+  const editUrls = (urls: ItemForm["urls"]) => {
+    setUrlEdited(true);
+    patch({ urls });
+  };
+
+  // "Create login 'github.com'" from a search: the new login starts with its Website.
+  useEffect(() => {
+    if (mode === "new" && newTitle) setTitle(newTitle);
+    // Once, on open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const patchField = (key: string, p: Partial<FormField>) =>
     setForm((f) => (f ? { ...f, fields: f.fields.map((x) => (x.key === key ? { ...x, ...p } : x)) } : f));
 
@@ -439,6 +464,7 @@ export function ItemEditor({
   const builtins = form.fields.filter((f) => f.builtin && builtinKeys.has(f.builtin));
   const custom = form.fields.filter((f) => !f.builtin || !builtinKeys.has(f.builtin));
   const fid = (k: string) => `${uid}-${k}`;
+  const fromName = !!autoUrl && !urlEdited && form.urls.length === 1 && form.urls[0].url === autoUrl;
 
   const canGenerate = (f: FormField) => f.kind === "concealed" || f.kind === "pin";
   // Every row: label 160 px | value, the same columns as the item view, so nothing moves on Ctrl+E.
@@ -536,7 +562,7 @@ export function ItemEditor({
             autoComplete="off"
             spellCheck={false}
             aria-invalid={!!errors.title || undefined}
-            onChange={(e) => patch({ title: e.target.value })}
+            onChange={(e) => setTitle(e.target.value)}
             className={cx(
               "field-focus -mx-1.5 w-full rounded-sm border border-transparent bg-transparent px-1.5 text-lg font-semibold hover:border-input-border",
               errors.title && "border-danger-text",
@@ -616,14 +642,20 @@ export function ItemEditor({
                           autoComplete="off"
                           spellCheck={false}
                           aria-invalid={!!errors[`url:${i}`] || undefined}
-                          onChange={(e) => patch({ urls: form.urls.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) })}
+                          aria-describedby={i === 0 && fromName ? `${uid}-url-hint` : undefined}
+                          onChange={(e) => editUrls(form.urls.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
                           className="h-[1.875rem] min-w-0 flex-1 bg-transparent text-sm outline-none"
                         />
-                        <IconButton size="sm" label={`Remove website ${i + 1}`} className="hover:text-danger-text" onClick={() => patch({ urls: form.urls.filter((_, j) => j !== i) })}>
+                        <IconButton size="sm" label={`Remove website ${i + 1}`} className="hover:text-danger-text" onClick={() => editUrls(form.urls.filter((_, j) => j !== i))}>
                           <X />
                         </IconButton>
                       </div>
                       {errors[`url:${i}`] && <ErrorText>{errors[`url:${i}`]}</ErrorText>}
+                      {i === 0 && fromName && !errors[`url:${i}`] && (
+                        <p id={`${uid}-url-hint`} className="text-xs text-muted-foreground">
+                          Taken from the name.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -633,7 +665,7 @@ export function ItemEditor({
                 <div className="grid grid-cols-1 items-start gap-x-3 gap-y-1 @min-[440px]:grid-cols-[160px_minmax(0,1fr)]">
                   <span className="hidden @min-[440px]:block" />
                   <div>
-                    <Button size="sm" variant="ghost" className="-ml-2.5" icon={<Plus className="size-3.5" />} onClick={() => patch({ urls: [...form.urls, { url: "", label: null }] })}>
+                    <Button size="sm" variant="ghost" className="-ml-2.5" icon={<Plus className="size-3.5" />} onClick={() => editUrls([...form.urls, { url: "", label: null }])}>
                       Add a website
                     </Button>
                   </div>

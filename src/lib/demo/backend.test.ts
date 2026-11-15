@@ -440,6 +440,55 @@ describe("item_save", () => {
   });
 });
 
+describe("API keys", () => {
+  it("shows the old stored labels of a 0.2 key with the new words, and sends the expiry date in the list", async () => {
+    const b = mk();
+    const old: ItemInput = {
+      type: "apiCredential",
+      title: "Old key",
+      favorite: false,
+      tags: [],
+      fields: [
+        { id: "", label: "Username", kind: "text", value: "acct", builtin: "username", section: null },
+        { id: "", label: "Credential", kind: "concealed", value: "demo-key-old", builtin: "credential", section: null },
+        { id: "", label: "Host", kind: "url", value: "https://api.example.com", builtin: "host", section: null },
+        { id: "", label: "Expires", kind: "date", value: "2027-03-01", builtin: "expires", section: null },
+      ],
+      notes: "",
+      urls: [],
+      apps: [],
+      reprompt: false,
+      autotypeSequence: null,
+      healthExcluded: false,
+    };
+    const saved = await call<ItemView>(b, "item_save", { item: old, password: null });
+    const label = (role: string) => saved.fields.find((f) => f.builtin === role)!.label;
+    expect([label("host"), label("credential"), label("username")]).toEqual(["API URL", "Key", "Username"]);
+    const row = (await call<ItemSummary[]>(b, "items_list")).find((i) => i.id === saved.id)!;
+    expect(row.expiresOn).toBe("2027-03-01");
+    expect(row.subtitle).toBe("api.example.com");
+    // A custom field the user named "Host" keeps its name.
+    const custom = await call<ItemView>(b, "item_save", {
+      item: { ...toInput(saved), fields: [...toInput(saved).fields, { id: "", label: "Host", kind: "text", value: "x", builtin: null, section: null }] },
+      password: null,
+    });
+    expect(custom.fields.filter((f) => f.label === "Host")).toHaveLength(1);
+  });
+
+  it("seeds the Stripe key 45 days ahead and words its copy toast with the new label", async () => {
+    const b = mk();
+    const list = await call<ItemSummary[]>(b, "items_list");
+    const stripe = list.find((i) => i.title === "Stripe API key (test mode)")!;
+    expect(stripe.flags.expiring).toBe(true);
+    expect(stripe.expiresOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(list.find((i) => i.type === "login")!.expiresOn).toBeNull();
+    const ev = record(b, ["clipboard://copied"]);
+    await call(b, "item_copy", { id: stripe.id, field: "credential", password: null });
+    await flush();
+    expect(ev[0]).toEqual(["clipboard://copied", expect.objectContaining({ label: "Key" })]);
+  });
+});
+
 describe("states, bulk and trash", () => {
   it("moves items between states and empties the trash", async () => {
     const b = mk();

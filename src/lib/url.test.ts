@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { upgradeUnsecuredUrls } from "./url";
+import { siteFromName, upgradeUnsecuredUrls } from "./url";
 
 describe("Use HTTPS", () => {
   it("changes only the flagged http:// URLs", () => {
@@ -21,4 +21,28 @@ describe("Use HTTPS", () => {
   it("keeps the other properties of each URL", () => {
     expect(upgradeUnsecuredUrls([{ url: "http://a.example.org", match: "exact" }])[0]).toEqual({ url: "https://a.example.org", match: "exact" });
   });
+});
+
+describe("siteFromName", () => {
+  it.each([
+    ["github.com", "https://github.com"],
+    ["GitHub.com", "https://github.com"],
+    ["https://github.com/login", "https://github.com"],
+    ["http://example.org/path?q=1", "https://example.org"],
+    ["accounts.google.com", "https://accounts.google.com"],
+    ["www.netflix.com", "https://www.netflix.com"],
+    ["bbc.co.uk", "https://bbc.co.uk"],
+    ["web.dev", "https://web.dev"],
+    ["  stripe.com  ", "https://stripe.com"],
+    ["github.com.", "https://github.com"],
+  ])("%s reads as %s", (name, site) => {
+    expect(siteFromName(name)).toBe(site);
+  });
+
+  it.each(["GitHub", "Node.js", "v1.2", "Home router", "Vue.js", "1.2.3", "alex@example.com", "my site.com", "", "localhost", "intranet.corp", "-bad.com", "a..com"])(
+    "%s is not a web address",
+    (name) => {
+      expect(siteFromName(name)).toBeNull();
+    },
+  );
 });

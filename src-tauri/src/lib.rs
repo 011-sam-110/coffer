@@ -19,6 +19,7 @@ mod contract;
 mod contract_tests;
 mod device;
 mod error;
+mod expiry;
 mod folders;
 mod hello;
 mod hibp;
@@ -106,6 +107,7 @@ pub fn run() {
             win::signals::start();
             vault::start_watcher(&handle);
             hello::start(&handle);
+            expiry::start(&handle);
             shell::create_windows(&handle)?;
             tray::create(&handle)?;
             log!("tray ready");

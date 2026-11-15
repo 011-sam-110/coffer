@@ -7,6 +7,7 @@ import { Monogram, TYPE_ICONS } from "../../components/bits";
 import { ConfirmDialog, Dialog, Menu, useToast } from "../../components/overlays";
 import { Button, cx, IconButton, Input, Select } from "../../components/ui";
 import type { ItemSummary, ItemType } from "../../lib/contract";
+import { badgeText, daysLeft } from "../../lib/expiry";
 import { hasTag } from "../../lib/format";
 import { call } from "../../lib/ipc";
 import { ITEM_TYPE_ORDER, ITEM_TYPES } from "../../lib/itemTypes";
@@ -50,13 +51,20 @@ export function filterTitle(f: Filter): string {
 }
 
 /** The one-word chip for an item's most serious health flag, and the Health tab it opens. */
-function flagChip(i: ItemSummary): { word: string; label: string; tab: HealthTab; danger: boolean } | null {
+export function flagChip(i: ItemSummary, now: Date = new Date()): { word: string; label: string; tab: HealthTab; danger: boolean } | null {
   const f = i.flags;
   if (f.breached) return { word: "Breached", label: "Found in a data breach. Open Health.", tab: "breached", danger: true };
   if (f.reused) return { word: "Reused", label: "This password is in other items too. Open Health.", tab: "reused", danger: false };
   if (f.weak) return { word: "Weak", label: "Easy to guess. Open Health.", tab: "weak", danger: false };
   if (f.unsecured) return { word: "http", label: "A website address uses http://, not https://. Open Health.", tab: "unsecured", danger: false };
-  if (f.expiring) return { word: "Expiring", label: "Expires soon. Open Health.", tab: "expiring", danger: false };
+  if (f.expiring) {
+    // Days left in place of "Expiring": "45 days", "Expires today", "Expired".
+    const days = i.expiresOn ? daysLeft(i.expiresOn, now) : Number.NaN;
+    if (Number.isNaN(days)) return { word: "Expiring", label: "Expires soon. Open Health.", tab: "expiring", danger: false };
+    const word = badgeText(days);
+    const label = days < 0 ? "Expired. Open Health." : days === 0 ? "Expires today. Open Health." : `Expires in ${word}. Open Health.`;
+    return { word, label, tab: "expiring", danger: days < 0 };
+  }
   return null;
 }
 

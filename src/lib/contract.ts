@@ -174,10 +174,11 @@ export const BUILTIN_FIELDS: Record<ItemType, Array<{ role: string; label: strin
     { role: "fingerprint", label: "Fingerprint", kind: "text" },
     { role: "passphrase", label: "Passphrase", kind: "concealed" },
   ],
+  // "API Key" in the UI. The type id and the roles stay as Coffer 0.2 stored them.
   apiCredential: [
+    { role: "host", label: "API URL", kind: "url" },
+    { role: "credential", label: "Key", kind: "concealed" },
     { role: "username", label: "Username", kind: "text" },
-    { role: "credential", label: "Credential", kind: "concealed" },
-    { role: "host", label: "Host", kind: "url" },
     { role: "expires", label: "Expires", kind: "date" },
   ],
   wifi: [
@@ -209,6 +210,16 @@ export const ENTER_COPIES: Record<ItemType, string | null> = {
   wifi: "password",
   license: "licenseKey",
 };
+
+/**
+ * Default labels an older Coffer stored for a built-in field: [type, role, old label].
+ * An ItemView shows the BUILTIN_FIELDS label in their place; the vault keeps the
+ * stored label until the item is saved.
+ */
+export const RENAMED_LABELS: Array<[ItemType, string, string]> = [
+  ["apiCredential", "credential", "Credential"],
+  ["apiCredential", "host", "Host"],
+];
 
 /** Menu choices for built-in menu fields. */
 export const MENU_OPTIONS: Record<string, string[]> = {
@@ -264,6 +275,8 @@ export interface ItemSummary {
   lastUsedAt: string | null;
   urlHost: string | null; // "github.com"
   hasTotp: boolean;
+  /** YYYY-MM-DD the item expires (card: last day of its month; document and API key: Expires). null = no date. */
+  expiresOn: string | null;
   flags: ItemFlags;
 }
 

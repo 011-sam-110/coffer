@@ -193,6 +193,56 @@ fn enums_match() {
     assert_eq!(ser(HotkeyState::InUse), "inUse");
 }
 
+/// The quoted value after `key: "` in a line, e.g. `role: "host"`.
+fn quoted_after<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let from = line.find(&format!("{key}: \""))? + key.len() + 3;
+    line[from..].split('"').next()
+}
+
+#[test]
+fn builtin_fields_match_the_templates() {
+    let body = block("export const BUILTIN_FIELDS", "\n};");
+    let mut ts: Vec<(String, String, String, String)> = Vec::new();
+    let mut current = String::new();
+    for line in body.lines() {
+        let t = line.trim();
+        if let Some((name, rest)) = t.split_once(':')
+            && rest.trim_start().starts_with('[')
+            && name.chars().all(|c| c.is_ascii_alphanumeric())
+        {
+            current = name.to_string();
+        }
+        for part in t.split('{').skip(1) {
+            if let (Some(role), Some(label), Some(kind)) = (quoted_after(part, "role"), quoted_after(part, "label"), quoted_after(part, "kind")) {
+                ts.push((current.clone(), role.into(), label.into(), kind.into()));
+            }
+        }
+    }
+    let ours: Vec<(String, String, String, String)> = coffer_core::templates::all_templates()
+        .iter()
+        .flat_map(|t| t.fields.iter().map(move |f| (ser(t.item_type), f.role.to_string(), f.label.to_string(), ser(f.kind))))
+        .collect();
+    let sorted = |mut v: Vec<(String, String, String, String)>| {
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    };
+    // Same fields, same labels, same order within each type.
+    assert_eq!(sorted(ts), sorted(ours));
+}
+
+#[test]
+fn renamed_labels_match() {
+    let body = block("export const RENAMED_LABELS", "\n];");
+    let ts: Vec<Vec<String>> = body
+        .lines()
+        .filter(|l| l.trim_start().starts_with('['))
+        .map(|l| l.split('"').skip(1).step_by(2).map(str::to_string).collect())
+        .collect();
+    let ours: Vec<Vec<String>> =
+        coffer_core::templates::RENAMED_LABELS.iter().map(|(t, role, old)| vec![ser(*t), role.to_string(), old.to_string()]).collect();
+    assert_eq!(ts, ours);
+}
+
 #[test]
 fn core_errors_keep_their_codes() {
     use coffer_core::CoreError;

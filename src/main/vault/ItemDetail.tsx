@@ -25,6 +25,7 @@ import { Monogram, PasswordChars, SecretText, TotpCode } from "../../components/
 import { ConfirmDialog, Menu, useCopy, useReprompt, useToast } from "../../components/overlays";
 import { Button, cx, IconButton, KeyBadge, Notice, Spinner } from "../../components/ui";
 import type { Field, ItemView, PasswordHistoryEntry } from "../../lib/contract";
+import { bannerText, daysLeft, expiryDate, expiryRole } from "../../lib/expiry";
 import { formatDate, formatDateTime, groupCard, relativeTime } from "../../lib/format";
 import { call, isCofferError } from "../../lib/ipc";
 import { isSecretKind } from "../../lib/itemForm";
@@ -269,7 +270,13 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
     const k = f.section?.trim() || "";
     sections.set(k, [...(sections.get(k) ?? []), f]);
   }
-  const flags = FLAG_TEXT.filter(([k]) => item.flags[k]);
+  // An expiring item says how many days are left (the date is a plain field of the view).
+  const role = expiryRole(item.type);
+  const expiresOn = role ? expiryDate(item.type, item.fields.find((f) => f.builtin === role)?.value ?? "") : null;
+  const expired = !!expiresOn && item.flags.expiring && daysLeft(expiresOn) < 0;
+  const flags = FLAG_TEXT.filter(([k]) => item.flags[k]).map(([k, t]): [string, string] =>
+    k === "expiring" && expiresOn ? [k, bannerText(item.type, expiresOn)] : [k, t],
+  );
   // Ctrl+R reveals the first secret (see the key handlers above); its eye says so.
   const revealKeyId = withValue.find((x) => isSecretKind(x.kind) && x.kind !== "totp")?.id;
   const hasPassword = item.fields.some((f) => f.builtin === "password");
@@ -383,7 +390,7 @@ export function ItemDetail({ itemId, go }: { itemId: string; go: (patch: Partial
           )}
           {flags.length > 0 && item.state === "active" && (
             <Notice
-              tone="warning"
+              tone={expired ? "danger" : "warning"}
               icon={<TriangleAlert />}
               actions={
                 hasPassword ? (

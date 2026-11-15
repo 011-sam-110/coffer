@@ -32,7 +32,7 @@ _Status: v0.1.0 pre-release for Windows 10 and 11. The installer is not code-sig
 - **Tray app** - close-to-tray, start with Windows, a tray menu, one instance at a time, and a tray icon that shows locked or unlocked.
 - **Auto-lock** - after a set idle time, when Windows locks and when the PC sleeps. Secrets stay in the Rust process and reach the window only when you press Reveal.
 - **Clipboard care** - copies stay out of Windows clipboard history and cloud clipboard, and are cleared after 90 seconds (you can change this) if the clipboard still holds them.
-- **11 item types** - logins, passwords, notes, cards, identities, bank accounts, documents, SSH keys, API credentials, Wi-Fi and licences. Items have typed fields, tags, favourites, an archive, a 30-day trash, password history, revisions you can restore, and a per-item "ask for the master password" switch.
+- **11 item types** - logins, passwords, notes, cards, identities, bank accounts, documents, SSH keys, API keys (with days left and a Windows notice before they expire), Wi-Fi and licences. Items have typed fields, tags, favourites, an archive, a 30-day trash, password history, revisions you can restore, and a per-item "ask for the master password" switch.
 - **Generator** - random, passphrase (EFF word list) and PIN, with a strength meter that shows how it counts, and a generator history.
 - **One-time codes** - TOTP from `otpauth://` links, `steam://` and pasted secrets, or from a QR code on screen or in an image file.
 - **SSH keys** - Ed25519 key generation in OpenSSH format, stored as an SSH key item.

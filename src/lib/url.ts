@@ -1,5 +1,7 @@
 // The "unsecured website" rule of Health (SPEC 7), the same as Rust's
 // health::is_unsecured_url: an http:// URL to a host that is not local.
+// And the rule that reads a login name such as "github.com" as its website.
+import { TLDS } from "./tlds";
 
 /** The host of a URL, lower case; null when the URL cannot be read. */
 function hostname(url: string): string | null {
@@ -37,4 +39,22 @@ export function isUnsecuredUrl(url: string): boolean {
  */
 export function upgradeUnsecuredUrls<T extends { url: string }>(urls: T[]): T[] {
   return urls.map((u) => (isUnsecuredUrl(u.url) ? { ...u, url: u.url.trim().replace(/^http:\/\//i, "https://") } : u));
+}
+
+/**
+ * The website a login name reads as, or null: "github.com" and
+ * "https://github.com/login" give "https://github.com". The name must be one
+ * word of dot-separated host labels whose last label is a real top-level
+ * domain (IANA list), so "GitHub", "Node.js", "v1.2" and "Home router" give null.
+ */
+export function siteFromName(name: string): string | null {
+  let s = (name ?? "").trim();
+  if (!s || /\s/.test(s) || s.includes("@")) return null;
+  s = s.replace(/^https?:\/\//i, "");
+  const host = s.split(/[/?#]/, 1)[0].replace(/\.$/, "").toLowerCase();
+  const labels = host.split(".");
+  if (labels.length < 2) return null;
+  if (!labels.every((l) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(l))) return null;
+  if (!TLDS.has(labels[labels.length - 1])) return null;
+  return `https://${host}`;
 }

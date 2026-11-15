@@ -37,7 +37,7 @@ const WORDS: Record<ItemType, { label: string; plural: string; enterLabel: strin
   bank: { label: "Bank Account", plural: "Bank Accounts", enterLabel: "account number" },
   document: { label: "ID Document", plural: "ID Documents", enterLabel: "document number" },
   sshKey: { label: "SSH Key", plural: "SSH Keys", enterLabel: "public key" },
-  apiCredential: { label: "API Credential", plural: "API Credentials", enterLabel: "credential" },
+  apiCredential: { label: "API Key", plural: "API Keys", enterLabel: "key" },
   wifi: { label: "Wi-Fi", plural: "Wi-Fi", enterLabel: "password" },
   license: { label: "Software Licence", plural: "Software Licences", enterLabel: "licence key" },
 };

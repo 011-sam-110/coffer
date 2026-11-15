@@ -12,6 +12,7 @@ pub mod monitor;
 pub mod open;
 pub mod screen;
 pub mod signals;
+pub mod toast;
 pub mod uia;
 pub mod webview;
 
