@@ -103,6 +103,45 @@ impl gate::Host for AppHost<'_> {
             crate::log!("usage: {e}");
         }
     }
+
+    fn password_is(&self, id: &str, candidate: &str) -> Result<bool, VaultErr> {
+        let state = self.0.state::<AppState>();
+        let guard = state.session.lck();
+        let s = guard.as_ref().ok_or(VaultErr::Locked)?;
+        s.vault.login_password_is(id, candidate).map_err(vault_err)
+    }
+
+    fn save_login(&self, title: &str, website: &str, username: &str, password: &str) -> Result<(String, String), VaultErr> {
+        // The same path as a save in the app: written at once, a backup, revisions and Health.
+        let view = crate::vault::mutate(self.0, |v| v.login_save_from_browser(title, website, username, password)).map_err(app_err)?;
+        self.items_changed(vec![view.id.clone()]);
+        Ok((view.id, view.title))
+    }
+
+    fn update_password(&self, id: &str, password: &str) -> Result<(), VaultErr> {
+        let view = crate::vault::mutate(self.0, |v| v.login_set_password(id, password)).map_err(app_err)?;
+        self.items_changed(vec![view.id]);
+        Ok(())
+    }
+
+    fn never_sites(&self) -> Option<Vec<String>> {
+        let state = self.0.state::<AppState>();
+        let guard = state.session.lck();
+        guard.as_ref().map(|s| s.vault.never_save_sites().to_vec())
+    }
+
+    fn never_add(&self, site: &str) -> Result<(), VaultErr> {
+        crate::vault::mutate(self.0, |v| Ok(v.never_save_add(site))).map_err(app_err)?;
+        let _ = self.0.emit(events::BRIDGE_CHANGED, info(self.0));
+        Ok(())
+    }
+}
+
+impl AppHost<'_> {
+    /// The main window shows the new or changed item (as after a save in the app).
+    fn items_changed(&self, ids: Vec<String>) {
+        let _ = self.0.emit(events::VAULT_CHANGED, crate::contract::VaultChangedEvent { ids });
+    }
 }
 
 fn vault_err(e: CoreError) -> VaultErr {
@@ -110,6 +149,15 @@ fn vault_err(e: CoreError) -> VaultErr {
         CoreError::RepromptRequired => VaultErr::Reprompt,
         CoreError::NotFound => VaultErr::NotFound,
         other => VaultErr::Failed(CofferError::from(other).message),
+    }
+}
+
+/// An error of a vault write in the app: locked, not found, or a message.
+fn app_err(e: CofferError) -> VaultErr {
+    match e.code {
+        ErrorCode::Locked => VaultErr::Locked,
+        ErrorCode::NotFound => VaultErr::NotFound,
+        _ => VaultErr::Failed(e.message),
     }
 }
 
@@ -134,7 +182,18 @@ pub fn info(app: &AppHandle) -> BridgeInfo {
         extension_folder: folder.to_string_lossy().into_owned(),
         pending: core.pending_request(),
         reprompt: core.pending_reprompt(),
+        never_sites: gate::Host::never_sites(&AppHost(app)).unwrap_or_default(),
     }
+}
+
+/// Settings, Browsers: take a site off the never list.
+pub fn never_remove(app: &AppHandle, site: &str) -> CofferResult<BridgeInfo> {
+    if !crate::vault::mutate(app, |v| Ok(v.never_save_remove(site)))? {
+        return Err(CofferError::new(ErrorCode::NotFound, "That site is not on the list."));
+    }
+    let info = info(app);
+    let _ = app.emit(events::BRIDGE_CHANGED, info.clone());
+    Ok(info)
 }
 
 /// The master-password question of a fill: the password (the item's grant

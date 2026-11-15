@@ -336,6 +336,7 @@ fn bridge_shapes() {
         extension_found: true,
         pending: Some(PairRequest { pair_id: "p".into(), browser: BrowserKind::Chrome, name: "Chrome".into(), words: vec!["a".into()], expires_at: "t".into() }),
         reprompt: Some(BridgeReprompt { request_id: "r".into(), browser: BrowserKind::Chrome, name: "Chrome".into(), title: "Northwind (work)".into(), site: "northwind-shop.test".into(), expires_at: "t".into() }),
+        never_sites: vec!["northwind-shop.test".into()],
     };
     assert_eq!(
         serde_json::to_value(info).unwrap(),
@@ -344,11 +345,12 @@ fn bridge_shapes() {
             "extensionFolder": r"C:\x\extension",
             "extensionFound": true,
             "pending": { "pairId": "p", "browser": "chrome", "name": "Chrome", "words": ["a"], "expiresAt": "t" },
-            "reprompt": { "requestId": "r", "browser": "chrome", "name": "Chrome", "title": "Northwind (work)", "site": "northwind-shop.test", "expiresAt": "t" }
+            "reprompt": { "requestId": "r", "browser": "chrome", "name": "Chrome", "title": "Northwind (work)", "site": "northwind-shop.test", "expiresAt": "t" },
+            "neverSites": ["northwind-shop.test"]
         })
     );
     // The bridge commands are for the main window only.
-    for c in ["bridge_info", "bridge_pair_answer", "bridge_disconnect", "bridge_copy_folder", "bridge_reprompt_answer"] {
+    for c in ["bridge_info", "bridge_pair_answer", "bridge_disconnect", "bridge_copy_folder", "bridge_reprompt_answer", "bridge_never_remove"] {
         assert!(MAIN_CAP.contains(&format!("allow-{}", c.replace('_', "-"))), "{c}");
         assert!(!QUICK_CAP.contains(&format!("allow-{}", c.replace('_', "-"))), "{c}");
     }

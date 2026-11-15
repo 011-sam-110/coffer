@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Coffer",
   "description": "Fill and save logins from Coffer, the password manager on this PC.",
-  "version": "0.0.0",
+  "version": "0.4.0",
   "minimum_chrome_version": "133",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAijrcne0zEMwzlL6X2CKKkTnMjexrlti22krdsU0fk9w764j5whIGeLBQUeZvHEUpElKT+IkaG08nMAyqU7uRbDmNA/WmC105I1Wm9mttyi4K6EHNQcZY9Bil34xXEaJ7HMpB0Fmmcyi2jRa446QWtgUz2pgIZ8u5Ph54smBsBJ7Y7nPytsQJiZ+MMAspsDRyrQ+VnbItcOjxfGWX7MMsbLlPNZnHw1Satvan/dAlMDAnXtJ9FgWHxxeHq2Uq6TlHLTAlxfjBSuAszZ5O+wpAQ63ddB9HhaCyrXWMGNRGFUAzqZqsL0nE7gLc3JtKUSuYAhg0y7MXK7kagffZTnu6HQIDAQAB",
   "icons": {

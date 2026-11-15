@@ -744,6 +744,30 @@ function BrowsersTab({ settings, set }: { settings: Settings; set: SetFn }) {
           <Switch label="Offer to update changed passwords" checked={settings.offerUpdatePasswords} onChange={(v) => set({ offerUpdatePasswords: v })} />
         </Row>
       </Section>
+      {!!info?.neverSites?.length && (
+        <Section title="Never offered on">
+          {info.neverSites.map((site) => (
+            <Row key={site} title={site} description="You clicked Never for this site. Remove it to get the Save bar there again.">
+              <Button
+                loading={leaving === `never:${site}`}
+                onClick={async () => {
+                  setLeaving(`never:${site}`);
+                  try {
+                    setInfo(await call("bridge_never_remove", { site }));
+                    toast(`Coffer offers to save logins on ${site} again.`);
+                  } catch (e) {
+                    error(e);
+                  } finally {
+                    setLeaving(null);
+                  }
+                }}
+              >
+                Remove
+              </Button>
+            </Row>
+          ))}
+        </Section>
+      )}
     </>
   );
 }

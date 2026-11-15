@@ -1,9 +1,10 @@
-// The Coffer button in a sign-in field, its menu and the one-line note, in
-// one host element with a CLOSED shadow root: the page cannot read the
-// names in the menu or restyle it. The host sits in the top layer (a manual
-// popover), above the page. Text goes in with textContent only.
+// The Coffer button in a sign-in field, its menu, the one-line note and the
+// Save bar (M5), in one host element with a CLOSED shadow root: the page
+// cannot read the names in the menu or restyle it. The host sits in the top
+// layer (a manual popover), above the page. Text goes in with textContent only.
 import { monogramHue, monogramLetters } from "../../../src/lib/format";
 import type { LoginRow, MenuState } from "../lib/fill";
+import { type BarActions, type BarView, drawBar } from "./bar";
 import { CSS, HOST_STYLE } from "./styles";
 
 /** What the menu shows: a MenuState, or "waiting" while Coffer asks for the master password. */
@@ -107,6 +108,58 @@ interface Rect {
 /** IntersectionObserver v2 entries carry isVisible (trackVisibility). */
 type VisibilityEntry = IntersectionObserverEntry & { isVisible?: boolean };
 
+/**
+ * Since when an element (the menu, the bar) is on screen, and, where the
+ * browser can tell (IntersectionObserver v2), fully visible.
+ */
+class OnScreen {
+  private shownAt = 0;
+  /** Since when it is fully visible (null: not now), or undefined: unknown. */
+  private visibleSince: number | null | undefined = undefined;
+  private observer: IntersectionObserver | null = null;
+
+  constructor(
+    doc: Document,
+    private readonly now: () => number,
+  ) {
+    const IO = doc.defaultView?.IntersectionObserver;
+    if (!IO) return;
+    try {
+      this.observer = new IO(
+        (entries) => {
+          const e = entries[entries.length - 1] as VisibilityEntry;
+          if (e.isVisible === undefined) return;
+          this.visibleSince = e.isVisible ? (this.visibleSince ?? this.now()) : null;
+        },
+        { threshold: [1], trackVisibility: true, delay: 100 } as IntersectionObserverInit,
+      );
+    } catch {
+      this.observer = null;
+    }
+  }
+
+  start(el: Element) {
+    this.shownAt = this.now();
+    this.visibleSince = undefined;
+    this.observer?.disconnect();
+    this.observer?.observe(el);
+  }
+
+  stop() {
+    this.observer?.disconnect();
+    this.visibleSince = undefined;
+  }
+
+  /** On screen for PICK_DELAY_MS, and not covered, faded or moved in that time where the browser can tell. */
+  ready(): boolean {
+    const t = this.now();
+    if (t - this.shownAt < PICK_DELAY_MS) return false;
+    if (this.visibleSince === null) return false;
+    if (this.visibleSince !== undefined && t - this.visibleSince < PICK_DELAY_MS) return false;
+    return true;
+  }
+}
+
 export class Overlay {
   readonly host: HTMLElement;
   /** The closed shadow root. Only this script holds it; the page gets null from host.shadowRoot. */
@@ -114,11 +167,11 @@ export class Overlay {
   readonly button: HTMLButtonElement;
   readonly menu: HTMLElement;
   readonly note: HTMLElement;
+  /** The Save bar (M5): top right of the window. */
+  readonly bar: HTMLElement;
   private noteTimer: ReturnType<typeof setTimeout> | null = null;
-  private shownAt = 0;
-  /** From IntersectionObserver v2: since when the menu is fully visible (null: not now), or undefined: unknown. */
-  private visibleSince: number | null | undefined = undefined;
-  private observer: IntersectionObserver | null = null;
+  private readonly menuSeen: OnScreen;
+  private readonly barSeen: OnScreen;
 
   constructor(
     private readonly doc: Document,
@@ -139,24 +192,14 @@ export class Overlay {
     this.note = el(doc, "div", "cf cf-note");
     this.note.setAttribute("role", "status");
     this.note.hidden = true;
-    this.root.append(style, this.button, this.menu, this.note);
+    this.bar = el(doc, "div", "cf cf-bar");
+    this.bar.setAttribute("role", "dialog");
+    this.bar.hidden = true;
+    this.root.append(style, this.button, this.menu, this.note, this.bar);
     // A press on the overlay keeps the focus in the page's field.
     this.root.addEventListener("mousedown", (e) => e.preventDefault(), true);
-    const IO = doc.defaultView?.IntersectionObserver;
-    if (IO) {
-      try {
-        this.observer = new IO(
-          (entries) => {
-            const e = entries[entries.length - 1] as VisibilityEntry;
-            if (e.isVisible === undefined) return;
-            this.visibleSince = e.isVisible ? (this.visibleSince ?? this.now()) : null;
-          },
-          { threshold: [1], trackVisibility: true, delay: 100 } as IntersectionObserverInit,
-        );
-      } catch {
-        this.observer = null;
-      }
-    }
+    this.menuSeen = new OnScreen(doc, this.now);
+    this.barSeen = new OnScreen(doc, this.now);
   }
 
   private mount() {
@@ -207,18 +250,12 @@ export class Overlay {
     drawMenu(this.menu, view, selected, actions);
     this.menu.hidden = false;
     this.note.hidden = true;
-    if (!wasOpen) {
-      this.shownAt = this.now();
-      this.visibleSince = undefined;
-      this.observer?.disconnect();
-      this.observer?.observe(this.menu);
-    }
+    if (!wasOpen) this.menuSeen.start(this.menu);
   }
 
   closeMenu() {
     this.menu.hidden = true;
-    this.observer?.disconnect();
-    this.visibleSince = undefined;
+    this.menuSeen.stop();
   }
 
   /**
@@ -227,12 +264,31 @@ export class Overlay {
    * covered it, faded it or moved it in that time.
    */
   pickable(): boolean {
-    if (this.menu.hidden) return false;
-    const t = this.now();
-    if (t - this.shownAt < PICK_DELAY_MS) return false;
-    if (this.visibleSince === null) return false;
-    if (this.visibleSince !== undefined && t - this.visibleSince < PICK_DELAY_MS) return false;
-    return true;
+    return !this.menu.hidden && this.menuSeen.ready();
+  }
+
+  /** Show the Save bar (or change what it shows). Its click rules start when it first shows. */
+  openBar(view: BarView, actions: BarActions) {
+    this.mount();
+    const wasOpen = !this.bar.hidden;
+    drawBar(this.bar, view, actions);
+    this.bar.hidden = false;
+    if (!wasOpen) this.barSeen.start(this.bar);
+  }
+
+  closeBar() {
+    this.bar.hidden = true;
+    this.bar.replaceChildren();
+    this.barSeen.stop();
+  }
+
+  get barOpen(): boolean {
+    return !this.bar.hidden;
+  }
+
+  /** A click in the bar counts only when the bar has been on screen and visible for PICK_DELAY_MS, as in the menu. */
+  barPickable(): boolean {
+    return !this.bar.hidden && this.barSeen.ready();
   }
 
   showNote(text: string, ms = 4000) {

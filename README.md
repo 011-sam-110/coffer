@@ -32,7 +32,7 @@ _Status: v0.1.0 pre-release for Windows 10 and 11. The installer is not code-sig
 - **Tray app** - close-to-tray, start with Windows, a tray menu, one instance at a time, and a tray icon that shows locked or unlocked.
 - **Auto-lock** - after a set idle time, when Windows locks and when the PC sleeps. Secrets stay in the Rust process and reach the window only when you press Reveal.
 - **Auto update** - every 6 hours Coffer reads the newest GitHub release, downloads the installer and checks its signature against the public key built into Coffer. A wrong signature is refused. The update installs the next time Coffer locks, never while you use it, or at once with Restart now. Settings > General > Updates can turn the automatic install off.
-- **Chrome and Edge** - the Coffer extension connects to Coffer once, with four words that Coffer and the browser both show. Click into a sign-in field and a Coffer menu lists the logins of that site; pick one, or press Ctrl+Shift+L, and it fills the username and password. Saving new logins from the browser comes next.
+- **Chrome and Edge** - the Coffer extension connects to Coffer once, with four words that Coffer and the browser both show. Click into a sign-in field and a Coffer menu lists the logins of that site; pick one, or press Ctrl+Shift+L, and it fills the username and password. After you sign in on a new site, a Save bar puts the login into Coffer, named after the site; after a new password on a known site, "Update password?" changes it and keeps the old one in its history.
 - **Clipboard care** - copies stay out of Windows clipboard history and cloud clipboard, and are cleared after 90 seconds (you can change this) if the clipboard still holds them.
 - **11 item types** - logins, passwords, notes, cards, identities, bank accounts, documents, SSH keys, API keys (with days left and a Windows notice before they expire), Wi-Fi and licences. Items have typed fields, tags, favourites, an archive, a 30-day trash, password history, revisions you can restore, and a per-item "ask for the master password" switch.
 - **Generator** - random, passphrase (EFF word list) and PIN, with a strength meter that shows how it counts, and a generator history.
@@ -69,15 +69,24 @@ Rust (vault core: `argon2`, `chacha20poly1305`, `zeroize`) · Tauri 2 · React 1
 
 From 0.3.0 on, Coffer updates itself (see Auto update above), so you install it by hand only once.
 
-**Add the Coffer extension to Chrome or Edge.** The installer puts the extension next to Coffer, in `%LOCALAPPDATA%\Coffer\extension`, and registers its bridge for both browsers. It is not in the Chrome Web Store, so you add it once by hand:
-1. In Coffer, open Settings > Browsers and click Copy folder.
-2. In Chrome, open `chrome://extensions` (Edge: `edge://extensions`) and turn on Developer mode.
-3. Click Load unpacked and paste the folder.
-4. Click the Coffer button in the toolbar, then Connect. Coffer and the button show the same four words: check them, then click Allow in Coffer.
+### Add Coffer to Chrome or Edge
 
-Coffer updates update the extension too: it reloads itself when Coffer is newer. Settings > Browsers shows the connected browsers and disconnects one. The protocol is in [`docs/BRIDGE.md`](docs/BRIDGE.md).
+The installer puts the extension next to Coffer, in `%LOCALAPPDATA%\Coffer\extension`, and registers its bridge for both browsers. The extension is not in the Chrome Web Store, so you add it once by hand. Do these steps in Chrome; in Edge they are the same, with `edge://extensions`.
+
+1. In Coffer, open **Settings > Browsers** and click **Copy folder**.
+2. In Chrome, open `chrome://extensions`.
+3. Turn on **Developer mode** (top right).
+4. Click **Load unpacked**, paste the folder into the box at the top of the folder window, and click **Select Folder**.
+5. Chrome opens Coffer's first-run page. Click **Turn off the browser's offers**, so that only Coffer offers to save passwords. (If you closed the page: open `chrome://password-manager/settings` and turn off **Offer to save passwords**. In Edge: `edge://settings/passwords`.)
+6. Pin the Coffer button: click the puzzle piece in the toolbar, then the pin next to Coffer.
+7. Click the **Coffer** button in the toolbar, then **Connect**.
+8. Coffer shows four words, and the Coffer button shows four words. Check that they are the same, then click **Allow** in Coffer.
+
+The button now says Connected. Click into a sign-in field to see the Coffer menu. You do this once per browser: when Coffer updates itself, the extension reloads itself with the new version. Settings > Browsers shows the connected browsers, disconnects one, turns the Save and Update bars off, and lists the sites where you clicked Never for this site. The protocol is in [`docs/BRIDGE.md`](docs/BRIDGE.md).
 
 **How fill works.** When you click into a username, email or password field, the extension asks Coffer for the logins of that page's site and shows them in a small menu under the field. Nothing fills until you pick a login (a click or Enter) or press Ctrl+Shift+L. Then Coffer sends only that login's username and password, and the extension puts them into the visible fields with the same events typing fires, so the page sees them. A login matches by its Website's registered domain (`accounts.google.com` fills a `google.com` login, `g00gle.com` gets nothing), or by its name when the name is an address such as `github.com`. Fill works on https pages (and http on localhost), in the page and in frames of the same site only. A login set to "Ask for master password" fills after you enter it in Coffer. If the login has a one-time code, the code is on the clipboard after the fill. The threat model is in [`docs/SECURITY.md`](docs/SECURITY.md) section 12.
+
+**How save works.** When you send a sign-in form, the extension keeps the username and the password you typed in its memory for that tab, for 2 minutes at most, and never in the browser's storage. On the next page it asks Coffer whether it knows that login. A new login gets "Save this login in Coffer?" with the site, the username and Never for this site; Save makes a login named after the site (`github.com`) with its Website. A known username with a new password gets "Update password?"; the old password stays in the login's history. The same password gets nothing. Nothing saves until you click. If Coffer is locked, the bar says "Unlock Coffer to save"; after you unlock, Coffer saves it without asking again. A sign-in on two pages (the email first, then the password) gives one Save with both.
 
 Your vault is in `%USERPROFILE%\Coffer` unless you choose another folder. The settings, this PC's copy of the Secret Key and the backups are in `%LOCALAPPDATA%\Coffer`. Uninstalling leaves both folders where they are.
 

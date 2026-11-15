@@ -267,7 +267,7 @@ What the signature does not cover:
 
 ## 12. Browser bridge
 
-The Coffer extension in Chrome or Edge reaches Coffer through `coffer-bridge.exe` (native messaging) and a named pipe. [BRIDGE.md](BRIDGE.md) has the protocol. The bridge answers `hello`, the Connect calls, `status`, `unlock` and `disconnect` (M3), and the fill calls `list_logins`, `get_login` and `copy_totp` (M4). Save comes next (BRIDGE.md section 6).
+The Coffer extension in Chrome or Edge reaches Coffer through `coffer-bridge.exe` (native messaging) and a named pipe. [BRIDGE.md](BRIDGE.md) has the protocol. The bridge answers `hello`, the Connect calls, `status`, `unlock` and `disconnect` (M3), the fill calls `list_logins`, `get_login` and `copy_totp` (M4), and the save calls `find_login`, `save_login`, `update_password` and `never_for_site` (M5, BRIDGE.md section 6).
 
 **Who can reach Coffer.**
 
@@ -313,6 +313,26 @@ Limits:
 - The password crosses from Coffer through the pipe, the bridge and Chrome to the content script in clear text inside the signed answer (a MAC, not encryption). Only the current Windows user can open the pipe (section 12). Coffer wipes its copy of the answer after it sends it; JavaScript strings in the extension cannot be wiped.
 - A renderer that an attacker took over (a browser exploit) could send fill messages without a pick. Chrome still reports that renderer's real site in `sender.url`, so it gets only that site's logins.
 - Another extension with access to the page can read filled values too, as it can read anything you type.
+
+### Save in the browser (M5)
+
+The threats are the same web pages, now trying to write into the vault or to learn what is in it: a page that saves a login you did not type, changes a password you did not change, or finds out a stored password by guessing.
+
+- **No save without your click.** The extension writes nothing on its own. `save_login`, `update_password` and `never_for_site` run only after a real click (`isTrusted`) on the bar, and only when the bar has been on screen and visible for 400 ms (the menu's rule, section 12 above). A page cannot click into the closed shadow root, and a click on a layer over the bar does not count. The one exception is the bar's own "Unlock Coffer to save": that click is the Save, so the save runs after the unlock with no second click.
+- **Only what a person typed.** The content script hands a password to the worker only when a real `input` event (typing or pasting) set the value the box has now. A value a page script puts into a box (also with an `input` event of its own) gives nothing, so a page cannot make Coffer offer to save a password it chose. A `submit` counts only within 3 s of a real key press or click; a page that changes a password box and sends nothing gives nothing.
+- **Held in memory, briefly.** The service worker keeps the username and password in its own memory, for that tab only: never in `chrome.storage` (local or session), never in the page. It drops them after 2 minutes, when the tab closes, after a click in the bar, or when the next sign-in replaces them. Chrome stopping the idle service worker drops them too. The page and the bar never get the password back: the bar shows the same 12 dots for every password.
+- **Coffer only compares.** `find_login` answers `none`, `same`, `changed` or `never`; it never sends a stored password. The comparison runs in constant time inside the vault, and only on the values a person typed and sent, so a page cannot use it to test guesses.
+- **Only the offered action, only on the form's site.** The worker runs Save only after Coffer offered `save`, and Update only on the login id Coffer named in `find_login`, with the values it holds; an id or a password in a content script's message is never used. Each save call carries the form's address (from Chrome) and the bar's page; Coffer refuses them unless both are https (or http on localhost) and one site (`cross_site`), so the bar never shows, and nothing is saved, on another site than the form's. `update_password` also refuses a login that does not fit the page (`no_match`).
+- **Frames.** Only the top page and frames of the top page's origin keep a sign-in. A sign-in form of another site inside a page (a frame of your bank inside an attacker's page) gives nothing; the bar shows in the top page only.
+- **The never list** is in the vault's encrypted meta record, not in the browser, so it goes where the vault goes and a page cannot read it. Settings, Browsers lists it and takes a site off.
+- **A save is a normal save.** A login from the browser goes through the same path as a save in the app: the atomic write, a backup, Health. An update keeps the old password in the login's password history and the login before the change as a revision, so a wrong Update can be undone.
+
+Limits:
+
+- A hacked page on the right site (an XSS) sees what you type into its form, as with any sign-in, and can choose the username box's value. The bar shows that username before you click Save.
+- A page can tell that the bar is there (the host element exists), so it can learn that Coffer offered to save or update after a sign-in. It cannot read the bar.
+- A password change form (current and new password differ) gives no bar yet. A frame of the same site but another origin (`accounts.` inside `www.`) keeps no sign-in.
+- The password crosses to Coffer in the signed message, in clear text inside the MAC (as a fill's answer does, section 12).
 
 ## 13. Known limits
 
