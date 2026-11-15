@@ -15,6 +15,7 @@ Coffer is a local-first password manager. It keeps the vault in one encrypted fi
 | Code that runs as the same Windows user while Coffer is locked | Partial protection only. Such code can read the Secret Key that DPAPI protects. It can also record keystrokes. With Windows Hello on, it can open the vault. With a PIN set, it can try every PIN offline (section 8). |
 | Code that runs as the same Windows user while Coffer is unlocked | Out of scope. Such code can read the memory of the Coffer process. |
 | Script injected into the UI (for example, from imported data) | The UI cannot load remote code, cannot navigate away, and can call only the commands of its window. It cannot open a file or a URL of its choice. |
+| Control of the network path, or of a GitHub release (a changed latest.json or installer) | Coffer installs only an installer whose minisign signature checks against the public key built into Coffer, and whose signed comment names the version that latest.json announces. A wrong or missing signature is refused and logged (section 10). |
 | A view of the screen, a screen capture, or clipboard history | Secret fields are masked by default. Windows are excluded from most screen capture (a setting, on by default). Copied values stay out of clipboard history and are cleared. |
 
 A whole-file rollback (an older but valid vault file put back in place) is detected only on a PC that saw the newer file. Section 3 tells how.
@@ -230,7 +231,32 @@ What stays on the PC:
 - Coffer checks active login and password items that have a password and are not excluded from health.
 - Coffer stores the results in the encrypted meta record. The key of each result is the item id and the SHA-256 of the password.
 
-## 10. Backups
+## 10. Auto update
+
+Coffer updates itself from GitHub releases (SPEC 3.12). An update runs code on the PC, so the update path is the strongest attack on Coffer that needs no access to the PC. The signature is the guard; HTTPS alone is not.
+
+What Coffer checks:
+
+- Coffer reads `latest.json` from the newest full release of `011-sam-110/coffer`, over HTTPS. The file names a version, the installer address and a minisign signature.
+- Coffer downloads a newer version only. The updater plugin checks the installer bytes against the public key built into Coffer at build time (`plugins.updater.pubkey`). It checks them again just before the install.
+- `requireSignedVersion` is on: the version is in the signed comment, and it must equal the version in `latest.json`. A changed `latest.json` cannot pair a new version number with an older signed installer.
+- A failed check refuses the file. Coffer writes "update: REFUSED" to its log and shows one line in Settings. Nothing installs.
+- An install starts only when the vault is locked. "Restart now" locks first.
+
+The signing key:
+
+- Sam makes the key pair once with `node scripts/make-update-key.mjs`. The private key stays in `%USERPROFILE%\.tauri\coffer-updater.key`, encrypted with a password that Sam types in a hidden prompt. It is never in the repo, and no agent sees it or the password.
+- `release.mjs build` needs no private key. `release.mjs publish` asks for the password in a hidden prompt, signs, checks the new signature against the built-in public key, and only then creates the release.
+- The scripts give the password to the Tauri CLI child process (an argument for `signer generate`, an environment variable for `signer sign`) for the second it runs. A program that runs as Sam could read it then. That attacker is out of scope (section 1).
+
+What the signature does not cover:
+
+- A person with the private key and its password can send any code to every Coffer. Keep both safe. If the key is lost, installed copies accept no further update: Sam then installs a build with a new key by hand.
+- A person who controls the network or the release can hold back an update (Coffer then stays on its version), and can see that this PC checks GitHub.
+- The installer has no Windows code signature (section 12). The minisign signature is what Coffer trusts.
+- A copy with another identifier (a QA copy) and a debug build update only from a server on this PC, so a test copy cannot install over the real Coffer.
+
+## 11. Backups
 
 - After each save, the shell copies the encrypted vault file to `%LOCALAPPDATA%\Coffer\backups\<vault id>\<YYYYMMDDTHHMMSSZ>.coffer`.
 - The shell keeps the last 20 backups and the newest backup of each day for the last 30 days. It deletes the others.
@@ -238,7 +264,7 @@ What stays on the PC:
 - After a re-key, the shell deletes the old backups, because they open with the old vault key.
 - A restore while unlocked takes only a backup of the same vault and vault key. It needs the master password when it would weaken re-prompt on an item.
 
-## 11. Known limits
+## 12. Known limits
 
 - **Third-party buffers.** The `csv` crate and the `serde_json` parser keep internal copies of plain text that Coffer cannot wipe:
   - the CSV writer buffer when Coffer writes a CSV export
@@ -255,7 +281,7 @@ What stays on the PC:
 - **Expiry notices.** A notice shows the title of an API key on the screen. Windows keeps the notice in its notification list until the next restart. `notices.json` keeps only item ids and which notice went out.
 - **Unsigned installer.** The installer has no code signature. Windows SmartScreen warns on the first run. A user cannot check the publisher of the file through Windows.
 
-## 12. Test vectors
+## 13. Test vectors
 
 The tests copy each vector from the source document, not from memory.
 

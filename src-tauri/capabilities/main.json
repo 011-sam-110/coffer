@@ -68,6 +68,9 @@
     "allow-edit-state",
     "allow-main-show",
     "allow-app-quit",
-    "allow-main-hide"
+    "allow-main-hide",
+    "allow-update-status",
+    "allow-update-check",
+    "allow-update-install"
   ]
 }

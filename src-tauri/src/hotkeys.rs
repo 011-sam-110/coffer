@@ -67,7 +67,7 @@ fn register(app: &AppHandle, text: &str, action: Action) -> HotkeyState {
             Action::Lock => {
                 // A lock waits for a save in progress: not on this callback thread.
                 let app = app.clone();
-                let _ = std::thread::Builder::new().name("coffer-hotkey-lock".into()).spawn(move || crate::lock::lock(&app, LockReason::Manual));
+                let _ = std::thread::Builder::new().name("coffer-hotkey-lock".into()).spawn(move || crate::lock::lock_by_user(&app, LockReason::Manual));
             }
         }
     });

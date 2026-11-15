@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Coffer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "dev.sampo.coffer",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -68,6 +68,16 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "NOT-SET-run-scripts-make-update-key-mjs-then-paste-coffer-updater-key-pub-here",
+      "endpoints": ["https://github.com/011-sam-110/coffer/releases/latest/download/latest.json"],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

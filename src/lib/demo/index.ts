@@ -29,6 +29,9 @@
 //   ?pin=on|stale        a PIN (482917) is set: ready / set, but the master-password days ran out
 //   ?autotype=gone|admin|front|modifiers|changed|keys  why auto-type refuses (default: it types)
 //   ?qr=none|google|other|noSecret|notImage|screenFail  what totp_from_image finds (default: a QR code)
+//   ?update=ready|found|offline|badsig|off  auto update (SPEC 3.12): 0.3.1 downloaded at start /
+//                        Check now finds and downloads 0.3.1 / the check fails offline / 0.3.1 fails
+//                        its signature and is refused / this build does not update (default: up to date)
 //
 // Demo-only extra commands (not in the contract; the UI must not call them):
 //   invoke("demo_clipboard")  what the simulated clipboard holds (tests only)
@@ -57,6 +60,7 @@ import type {
   ItemState,
   QuickContext,
   Settings,
+  UpdateState,
   VaultState,
   VaultStatus,
 } from "../contract";
@@ -98,6 +102,7 @@ export interface DemoExtras {
   pin?: "none" | "on" | "stale";
   autotype?: "ok" | "gone" | "admin" | "front" | "modifiers" | "changed" | "keys";
   qr?: "ok" | "none" | "google" | "other" | "noSecret" | "notImage" | "screenFail";
+  update?: "none" | "ready" | "found" | "offline" | "badsig" | "off";
   /** Use this instead of location.search for the flags above (tests). */
   search?: string;
 }
@@ -148,7 +153,12 @@ const DEFAULT_SETTINGS: Settings = {
   closeNoticeShown: false,
   closeBehavior: "hide",
   quickHintsShown: 0,
+  autoUpdate: true,
 };
+
+/** The demo's own version and the one its "GitHub" offers (SPEC 3.12). */
+export const DEMO_VERSION = "0.3.0";
+export const DEMO_NEXT_VERSION = "0.3.1";
 
 interface Backup {
   savedAt: string;
@@ -258,6 +268,7 @@ function readFlags(opts: DemoBackendOptions) {
     pin: opts.pin ?? pick(q.get("pin"), ["none", "on", "stale"] as const, "none"),
     autotype: opts.autotype ?? pick(q.get("autotype"), ["ok", "gone", "admin", "front", "modifiers", "changed", "keys"] as const, "ok"),
     qr: opts.qr ?? pick(q.get("qr"), ["ok", "none", "google", "other", "noSecret", "notImage", "screenFail"] as const, "ok"),
+    update: opts.update ?? pick(q.get("update"), ["none", "ready", "found", "offline", "badsig", "off"] as const, "none"),
     latencyMs: opts.latencyMs ?? (latencyParam !== null && Number.isFinite(Number(latencyParam)) ? Number(latencyParam) : undefined),
   };
 }
@@ -301,6 +312,14 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   let helloResult = flags.helloResult;
   /** PIN unlock: the PIN, wrong tries in a row, and whether the master-password days still hold. */
   let pin: { value: string; failures: number; fresh: boolean } | null = flags.pin === "none" ? null : { value: "482917", failures: 0, fresh: flags.pin === "on" };
+  /** Auto update (SPEC 3.12): the state Rust would report. Nothing is downloaded or installed. */
+  let update: UpdateState = {
+    phase: flags.update === "off" ? "off" : flags.update === "ready" ? "ready" : "idle",
+    currentVersion: DEMO_VERSION,
+    version: flags.update === "ready" ? DEMO_NEXT_VERSION : null,
+    checkedAt: flags.update === "off" ? null : new Date(Date.now() - 5 * 60_000).toISOString(),
+    error: flags.update === "off" ? "This build does not update: it has no update signing key." : null,
+  };
 
   // ---------- helpers ----------
   const now = (): number => Date.now();
@@ -494,7 +513,8 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     }
   }
 
-  function lockNow(reason: Events["vault://locked"]["reason"]): void {
+  /** `mayInstall` false: "Restart now" locks and installs by itself. */
+  function lockNow(reason: Events["vault://locked"]["reason"], mayInstall = true): void {
     if (state !== "unlocked") return;
     // A vault whose file is gone locks into the "missing" state (SPEC 3.5).
     state = fileGone ? "missing" : "locked";
@@ -514,6 +534,21 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     // SPEC 3.8: a keyChanged lock drops the key that Hello holds.
     if (reason === "keyChanged") helloHeld = false;
     emit("vault://locked", { reason });
+    // SPEC 3.12: a lock the user caused installs a ready update (not quit, not a key change).
+    if (mayInstall && update.phase === "ready" && settings.autoUpdate && (reason === "manual" || reason === "idle" || reason === "systemLock" || reason === "sleep")) installUpdate();
+  }
+
+  function setUpdate(next: Partial<UpdateState>): UpdateState {
+    update = { ...update, ...next };
+    emit("update://state", { ...update });
+    return { ...update };
+  }
+
+  /** Like Rust: installing, then (after the "restart") the new version, locked. */
+  function installUpdate(): void {
+    const to = update.version ?? DEMO_NEXT_VERSION;
+    setUpdate({ phase: "installing", version: to, error: null });
+    setTimeout(() => setUpdate({ phase: "idle", currentVersion: to, version: null, checkedAt: iso() }), 1500);
   }
 
   /** The master password in the call, or a 60 s grant for this item id (SPEC 3.6). */
@@ -683,7 +718,7 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
   // ---------- commands ----------
   const handlers: Handlers = {
     app_info: (): AppInfo => ({
-      version: "0.2.0",
+      version: update.currentVersion,
       computerName: COMPUTER_NAME,
       defaultFolder: DEMO_DEFAULT_FOLDER,
       hotkeyStatus: { quick: hotkeyStatus(settings.hotkeyQuick), lock: hotkeyStatus(settings.hotkeyLock) },
@@ -1367,6 +1402,33 @@ export function createDemoBackend(opts: DemoBackendOptions): Backend {
     },
     main_hide: () => undefined,
     app_quit: () => undefined,
+
+    // ----- updates (SPEC 3.12) -----
+    update_status: () => ({ ...update }),
+    update_check: async () => {
+      if (update.phase === "off" || update.phase === "installing" || update.phase === "checking" || update.phase === "downloading") return { ...update };
+      const held = update.phase === "ready" ? update.version : null;
+      if (!held) setUpdate({ phase: "checking", error: null });
+      await delay("slow");
+      if (flags.update === "offline") {
+        return setUpdate({ phase: held ? "ready" : "idle", error: "Coffer could not reach GitHub to check for updates." });
+      }
+      if ((flags.update === "found" || flags.update === "badsig") && !held) {
+        setUpdate({ phase: "downloading", version: DEMO_NEXT_VERSION });
+        await delay("slow");
+        if (flags.update === "badsig") {
+          return setUpdate({ phase: "idle", version: null, error: `Coffer ${DEMO_NEXT_VERSION} failed its signature check, so Coffer refused it.` });
+        }
+        return setUpdate({ phase: "ready", version: DEMO_NEXT_VERSION, checkedAt: iso(), error: null });
+      }
+      return setUpdate({ phase: held ? "ready" : "idle", checkedAt: iso(), error: null });
+    },
+    update_install: () => {
+      if (update.phase !== "ready") throw fail("invalid", "No update is ready to install.");
+      // Restart now: lock first, then install (also with autoUpdate off).
+      lockNow("manual", false);
+      installUpdate();
+    },
   };
 
   // ---------- demo-only ----------

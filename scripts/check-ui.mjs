@@ -81,6 +81,10 @@ const STATES = [
   ["m30-settings-vault", "/?view=settings&tab=vault", MAIN],
   ["m31-settings-shortcuts", "/?view=settings&tab=shortcuts", MAIN],
   ["m32-settings-about", "/?view=settings&tab=about", MAIN],
+  // Auto update (SPEC 3.12): the ready banner and the Updates section.
+  ["u01-settings-update-ready", "/?view=settings&tab=general&update=ready", MAIN],
+  ["u02-settings-update-found", "/?view=settings&tab=general&update=found", MAIN, [{ click: "button:has-text('Check now')" }, { wait: 3600 }, { expect: "text=Coffer 0.3.1 is ready." }]],
+  ["u03-settings-update-off", "/?view=settings&tab=general&update=off", MAIN],
   ["m33-shortcuts-f1", "/?dialog=shortcuts", MAIN],
   ["m34-export", "/?dialog=export", MAIN],
   ["m35-close-notice", "/?dialog=closeNotice", MAIN],

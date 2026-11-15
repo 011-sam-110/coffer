@@ -5,13 +5,15 @@ import { HotkeyInput } from "../../components/HotkeyInput";
 import { StrengthMeter } from "../../components/bits";
 import { RotateSecretKey } from "../../components/RotateSecretKey";
 import { Dialog, useToast } from "../../components/overlays";
-import { Button, Checkbox, cx, FormRow, Input, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
+import { Button, Checkbox, cx, ErrorText, FormRow, Input, Keys, PasswordInput, Segmented, Select, Switch } from "../../components/ui";
 import type { EmergencyKit, ExportKind, Settings } from "../../lib/contract";
 import { call, isCofferError } from "../../lib/ipc";
+import { autoUpdateHint, canCheck, updateBanner, updateLine } from "../../lib/updates";
 import { useListDensity } from "../prefs";
 import { BackupList } from "../screens/Locked";
 import { KitSheet } from "../screens/Onboarding";
 import { useStore } from "../store";
+import { useUpdates, type Updates } from "../useUpdates";
 import type { Nav, SettingsTab } from "../vault/nav";
 import { PageShell, Tabs } from "./PageShell";
 
@@ -79,13 +81,19 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
 
 export function SettingsView({ tab, onTab, go }: { tab: SettingsTab; onTab: (t: SettingsTab) => void; go: (p: Partial<Nav>) => void }) {
   const { settings, updateSettings } = useStore();
+  const updates = useUpdates();
   if (!settings) return null;
   const set = (patch: Partial<Settings>) => updateSettings(patch);
   return (
-    <PageShell title="Settings">
+    <PageShell title="Settings" notice={<UpdateBanner updates={updates} autoUpdate={settings.autoUpdate} />}>
       <Tabs label="Settings" tabs={TABS} value={tab} onChange={onTab} />
       <div role="tabpanel" aria-label={TABS.find((t) => t.id === tab)?.label} className="flex flex-col">
-        {tab === "general" && <General settings={settings} set={set} />}
+        {tab === "general" && (
+          <>
+            <General settings={settings} set={set} />
+            <UpdatesSection settings={settings} set={set} updates={updates} />
+          </>
+        )}
         {tab === "security" && <Security settings={settings} set={set} />}
         {tab === "vault" && <VaultTab go={go} />}
         {tab === "shortcuts" && <Shortcuts settings={settings} set={set} />}
@@ -139,6 +147,46 @@ function General({ settings, set }: { settings: Settings; set: SetFn }) {
             { value: "quit", label: "Quits Coffer" },
           ]}
         />
+      </Row>
+    </Section>
+  );
+}
+
+/** "Coffer 0.3.1 is ready. It installs the next time Coffer locks. [Restart now]" (SPEC 3.12). */
+function UpdateBanner({ updates, autoUpdate }: { updates: Updates; autoUpdate: boolean }) {
+  const text = updateBanner(updates.state, autoUpdate);
+  if (!text) return null;
+  return (
+    <div role="status" className="flex flex-col gap-1.5 rounded-sm border border-border border-l-[3px] border-l-primary bg-card px-3.5 py-2.5 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="min-w-0">
+          <span className="font-semibold">{text.title}</span> <span className="text-muted-foreground">{text.detail}</span>
+        </p>
+        {text.restart && (
+          <Button variant="primary" loading={updates.restarting} onClick={() => updates.restart()}>
+            Restart now
+          </Button>
+        )}
+      </div>
+      {updates.restartError && <ErrorText>{updates.restartError}</ErrorText>}
+    </div>
+  );
+}
+
+function UpdatesSection({ settings, set, updates }: { settings: Settings; set: SetFn; updates: Updates }) {
+  const { info } = useStore();
+  const { state, now } = updates;
+  const version = state?.currentVersion || info?.version || "";
+  const off = state?.phase === "off";
+  return (
+    <Section title="Updates">
+      <Row title="Install updates automatically" description={autoUpdateHint(settings.autoUpdate)}>
+        <Switch label="Install updates automatically" checked={settings.autoUpdate} disabled={off} onChange={(v) => set({ autoUpdate: v })} />
+      </Row>
+      <Row title={`Coffer ${version}`} description={<span data-update-line>{updateLine(state, now)}</span>}>
+        <Button loading={updates.checking || state?.phase === "checking" || state?.phase === "downloading"} disabled={!canCheck(state)} onClick={() => updates.check()}>
+          Check now
+        </Button>
       </Row>
     </Section>
   );
@@ -241,7 +289,7 @@ function Security({ settings, set }: { settings: Settings; set: SetFn }) {
       <Section title="Breach check">
         <Row
           title="Check passwords against known breaches"
-          description="Coffer sends the first 5 characters of each password's SHA-1 hash to Have I Been Pwned, never the password, and compares the rest on this PC. This is Coffer's only network call."
+          description="Coffer sends the first 5 characters of each password's SHA-1 hash to Have I Been Pwned, never the password, and compares the rest on this PC. Apart from the update check, this is Coffer's only network call."
         >
           <Segmented
             label="Breach check"

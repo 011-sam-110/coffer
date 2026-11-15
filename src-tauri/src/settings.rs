@@ -46,6 +46,8 @@ pub struct Settings {
     pub close_notice_shown: bool,
     pub close_behavior: CloseBehavior,
     pub quick_hints_shown: u32,
+    /// Install a downloaded update when Coffer locks (SPEC 3.12). Off: only "Restart now" installs.
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -67,6 +69,7 @@ impl Default for Settings {
             close_notice_shown: false,
             close_behavior: CloseBehavior::Hide,
             quick_hints_shown: 0,
+            auto_update: true,
         }
     }
 }
@@ -235,7 +238,8 @@ mod tests {
                 "breachCheck": "off",
                 "closeNoticeShown": false,
                 "closeBehavior": "hide",
-                "quickHintsShown": 0
+                "quickHintsShown": 0,
+                "autoUpdate": true
             })
         );
     }
@@ -267,6 +271,11 @@ mod tests {
         let partial: SettingsFile = serde_json::from_str(r#"{"version":1,"lockOnSleep":false,"excludeFromClipboardHistory":true}"#).unwrap();
         assert!(!partial.settings.lock_on_sleep);
         assert_eq!(partial.settings.clipboard_clear_seconds, Some(90));
+        // A 0.2.0 file has no autoUpdate: it takes the default (on).
+        assert!(partial.settings.auto_update);
+        let off: SettingsFile = serde_json::from_str(r#"{"version":1,"autoUpdate":false}"#).unwrap();
+        assert!(!off.settings.auto_update);
+        assert!(serde_json::to_string(&off).unwrap().contains("\"autoUpdate\":false"));
         assert_eq!(partial.vault_path, None);
     }
 
@@ -289,6 +298,9 @@ mod tests {
         assert!(apply_patch(&base, &json!({ "hotkeyQuick": "Space" })).is_err());
         assert!(apply_patch(&base, &json!({ "hotkeyLock": "ctrl+shift+space" })).is_err());
         assert!(apply_patch(&base, &json!([1])).is_err());
+        // Auto update: a boolean, off keeps the rest.
+        assert!(!apply_patch(&base, &json!({ "autoUpdate": false })).unwrap().auto_update);
+        assert!(apply_patch(&base, &json!({ "autoUpdate": "no" })).is_err());
         // An empty Quick Access shortcut turns it off.
         assert_eq!(apply_patch(&base, &json!({ "hotkeyQuick": "" })).unwrap().hotkey_quick, "");
     }

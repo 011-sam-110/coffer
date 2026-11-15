@@ -8,6 +8,7 @@ export function PageShell({
   title,
   description,
   actions,
+  notice,
   wide = false,
   children,
 }: {
@@ -15,12 +16,15 @@ export function PageShell({
   description?: ReactNode;
   /** Right-aligned header actions, such as Health's "Check now". */
   actions?: ReactNode;
+  /** A banner above the title, such as Settings' "Coffer 0.3.1 is ready". */
+  notice?: ReactNode;
   wide?: boolean;
   children: ReactNode;
 }) {
   return (
     <div className="h-full overflow-y-auto">
       <div className={cx("flex flex-col gap-6 px-8 pt-6 pb-16", wide ? "max-w-[924px]" : "max-w-[784px]")}>
+        {notice}
         <header className="flex items-start justify-between gap-6">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold">{title}</h1>

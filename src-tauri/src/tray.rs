@@ -146,7 +146,7 @@ fn on_menu(app: &AppHandle, event: MenuEvent) {
             if app.state::<AppState>().is_unlocked() {
                 // Off the main thread: the lock waits for a save in progress.
                 let app = app.clone();
-                let _ = std::thread::Builder::new().name("coffer-tray-lock".into()).spawn(move || crate::lock::lock(&app, LockReason::Manual));
+                let _ = std::thread::Builder::new().name("coffer-tray-lock".into()).spawn(move || crate::lock::lock_by_user(&app, LockReason::Manual));
             } else {
                 shell::show_main(app, None);
             }

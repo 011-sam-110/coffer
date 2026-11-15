@@ -191,6 +191,10 @@ fn enums_match() {
     assert_eq!(ser(ImportSource::Conflict), "conflict");
     assert_eq!(ser(TotpSource::Screen), "screen");
     assert_eq!(ser(HotkeyState::InUse), "inUse");
+
+    let phases: BTreeSet<String> =
+        [UpdatePhase::Off, UpdatePhase::Idle, UpdatePhase::Checking, UpdatePhase::Downloading, UpdatePhase::Ready, UpdatePhase::Installing].into_iter().map(ser).collect();
+    assert_eq!(phases, literals(block("export type UpdatePhase =", ";")));
 }
 
 /// The quoted value after `key: "` in a line, e.g. `role: "host"`.
@@ -291,6 +295,7 @@ fn events_match() {
         events::EDIT_DISCARDED,
         events::APP_QUIT_REQUESTED,
         events::MAIN_CLOSE_NOTICE,
+        events::UPDATE_STATE,
     ]
     .into_iter()
     .map(str::to_string)
@@ -317,6 +322,23 @@ fn payload_shapes() {
     }))
     .unwrap();
     assert!(input.id.is_none() && input.fields[0].value.is_none());
+}
+
+#[test]
+fn updater_config() {
+    let v: serde_json::Value = serde_json::from_str(TAURI_CONF).unwrap();
+    let u = &v["plugins"]["updater"];
+    assert_eq!(u["endpoints"], serde_json::json!(["https://github.com/011-sam-110/coffer/releases/latest/download/latest.json"]));
+    // The signature must name the version latest.json announces (no pairing of a new number with an old installer).
+    assert_eq!(u["requireSignedVersion"], true);
+    assert!(u.get("dangerousInsecureTransportProtocol").is_none() && u.get("allowDowngrades").is_none());
+    assert_eq!(u["windows"]["installMode"], "passive");
+    let key = u["pubkey"].as_str().unwrap();
+    assert!(key == crate::updates::PUBKEY_PLACEHOLDER || crate::updates::is_real_pubkey(key), "pubkey is the placeholder or a real key");
+    // Signing is a separate step (scripts/release.mjs publish): the build needs no private key.
+    assert!(v["bundle"].get("createUpdaterArtifacts").is_none_or(|c| c == false));
+    // The webview gets no updater permission: Rust checks and installs.
+    assert!(!MAIN_CAP.contains("updater:") && !QUICK_CAP.contains("updater:"));
 }
 
 #[test]
