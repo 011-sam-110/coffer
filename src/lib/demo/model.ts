@@ -1,6 +1,7 @@
 // The demo's stored item (it holds real values, like the decrypted record in
 // Rust) and the masked views the UI receives.
-import { BUILTIN_FIELDS, ENTER_COPIES, SECRET_KINDS } from "../contract";
+import { BUILTIN_FIELDS, ENTER_COPIES, RENAMED_LABELS, SECRET_KINDS } from "../contract";
+import { expiryDate, expiryRole } from "../expiry";
 import type {
   Attachment,
   Field,
@@ -149,8 +150,21 @@ export function summaryOf(item: StoredItem, flags: ItemFlags): ItemSummary {
     lastUsedAt: item.lastUsedAt,
     urlHost: urlHostOf(item),
     hasTotp: hasTotp(item),
+    expiresOn: expiresOnOf(item),
     flags: { ...flags },
   };
+}
+
+/** YYYY-MM-DD the item expires, as Rust's health::expiry_date. */
+export function expiresOnOf(item: Pick<ItemContent, "type" | "fields">): string | null {
+  const role = expiryRole(item.type);
+  return role ? expiryDate(item.type, valueOfRole(item, role)) : null;
+}
+
+/** The label to show: the BUILTIN_FIELDS label in place of an old default label (as Rust's templates::display_label). */
+export function displayLabel(type: ItemType, f: Pick<Field, "builtin" | "label">): string {
+  if (!f.builtin || !RENAMED_LABELS.some(([t, role, old]) => t === type && role === f.builtin && old === f.label)) return f.label;
+  return BUILTIN_FIELDS[type].find((b) => b.role === f.builtin)?.label ?? f.label;
 }
 
 /** The detail view: every SECRET_KINDS value is "" with masked true. */
@@ -170,7 +184,7 @@ export function viewOf(item: StoredItem, flags: ItemFlags): ItemView {
     passwordChangedAt: item.passwordChangedAt,
     fields: item.fields.map((f) => {
       const secret = isSecretKind(f.kind);
-      return { ...cloneField(f), value: secret ? "" : f.value, masked: secret };
+      return { ...cloneField(f), label: displayLabel(item.type, f), value: secret ? "" : f.value, masked: secret };
     }),
     notes: item.notes,
     urls: item.urls.map((u) => ({ ...u })),
@@ -197,7 +211,7 @@ const ENTER_WORDS: Partial<Record<ItemType, string>> = {
   bank: "account number",
   document: "document number",
   sshKey: "public key",
-  apiCredential: "credential",
+  apiCredential: "key",
   license: "licence key",
 };
 
@@ -223,6 +237,6 @@ export function resolveRef(item: StoredItem, ref: string): Resolved | null {
     (ref === "totp" ? item.fields.find((f) => f.kind === "totp") : undefined) ??
     item.fields.find((f) => f.id === ref);
   if (!field) return null;
-  const label = (field.builtin && ROLE_LABEL[field.builtin]) || field.label;
+  const label = (field.builtin && ROLE_LABEL[field.builtin]) || displayLabel(item.type, field);
   return { kind: "field", field, secret: isSecretKind(field.kind), label };
 }

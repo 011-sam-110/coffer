@@ -3,7 +3,7 @@
 //! - Checks: breached (from the cache), reused, weak (zxcvbn 0 to 2 with
 //!   title, username and URL host as inputs), duplicate, unsecured site,
 //!   old (365 days; an empty date never counts), expiring (cards 60 days,
-//!   passports 300 days, other documents and API credentials 90 days).
+//!   passports 300 days, other documents and API keys 90 days).
 //! - Only active, not-excluded items are checked; every flag is false for
 //!   archived, trashed and excluded items.
 //! - Score = floor(100 x healthy / total) over active login and password
@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use sha2::{Digest, Sha256};
-use time::{Duration, OffsetDateTime};
+use time::{Date, Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use crate::model::{
@@ -248,24 +248,34 @@ fn group_thousands(n: u64) -> String {
     out
 }
 
+/// The built-in field that holds the expiry date of a type, if it has one.
+fn expiry_role(t: ItemType) -> Option<&'static str> {
+    match t {
+        ItemType::Card => Some("expiry"),
+        ItemType::Document | ItemType::ApiCredential => Some("expires"),
+        _ => None,
+    }
+}
+
+/// The day an item expires: a card at the end of its expiry month, a
+/// document or an API key on its Expires date. `None` when the type has no
+/// expiry or the value does not parse.
+pub fn expiry_date(item: &StoredItem) -> Option<Date> {
+    let v = item.builtin_value(expiry_role(item.item_type)?);
+    match item.item_type {
+        ItemType::Card => time_util::parse_month_year_end(v),
+        _ => time_util::parse_date(v),
+    }
+}
+
 fn expiring(item: &StoredItem, now: OffsetDateTime) -> Option<String> {
     let today = now.date();
-    let (date, window, label) = match item.item_type {
-        ItemType::Card => {
-            let v = item.builtin_value("expiry");
-            (time_util::parse_month_year_end(v)?, 60, v.to_owned())
-        }
-        ItemType::Document => {
-            let v = item.builtin_value("expires");
-            let kind = item.builtin_value("docKind").to_ascii_lowercase();
-            let window = if kind == "passport" { 300 } else { 90 };
-            (time_util::parse_date(v)?, window, v.to_owned())
-        }
-        ItemType::ApiCredential => {
-            let v = item.builtin_value("expires");
-            (time_util::parse_date(v)?, 90, v.to_owned())
-        }
-        _ => return None,
+    let date = expiry_date(item)?;
+    let label = item.builtin_value(expiry_role(item.item_type)?).to_owned();
+    let window = match item.item_type {
+        ItemType::Card => 60,
+        ItemType::Document if item.builtin_value("docKind").eq_ignore_ascii_case("passport") => 300,
+        _ => 90,
     };
     let days = (date - today).whole_days();
     if days < 0 {
@@ -416,6 +426,27 @@ mod tests {
         assert!(a.flags[&card.id].expiring);
         assert!(a.flags[&pass.id].expiring);
         assert!(!a.flags.get(&idc.id).map(|f| f.expiring).unwrap_or(false));
+    }
+
+    #[test]
+    fn expiry_dates_per_type() {
+        let mut api = StoredItem::new(ItemType::ApiCredential, "key", "2026-01-01T00:00:00Z");
+        assert_eq!(expiry_date(&api), None);
+        api.set_builtin("expires", FieldKind::Date, "2026-12-30");
+        assert_eq!(expiry_date(&api).map(time_util::fmt_date).as_deref(), Some("2026-12-30"));
+        let mut card = StoredItem::new(ItemType::Card, "card", "2026-01-01T00:00:00Z");
+        card.set_builtin("expiry", FieldKind::MonthYear, "2027-02");
+        assert_eq!(expiry_date(&card).map(time_util::fmt_date).as_deref(), Some("2027-02-28"));
+        let mut login = StoredItem::new(ItemType::Login, "x", "2026-01-01T00:00:00Z");
+        login.set_builtin("expires", FieldKind::Date, "2026-12-30");
+        assert_eq!(expiry_date(&login), None);
+        // The 90-day window of Health stays for API keys.
+        api.set_builtin("expires", FieldKind::Date, "2027-01-14");
+        assert!(expiring(&api, now()).is_some(), "90 days after 2026-10-16");
+        api.set_builtin("expires", FieldKind::Date, "2027-01-15");
+        assert!(expiring(&api, now()).is_none());
+        api.set_builtin("expires", FieldKind::Date, "2026-10-13");
+        assert_eq!(expiring(&api, now()).as_deref(), Some("Expired 2026-10-13"));
     }
 
     #[test]

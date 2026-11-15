@@ -984,9 +984,11 @@ impl Vault {
             if digits.len() >= 4 { format!("\u{2022}\u{2022}\u{2022}\u{2022} {}", &digits[digits.len() - 4..]) } else { String::new() }
         };
         match item.item_type {
-            ItemType::Login | ItemType::ApiCredential => {
-                let u = plain("username");
-                if u.is_empty() && item.item_type == ItemType::ApiCredential { plain("host").to_owned() } else { u.to_owned() }
+            ItemType::Login => plain("username").to_owned(),
+            // An API key shows where it works first (its API URL's host), as the demo does.
+            ItemType::ApiCredential => {
+                let host = plain("host").trim();
+                if host.is_empty() { plain("username").to_owned() } else { crate::model::url_host(host).unwrap_or_else(|| host.to_owned()) }
             }
             ItemType::Card => last4(item.builtin_value("number")),
             ItemType::Bank => plain("bankName").to_owned(),
@@ -1013,8 +1015,20 @@ impl Vault {
             last_used_at: None,
             url_host: item.url_host(),
             has_totp: item.fields.iter().any(|f| f.kind == FieldKind::Totp && !f.value.trim().is_empty()),
+            expires_on: health::expiry_date(item).map(time_util::fmt_date),
             flags: self.flags(&item.id),
         }
+    }
+
+    /// Active API keys that Health checks, with an Expires date: (id, title,
+    /// date). The expiry notices of the shell read this.
+    pub fn api_key_expiries(&self) -> Vec<(String, String, time::Date)> {
+        self.items
+            .values()
+            .map(|s| &s.item)
+            .filter(|i| i.item_type == ItemType::ApiCredential && i.state == ItemState::Active && !i.health_excluded)
+            .filter_map(|i| Some((i.id.to_string(), i.title.clone(), health::expiry_date(i)?)))
+            .collect()
     }
 
     /// Every item in every state, as list rows (no secrets). `lastUsedAt` is
@@ -1052,7 +1066,8 @@ impl Vault {
                     let secret = f.kind.is_secret() && !f.value.is_empty();
                     Field {
                         id: f.id.clone(),
-                        label: f.label.clone(),
+                        // A key saved by Coffer 0.2 holds "Credential" and "Host": show the new words.
+                        label: crate::templates::display_label(item.item_type, f.builtin.as_deref(), &f.label).to_owned(),
                         kind: f.kind,
                         value: if secret { String::new() } else { f.value.clone() },
                         masked: if secret { Some(true) } else { None },

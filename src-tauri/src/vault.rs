@@ -534,6 +534,7 @@ fn open_session(app: &AppHandle, vault: Vault, path: PathBuf) {
     if let Ok(st) = status(app) {
         let _ = app.emit(events::VAULT_UNLOCKED, st);
     }
+    crate::expiry::on_unlock();
 }
 
 // ---------- open and unlock ----------

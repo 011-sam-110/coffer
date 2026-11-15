@@ -252,6 +252,7 @@ What stays on the PC:
 - **Password change without re-key.** The vault key stays the same. A person with an old copy of the file, the old password and the Secret Key can unwrap the vault key from the old copy. That key also decrypts newer copies of the file.
 - **Whole-file rollback.** A PC that never saw the newer file cannot detect an older valid file (section 3).
 - **No key commitment.** The header has no commitment to the KEK. An attack on this needs the Secret Key and many unlocks of crafted files.
+- **Expiry notices.** A notice shows the title of an API key on the screen. Windows keeps the notice in its notification list until the next restart. `notices.json` keeps only item ids and which notice went out.
 - **Unsigned installer.** The installer has no code signature. Windows SmartScreen warns on the first run. A user cannot check the publisher of the file through Windows.
 
 ## 12. Test vectors

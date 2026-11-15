@@ -233,7 +233,7 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
 | Bank Account | bank, holder, account number, sort code / routing, IBAN, SWIFT/BIC, PIN | account number |
 | ID Document | kind (passport, driving licence, ID card, other), number, full name, issued, expires, country | number |
 | SSH Key | private key (concealedMultiline), public key, fingerprint, passphrase | public key (never the private key) |
-| API Credential | username, credential, host, expires | credential |
+| API Key (type id `apiCredential`) | API URL (role `host`), key (role `credential`), username, expires | key |
 | Wi-Fi | network name, password, security | password |
 | Software Licence | product, version, licence key, licensed to, email, purchase date | licence key |
 
@@ -243,6 +243,9 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
 - Trash keeps items 30 days, then purges them at the next unlock. Archive hides an item from lists, Quick Access and health, and keeps it.
 - `password_changed_at` is set when a built-in password changes. Imported items take it from the source or leave it empty. An empty date is never "Old".
 - **Usage data** (last used, use count, learned app-to-item links) lives in `%LOCALAPPDATA%\Coffer\usage.json`, DPAPI-encrypted, NOT in the vault, so a copy never makes a sync write.
+- **API Key** is the type `apiCredential` with new words: the type id and the roles did not change, so the vault format did not change. A key saved by Coffer 0.2 stored the labels "Credential" and "Host"; a view shows "Key" and "API URL" in their place (`RENAMED_LABELS`), and a save of the item stores the new labels.
+- **Days left**: an item that Health flags as expiring shows the days left in the list ("45 days", "Expires today", "Expired", in red when expired) and a line on the item ("This key expires in 45 days, on 30 Dec 2026."; other types: "This item expires ..."). `ItemSummary.expiresOn` holds the date (a card: the last day of its expiry month); the UI counts the days on the PC's own calendar.
+- **A login named with its URL**: in the login editor, a name that reads as a web address (one word of host labels whose last label is a top-level domain of the IANA list: "github.com", "https://github.com/login") fills an empty Website with `https://<host>` and shows "Taken from the name." under it. The Website follows the name until the user edits the Website. "GitHub", "Node.js" and "v1.2" are not web addresses.
 
 ## 5. Generator
 - **Random**: length 8 to 128 (default 20). Sets A-Z, a-z, 0-9, symbols `!@#$%^&*()-_=+[]{};:,.?/`. Minimum digits and symbols (0 to 9). "Avoid look-alike characters" (`0O1lI|`). Exclude list. Uniform choice by rejection sampling. Each chosen set appears at least once.
@@ -265,7 +268,7 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
 | Duplicate | same username, same password and same site in two items | no |
 | Unsecured site | a URL with `http://` (not localhost or a private address) | no |
 | Old | password unchanged for 365 days or more (empty date never counts) | no |
-| Expiring | cards 60 days ahead; passports 300 days; other documents and API credentials 90 days | no |
+| Expiring | cards 60 days ahead; passports 300 days; other documents and API keys 90 days | no |
 - **Flags and when they are computed**: Rust computes weak, reused, unsecured, expiring and duplicate at unlock (on a worker thread) and after each save. `breached` comes from a cache keyed by item id + SHA-256 of the password; it is false until a check ran. All flags are false for archived, trashed and excluded items. zxcvbn reads 100 characters at most.
 - **Same site** (duplicate, and import duplicates) = the first URL's host, lower case, without a leading `www.`.
 - **Score** = floor(100 x healthy / total). total = active login and password items with a password, not excluded. healthy = not breached, not reused, not weak. 100 means no counted finding. Shown only when total is 5 or more; else "Add 5 or more logins to see a score."
@@ -297,6 +300,7 @@ Field kinds, the secret kinds, the built-in field roles per type (`BUILTIN_FIELD
   - After a fill, for 2 minutes and in the same app, the item's Continue row says what Enter types next: "Type password", then "Type code".
   - First 3 opens show a hint line: "Enter: fill · Ctrl+C: copy · Right arrow: more actions" (with no window to fill: "Enter: copy · Ctrl+U: username · Right arrow: more actions").
 - **Main window**: three panes (sidebar, list, detail), minimum 900 x 600. Close hides it to the tray; the first time, a notice says "Coffer is still running in the tray. Drag its icon from ^ to the taskbar to keep it in view." Setting "Close button: hide to tray / quit".
+- **Expiry notices** (API keys only): one Windows notice 14 days before a key's Expires date ("Stripe API key expires in 14 days") and one on the day ("... expires today"; at the first unlock after the day: "... expired 3 days ago"). Coffer checks at each unlock and once a day while unlocked; a notice due while locked comes at the next unlock. More than 3 notices at once become one notice that opens Health. A click on a notice opens Coffer on the key. `%LOCALAPPDATA%\Coffer\notices.json` keeps only the item id and the notice sent (`soon` or `day`): no names, no dates. A key whose date moves out of the 14 days loses its entry. Archived, trashed and excluded keys get no notice. The notice uses the app id of the installer's Start menu shortcut (the bundle identifier) and the WinRT toast API of the `windows` crate.
 - **Global hotkeys** (changeable in Settings > Shortcuts): Quick Access `Ctrl+Shift+Space` (on). Lock `Ctrl+Shift+L` (off by default: Windows lock already locks Coffer). If `RegisterHotKey` fails, Settings shows "In use by another app".
 - **Start with Windows**: asked at setup (default on), starts hidden in the tray. **One instance**: a second launch shows the running one.
 - **Auto-lock**: after N minutes of system idle (`GetLastInputInfo`; 1, 2, 5, 10 default, 15, 30, 60, never), on Windows lock (default on), on sleep (default on). Lock waits for a write in progress, then drops keys.

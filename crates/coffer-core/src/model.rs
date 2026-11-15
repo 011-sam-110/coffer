@@ -227,6 +227,9 @@ pub struct ItemSummary {
     pub url_host: Option<String>,
     /// Has a non-empty TOTP field.
     pub has_totp: bool,
+    /// The day it expires, `YYYY-MM-DD` (cards: the last day of the month);
+    /// `None` when the type has no expiry or the date is not set.
+    pub expires_on: Option<String>,
     /// Health flags.
     pub flags: ItemFlags,
 }
@@ -1112,11 +1115,12 @@ mod tests {
             last_used_at: None,
             url_host: None,
             has_totp: false,
+            expires_on: None,
             flags: ItemFlags::default(),
         };
         let v: serde_json::Value = serde_json::to_value(&s).unwrap();
         let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
-        for k in ["id", "type", "title", "subtitle", "favorite", "tags", "state", "updatedAt", "lastUsedAt", "urlHost", "hasTotp", "flags"] {
+        for k in ["id", "type", "title", "subtitle", "favorite", "tags", "state", "updatedAt", "lastUsedAt", "urlHost", "hasTotp", "expiresOn", "flags"] {
             assert!(keys.contains(&k), "missing {k}");
         }
         assert_eq!(v["type"], "sshKey");

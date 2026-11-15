@@ -93,10 +93,11 @@ static SSH_KEY: &[FieldTemplate] = &[
     f("fingerprint", "Fingerprint", K::Text),
     f("passphrase", "Passphrase", K::Concealed),
 ];
+// "API Key" in the UI. The type id and the roles stay as Coffer 0.2 stored them.
 static API: &[FieldTemplate] = &[
+    f("host", "API URL", K::Url),
+    f("credential", "Key", K::Concealed),
     f("username", "Username", K::Text),
-    f("credential", "Credential", K::Concealed),
-    f("host", "Host", K::Url),
     f("expires", "Expires", K::Date),
 ];
 static WIFI: &[FieldTemplate] = &[
@@ -126,6 +127,25 @@ static TEMPLATES: [TypeTemplate; 11] = [
     TypeTemplate { item_type: ItemType::Wifi, fields: WIFI, enter_copies: Some("password") },
     TypeTemplate { item_type: ItemType::License, fields: LICENSE, enter_copies: Some("licenseKey") },
 ];
+
+/// Default labels an older Coffer stored for a built-in field, and the
+/// template label that replaces them (contract `RENAMED_LABELS`). A view shows
+/// the new label; the vault keeps the stored one until the item is saved.
+pub static RENAMED_LABELS: &[(ItemType, &str, &str)] = &[
+    (ItemType::ApiCredential, "credential", "Credential"),
+    (ItemType::ApiCredential, "host", "Host"),
+];
+
+/// The label to show for a field: the template label when `stored` is the
+/// old default label of that built-in role, else `stored`.
+pub fn display_label<'a>(item_type: ItemType, builtin: Option<&str>, stored: &'a str) -> &'a str {
+    let Some(role) = builtin else { return stored };
+    let renamed = RENAMED_LABELS.iter().any(|(t, r, old)| *t == item_type && *r == role && *old == stored);
+    if !renamed {
+        return stored;
+    }
+    template(item_type).fields.iter().find(|f| f.role == role).map(|f| f.label).unwrap_or(stored)
+}
 
 /// Menu choices for built-in menu fields (contract `MENU_OPTIONS`).
 pub static MENU_OPTIONS: &[(&str, &[&str])] = &[
@@ -190,6 +210,31 @@ mod tests {
         assert_eq!(enter_role(&item), Some("password"));
         let note = StoredItem::new(ItemType::Note, "n", "2026-01-01T00:00:00Z");
         assert_eq!(enter_role(&note), None);
+    }
+
+    #[test]
+    fn api_key_fields_in_the_new_order() {
+        let roles: Vec<&str> = template(ItemType::ApiCredential).fields.iter().map(|f| f.role).collect();
+        assert_eq!(roles, ["host", "credential", "username", "expires"]);
+        let labels: Vec<&str> = template(ItemType::ApiCredential).fields.iter().map(|f| f.label).collect();
+        assert_eq!(labels, ["API URL", "Key", "Username", "Expires"]);
+        assert_eq!(template(ItemType::ApiCredential).enter_copies, Some("credential"));
+    }
+
+    #[test]
+    fn old_stored_labels_show_the_new_words() {
+        let t = ItemType::ApiCredential;
+        assert_eq!(display_label(t, Some("credential"), "Credential"), "Key");
+        assert_eq!(display_label(t, Some("host"), "Host"), "API URL");
+        // A label the user chose stays.
+        assert_eq!(display_label(t, Some("host"), "Endpoint"), "Endpoint");
+        // A custom field named "Host" is not a built-in field.
+        assert_eq!(display_label(t, None, "Host"), "Host");
+        // Other types keep "Host" and "Credential".
+        assert_eq!(display_label(ItemType::Login, Some("username"), "Credential"), "Credential");
+        for (ty, role, _) in RENAMED_LABELS {
+            assert!(template(*ty).fields.iter().any(|f| f.role == *role), "{role}");
+        }
     }
 
     #[test]

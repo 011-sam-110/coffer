@@ -1045,3 +1045,44 @@ fn active_item_count_leaves_out_archived_and_trashed() {
     assert_eq!(v.item_count(), 3);
     assert_eq!(v.active_item_count(), 1);
 }
+
+/// An API key saved by Coffer 0.2 holds the labels "Credential" and "Host"
+/// and the old field order. The view shows the new words; the vault keeps
+/// the stored record until the user saves the item.
+#[test]
+fn old_api_key_labels_show_new_words_without_a_rewrite() {
+    let k = sk();
+    let mut v = new_vault(&k);
+    let f = |role: &str, label: &str, kind: FieldKind, value: &str| FieldInput { label: label.into(), ..field(role, kind, value) };
+    let old = ItemInput {
+        item_type: ItemType::ApiCredential,
+        title: "Stripe".into(),
+        fields: vec![
+            f("username", "Username", FieldKind::Text, "acct_demo"),
+            f("credential", "Credential", FieldKind::Concealed, "demo-key-123"),
+            f("host", "Host", FieldKind::Url, "https://api.stripe.com/v1"),
+            f("expires", "Expires", FieldKind::Date, "2026-12-30"),
+        ],
+        urls: vec![],
+        ..login("unused", "", "")
+    };
+    let it = v.item_save(&old, None).unwrap();
+    let view = v.item_get(&it.id).unwrap();
+    let label = |role: &str| view.fields.iter().find(|x| x.builtin.as_deref() == Some(role)).unwrap().label.clone();
+    assert_eq!(label("credential"), "Key");
+    assert_eq!(label("host"), "API URL");
+    assert_eq!(label("username"), "Username");
+    // The stored record is unchanged.
+    let slot = v.slot(&it.id).unwrap();
+    assert!(slot.item.fields.iter().any(|x| x.label == "Credential"));
+    assert!(slot.item.fields.iter().any(|x| x.label == "Host"));
+    // The list shows where the key works, and the day it expires.
+    let row = v.items_list().into_iter().find(|r| r.id == it.id).unwrap();
+    assert_eq!(row.subtitle, "api.stripe.com");
+    assert_eq!(row.expires_on.as_deref(), Some("2026-12-30"));
+    // The expiry notices read active keys with a date only.
+    let ids: Vec<String> = v.api_key_expiries().into_iter().map(|(id, _, _)| id).collect();
+    assert_eq!(ids, vec![it.id.clone()]);
+    v.item_set_state(&it.id, ItemState::Archived).unwrap();
+    assert!(v.api_key_expiries().is_empty());
+}
