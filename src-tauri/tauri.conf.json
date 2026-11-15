@@ -73,7 +73,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "NOT-SET-run-scripts-make-update-key-mjs-then-paste-coffer-updater-key-pub-here",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRCNkM1Q0JGQjczOUYzQ0QKUldUTjh6bTN2MXhzUzJ4OG9jc0JKTHZpQ2s1WEd4WDlxUSs4NFJWb0FvQTUyZENLRy91UG1xaG0K",
       "endpoints": ["https://github.com/011-sam-110/coffer/releases/latest/download/latest.json"],
       "requireSignedVersion": true,
       "windows": {
